@@ -6,10 +6,14 @@
 
 mod internal;
 
+use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::net::{Ipv4Addr, SocketAddrV4};
 
+use serde_bencode::value::Value;
+
 use crate::common::{Id, Node, ID_SIZE};
+use crate::rpc::messages::internal::DHTUnknownRequestArguments;
 
 use super::InvalidIdSize;
 
@@ -60,6 +64,11 @@ pub enum RequestTypeSpecific {
     GetValue(GetValueRequestArguments),
 
     Put(PutRequest),
+    /// Custom RPC method
+    Unknown {
+        q: String,
+        arguments: BTreeMap<String, Value>,
+    },
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -225,89 +234,112 @@ impl Message {
                     requester_id,
                     request_type,
                 }) => internal::DHTMessageVariant::Request(match request_type {
-                    RequestTypeSpecific::Ping => internal::DHTRequestSpecific::Ping {
-                        arguments: internal::DHTPingRequestArguments {
-                            id: requester_id.into(),
-                        },
-                    },
-                    RequestTypeSpecific::FindNode(find_node_args) => {
-                        internal::DHTRequestSpecific::FindNode {
-                            arguments: internal::DHTFindNodeRequestArguments {
+                    RequestTypeSpecific::Ping => internal::DHTRequestSpecific::Known(
+                        internal::DHTKnownRequestSpecific::Ping {
+                            arguments: internal::DHTPingRequestArguments {
                                 id: requester_id.into(),
-                                target: find_node_args.target.into(),
                             },
-                        }
+                        },
+                    ),
+                    RequestTypeSpecific::FindNode(find_node_args) => {
+                        internal::DHTRequestSpecific::Known(
+                            internal::DHTKnownRequestSpecific::FindNode {
+                                arguments: internal::DHTFindNodeRequestArguments {
+                                    id: requester_id.into(),
+                                    target: find_node_args.target.into(),
+                                },
+                            },
+                        )
                     }
                     RequestTypeSpecific::GetPeers(get_peers_args) => {
-                        internal::DHTRequestSpecific::GetPeers {
-                            arguments: internal::DHTGetPeersRequestArguments {
-                                id: requester_id.into(),
-                                info_hash: get_peers_args.info_hash.into(),
+                        internal::DHTRequestSpecific::Known(
+                            internal::DHTKnownRequestSpecific::GetPeers {
+                                arguments: internal::DHTGetPeersRequestArguments {
+                                    id: requester_id.into(),
+                                    info_hash: get_peers_args.info_hash.into(),
+                                },
                             },
-                        }
+                        )
                     }
                     RequestTypeSpecific::GetValue(get_mutable_args) => {
-                        internal::DHTRequestSpecific::GetValue {
-                            arguments: internal::DHTGetValueRequestArguments {
-                                id: requester_id.into(),
-                                target: get_mutable_args.target.into(),
-                                seq: get_mutable_args.seq,
+                        internal::DHTRequestSpecific::Known(
+                            internal::DHTKnownRequestSpecific::GetValue {
+                                arguments: internal::DHTGetValueRequestArguments {
+                                    id: requester_id.into(),
+                                    target: get_mutable_args.target.into(),
+                                    seq: get_mutable_args.seq,
+                                },
                             },
-                        }
+                        )
                     }
                     RequestTypeSpecific::Put(PutRequest {
                         token,
                         put_request_type,
                     }) => match put_request_type {
                         PutRequestSpecific::AnnouncePeer(announce_peer_args) => {
-                            internal::DHTRequestSpecific::AnnouncePeer {
-                                arguments: internal::DHTAnnouncePeerRequestArguments {
-                                    id: requester_id.into(),
-                                    token,
+                            internal::DHTRequestSpecific::Known(
+                                internal::DHTKnownRequestSpecific::AnnouncePeer {
+                                    arguments: internal::DHTAnnouncePeerRequestArguments {
+                                        id: requester_id.into(),
+                                        token,
 
-                                    info_hash: announce_peer_args.info_hash.into(),
-                                    port: announce_peer_args.port,
-                                    implied_port: if announce_peer_args.implied_port.is_some() {
-                                        Some(1)
-                                    } else {
-                                        Some(0)
+                                        info_hash: announce_peer_args.info_hash.into(),
+                                        port: announce_peer_args.port,
+                                        implied_port: if announce_peer_args.implied_port.is_some() {
+                                            Some(1)
+                                        } else {
+                                            Some(0)
+                                        },
                                     },
                                 },
-                            }
+                            )
                         }
                         PutRequestSpecific::PutImmutable(put_immutable_arguments) => {
-                            internal::DHTRequestSpecific::PutValue {
-                                arguments: internal::DHTPutValueRequestArguments {
-                                    id: requester_id.into(),
-                                    token,
+                            internal::DHTRequestSpecific::Known(
+                                internal::DHTKnownRequestSpecific::PutValue {
+                                    arguments: internal::DHTPutValueRequestArguments {
+                                        id: requester_id.into(),
+                                        token,
 
-                                    target: put_immutable_arguments.target.into(),
-                                    v: put_immutable_arguments.v,
-                                    k: None,
-                                    seq: None,
-                                    sig: None,
-                                    salt: None,
-                                    cas: None,
+                                        target: put_immutable_arguments.target.into(),
+                                        v: put_immutable_arguments.v,
+                                        k: None,
+                                        seq: None,
+                                        sig: None,
+                                        salt: None,
+                                        cas: None,
+                                    },
                                 },
-                            }
+                            )
                         }
                         PutRequestSpecific::PutMutable(put_mutable_arguments) => {
-                            internal::DHTRequestSpecific::PutValue {
-                                arguments: internal::DHTPutValueRequestArguments {
-                                    id: requester_id.into(),
-                                    token,
+                            internal::DHTRequestSpecific::Known(
+                                internal::DHTKnownRequestSpecific::PutValue {
+                                    arguments: internal::DHTPutValueRequestArguments {
+                                        id: requester_id.into(),
+                                        token,
 
-                                    target: put_mutable_arguments.target.into(),
-                                    v: put_mutable_arguments.v,
-                                    k: Some(put_mutable_arguments.k),
-                                    seq: Some(put_mutable_arguments.seq),
-                                    sig: Some(put_mutable_arguments.sig),
-                                    salt: put_mutable_arguments.salt,
-                                    cas: put_mutable_arguments.cas,
+                                        target: put_mutable_arguments.target.into(),
+                                        v: put_mutable_arguments.v,
+                                        k: Some(put_mutable_arguments.k),
+                                        seq: Some(put_mutable_arguments.seq),
+                                        sig: Some(put_mutable_arguments.sig),
+                                        salt: put_mutable_arguments.salt,
+                                        cas: put_mutable_arguments.cas,
+                                    },
                                 },
-                            }
+                            )
                         }
                     },
+                    RequestTypeSpecific::Unknown { q, arguments } => {
+                        internal::DHTRequestSpecific::Unknown(internal::DHTUnknownRequestSpecific {
+                            q,
+                            arguments: DHTUnknownRequestArguments {
+                                id: requester_id.into(),
+                                rest: arguments,
+                            },
+                        })
+                    }
                 }),
 
                 MessageType::Response(res) => internal::DHTMessageVariant::Response(match res {
@@ -415,23 +447,31 @@ impl Message {
             message_type: match msg.variant {
                 internal::DHTMessageVariant::Request(req_variant) => {
                     MessageType::Request(match req_variant {
-                        internal::DHTRequestSpecific::Ping { arguments } => RequestSpecific {
+                        internal::DHTRequestSpecific::Known(
+                            internal::DHTKnownRequestSpecific::Ping { arguments },
+                        ) => RequestSpecific {
                             requester_id: Id::from_bytes(arguments.id)?,
                             request_type: RequestTypeSpecific::Ping,
                         },
-                        internal::DHTRequestSpecific::FindNode { arguments } => RequestSpecific {
+                        internal::DHTRequestSpecific::Known(
+                            internal::DHTKnownRequestSpecific::FindNode { arguments },
+                        ) => RequestSpecific {
                             requester_id: Id::from_bytes(arguments.id)?,
                             request_type: RequestTypeSpecific::FindNode(FindNodeRequestArguments {
                                 target: Id::from_bytes(arguments.target)?,
                             }),
                         },
-                        internal::DHTRequestSpecific::GetPeers { arguments } => RequestSpecific {
+                        internal::DHTRequestSpecific::Known(
+                            internal::DHTKnownRequestSpecific::GetPeers { arguments },
+                        ) => RequestSpecific {
                             requester_id: Id::from_bytes(arguments.id)?,
                             request_type: RequestTypeSpecific::GetPeers(GetPeersRequestArguments {
                                 info_hash: Id::from_bytes(arguments.info_hash)?,
                             }),
                         },
-                        internal::DHTRequestSpecific::GetValue { arguments } => RequestSpecific {
+                        internal::DHTRequestSpecific::Known(
+                            internal::DHTKnownRequestSpecific::GetValue { arguments },
+                        ) => RequestSpecific {
                             requester_id: Id::from_bytes(arguments.id)?,
 
                             request_type: RequestTypeSpecific::GetValue(GetValueRequestArguments {
@@ -440,24 +480,26 @@ impl Message {
                                 salt: None,
                             }),
                         },
-                        internal::DHTRequestSpecific::AnnouncePeer { arguments } => {
-                            RequestSpecific {
-                                requester_id: Id::from_bytes(arguments.id)?,
-                                request_type: RequestTypeSpecific::Put(PutRequest {
-                                    token: arguments.token,
-                                    put_request_type: PutRequestSpecific::AnnouncePeer(
-                                        AnnouncePeerRequestArguments {
-                                            implied_port: arguments
-                                                .implied_port
-                                                .map(|implied_port| implied_port != 0),
-                                            info_hash: arguments.info_hash.into(),
-                                            port: arguments.port,
-                                        },
-                                    ),
-                                }),
-                            }
-                        }
-                        internal::DHTRequestSpecific::PutValue { arguments } => {
+                        internal::DHTRequestSpecific::Known(
+                            internal::DHTKnownRequestSpecific::AnnouncePeer { arguments },
+                        ) => RequestSpecific {
+                            requester_id: Id::from_bytes(arguments.id)?,
+                            request_type: RequestTypeSpecific::Put(PutRequest {
+                                token: arguments.token,
+                                put_request_type: PutRequestSpecific::AnnouncePeer(
+                                    AnnouncePeerRequestArguments {
+                                        implied_port: arguments
+                                            .implied_port
+                                            .map(|implied_port| implied_port != 0),
+                                        info_hash: arguments.info_hash.into(),
+                                        port: arguments.port,
+                                    },
+                                ),
+                            }),
+                        },
+                        internal::DHTRequestSpecific::Known(
+                            internal::DHTKnownRequestSpecific::PutValue { arguments },
+                        ) => {
                             if let Some(k) = arguments.k {
                                 RequestSpecific {
                                     requester_id: Id::from_bytes(arguments.id)?,
@@ -497,6 +539,15 @@ impl Message {
                                 }
                             }
                         }
+                        internal::DHTRequestSpecific::Unknown(
+                            internal::DHTUnknownRequestSpecific { q, arguments },
+                        ) => RequestSpecific {
+                            requester_id: Id::from_bytes(arguments.id)?,
+                            request_type: RequestTypeSpecific::Unknown {
+                                q,
+                                arguments: arguments.rest,
+                            },
+                        },
                     })
                 }
 
@@ -1103,5 +1154,32 @@ mod tests {
         let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes).unwrap();
         let parsed_msg = Message::from_serde_message(parsed_serde_msg).unwrap();
         assert_eq!(parsed_msg, original_msg);
+    }
+
+    #[test]
+    fn regression_test_find_node() {
+        let bytes = [
+            100, 49, 58, 97, 100, 50, 58, 105, 100, 50, 48, 58, 133, 221, 204, 33, 156, 251, 73,
+            13, 36, 124, 246, 57, 79, 165, 209, 178, 63, 116, 213, 120, 54, 58, 116, 97, 114, 103,
+            101, 116, 50, 48, 58, 206, 120, 171, 30, 75, 250, 184, 130, 109, 143, 220, 104, 69, 86,
+            85, 195, 182, 103, 139, 112, 101, 49, 58, 113, 57, 58, 102, 105, 110, 100, 95, 110,
+            111, 100, 101, 50, 58, 114, 111, 105, 48, 101, 49, 58, 116, 50, 58, 1, 2, 49, 58, 118,
+            52, 58, 98, 97, 114, 102, 49, 58, 121, 49, 58, 113, 101,
+        ];
+
+        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes).unwrap();
+        let _parsed_msg = Message::from_serde_message(parsed_serde_msg).unwrap();
+
+        let bytes = [
+            100, 50, 58, 105, 112, 54, 58, 50, 51, 52, 53, 21, 79, 49, 58, 114, 100, 50, 58, 105,
+            100, 50, 48, 58, 169, 98, 160, 148, 31, 111, 191, 133, 128, 18, 44, 43, 0, 67, 78, 110,
+            33, 103, 215, 241, 53, 58, 110, 111, 100, 101, 115, 50, 54, 58, 136, 145, 12, 79, 172,
+            32, 172, 70, 176, 232, 10, 104, 167, 241, 102, 67, 92, 38, 95, 79, 49, 50, 52, 52, 20,
+            234, 101, 50, 58, 114, 111, 105, 48, 101, 49, 58, 116, 50, 58, 1, 2, 49, 58, 118, 52,
+            58, 1, 2, 3, 4, 49, 58, 121, 49, 58, 114, 101,
+        ];
+
+        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes).unwrap();
+        let _parsed_msg = Message::from_serde_message(parsed_serde_msg).unwrap();
     }
 }

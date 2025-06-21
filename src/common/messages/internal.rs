@@ -1,4 +1,7 @@
-use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
+use serde_bencode::value::Value;
 use serde_bytes::ByteBuf;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -50,8 +53,15 @@ pub enum DHTMessageVariant {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(tag = "q")]
+#[serde(untagged)]
 pub enum DHTRequestSpecific {
+    Known(DHTKnownRequestSpecific),
+    Unknown(DHTUnknownRequestSpecific),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(tag = "q")]
+pub enum DHTKnownRequestSpecific {
     #[serde(rename = "ping")]
     Ping {
         #[serde(rename = "a")]
@@ -87,6 +97,13 @@ pub enum DHTRequestSpecific {
         #[serde(rename = "a")]
         arguments: DHTPutValueRequestArguments,
     },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(tag = "q")]
+pub struct DHTUnknownRequestSpecific {
+    pub q: String,
+    pub arguments: DHTUnknownRequestArguments,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -337,4 +354,56 @@ pub struct DHTPutValueRequestArguments {
     #[serde(with = "serde_bytes")]
     #[serde(default)]
     pub salt: Option<Box<[u8]>>,
+}
+
+// === Unknown Request ===
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DHTUnknownRequestArguments {
+    pub id: [u8; 20],
+
+    pub rest: BTreeMap<String, Value>,
+}
+
+impl<'de> Deserialize<'de> for DHTUnknownRequestArguments {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // First, deserialize into a map so we can separate out known and unknown fields
+        let mut map = BTreeMap::<String, Value>::deserialize(deserializer)?;
+
+        // Extract the 'id' field (required)
+        let id = match map.remove("id") {
+            Some(Value::Bytes(bytes)) if bytes.len() == 20 => {
+                let mut id = [0u8; 20];
+                id.copy_from_slice(&bytes);
+                id
+            }
+            _ => return Err(serde::de::Error::missing_field("id")),
+        };
+
+        // Everything else goes into rest
+        Ok(Self { id, rest: map })
+    }
+}
+
+impl Serialize for DHTUnknownRequestArguments {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Start building a map with space for all fields including "id"
+        let mut map_serializer = serializer.serialize_map(Some(self.rest.len() + 1))?;
+
+        // Serialize the fixed "id" field as a byte string
+        map_serializer.serialize_entry("id", &Value::Bytes(self.id.to_vec()))?;
+
+        // Serialize the rest of the fields
+        for (key, value) in &self.rest {
+            map_serializer.serialize_entry(key, value)?;
+        }
+
+        map_serializer.end()
+    }
 }

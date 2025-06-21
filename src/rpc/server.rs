@@ -376,6 +376,12 @@ impl Server {
                     }
                 }
             },
+            RequestTypeSpecific::Unknown { .. } => {
+                todo!();
+                MessageType::Response(ResponseSpecific::Ping(PingResponseArguments {
+                    responder_id: *routing_table.id(),
+                }))
+            }
         })
     }
 
