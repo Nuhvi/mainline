@@ -1,27 +1,34 @@
 //! Modules needed only for nodes running in server mode (not read-only).
 
 pub mod peers;
+pub mod request_filter;
+pub mod request_handler;
 pub mod tokens;
 
 use std::{fmt::Debug, net::SocketAddrV4, num::NonZeroUsize};
 
-use dyn_clone::DynClone;
 use lru::LruCache;
 use tracing::debug;
 
-use crate::common::{
-    validate_immutable, AnnouncePeerRequestArguments, ErrorSpecific, FindNodeRequestArguments,
-    FindNodeResponseArguments, GetImmutableResponseArguments, GetMutableResponseArguments,
-    GetPeersRequestArguments, GetPeersResponseArguments, GetValueRequestArguments, Id, MutableItem,
-    NoMoreRecentValueResponseArguments, NoValuesResponseArguments, PingResponseArguments,
-    PutImmutableRequestArguments, PutMutableRequestArguments, PutRequest, PutRequestSpecific,
-    RequestTypeSpecific, ResponseSpecific, RoutingTable,
+pub use request_filter::RequestFilter;
+
+use crate::{
+    common::{
+        validate_immutable, AnnouncePeerRequestArguments, ErrorSpecific, FindNodeRequestArguments,
+        FindNodeResponseArguments, GetImmutableResponseArguments, GetMutableResponseArguments,
+        GetPeersRequestArguments, GetPeersResponseArguments, GetValueRequestArguments, Id,
+        MutableItem, NoMoreRecentValueResponseArguments, NoValuesResponseArguments,
+        PingResponseArguments, PutImmutableRequestArguments, PutMutableRequestArguments,
+        PutRequest, PutRequestSpecific, RequestTypeSpecific, ResponseSpecific, RoutingTable,
+    },
+    rpc::server::{request_filter::DefaultFilter, request_handler::DefaultHandler},
 };
 
 use peers::PeersStore;
 use tokens::Tokens;
 
-pub use crate::common::{MessageType, RequestSpecific};
+pub use crate::common::RequestSpecific;
+pub use request_handler::RequestHandler;
 
 /// Default maximum number of info_hashes for which to store peers.
 pub const MAX_INFO_HASHES: usize = 2000;
@@ -30,32 +37,13 @@ pub const MAX_PEERS: usize = 500;
 /// Default maximum number of Immutable and Mutable items to store.
 pub const MAX_VALUES: usize = 1000;
 
-/// A trait for filtering incoming requests to a DHT node and
-/// decide whether to allow handling it or rate limit or ban
-/// the requester, or prohibit specific requests' details.
-pub trait RequestFilter: Send + Sync + Debug + DynClone {
-    /// Returns true if the request from this source is allowed.
-    fn allow_request(&self, request: &RequestSpecific, from: SocketAddrV4) -> bool;
-}
-
-dyn_clone::clone_trait_object!(RequestFilter);
-
-#[derive(Debug, Clone)]
-struct DefaultFilter;
-
-impl RequestFilter for DefaultFilter {
-    fn allow_request(&self, _request: &RequestSpecific, _from: SocketAddrV4) -> bool {
-        true
-    }
-}
-
 #[derive(Debug)]
 /// A server that handles incoming requests.
 ///
 /// Supports [BEP_005](https://www.bittorrent.org/beps/bep_0005.html) and [BEP_0044](https://www.bittorrent.org/beps/bep_0044.html).
 ///
 /// But it doesn't implement any rate-limiting or blocking.
-pub struct Server {
+pub(crate) struct Server {
     /// Tokens generator
     tokens: Tokens,
     /// Peers store
@@ -66,6 +54,9 @@ pub struct Server {
     mutable_values: LruCache<Id, MutableItem>,
     /// Filter requests before handling them.
     filter: Box<dyn RequestFilter>,
+    /// Custom request handlers to allow adding new RPC methods
+    /// other than the ones defined in supported BEPs.
+    pub custom_request_handlers: Box<dyn RequestHandler>,
 }
 
 impl Default for Server {
@@ -97,6 +88,9 @@ pub struct ServerSettings {
     ///
     /// Defaults to a function that always returns true.
     pub filter: Box<dyn RequestFilter>,
+    /// Custom request handlers to allow adding new RPC methods
+    /// other than the ones defined in supported BEPs.
+    pub custom_requests_handler: Box<dyn RequestHandler>,
 }
 
 impl Default for ServerSettings {
@@ -108,8 +102,18 @@ impl Default for ServerSettings {
             max_immutable_values: MAX_VALUES,
 
             filter: Box::new(DefaultFilter),
+            custom_requests_handler: Box::new(DefaultHandler),
         }
     }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+/// Server Response types
+pub enum ServerResponse {
+    /// Normal query Response
+    Response(ResponseSpecific),
+    /// Error response
+    Error(ErrorSpecific),
 }
 
 impl Server {
@@ -136,6 +140,7 @@ impl Server {
                     .unwrap_or(NonZeroUsize::new(MAX_VALUES).expect("MAX_VALUES is NonZeroUsize")),
             ),
             filter: settings.filter,
+            custom_request_handlers: settings.custom_requests_handler,
         }
     }
 
@@ -147,7 +152,7 @@ impl Server {
         routing_table: &RoutingTable,
         from: SocketAddrV4,
         request: RequestSpecific,
-    ) -> Option<MessageType> {
+    ) -> Option<ServerResponse> {
         if !self.filter.allow_request(&request, from) {
             return None;
         }
@@ -161,18 +166,18 @@ impl Server {
 
         Some(match request.request_type {
             RequestTypeSpecific::Ping => {
-                MessageType::Response(ResponseSpecific::Ping(PingResponseArguments {
+                ServerResponse::Response(ResponseSpecific::Ping(PingResponseArguments {
                     responder_id: *routing_table.id(),
                 }))
             }
             RequestTypeSpecific::FindNode(FindNodeRequestArguments { target, .. }) => {
-                MessageType::Response(ResponseSpecific::FindNode(FindNodeResponseArguments {
+                ServerResponse::Response(ResponseSpecific::FindNode(FindNodeResponseArguments {
                     responder_id: *routing_table.id(),
                     nodes: routing_table.closest(target),
                 }))
             }
             RequestTypeSpecific::GetPeers(GetPeersRequestArguments { info_hash, .. }) => {
-                MessageType::Response(match self.peers.get_random_peers(&info_hash) {
+                ServerResponse::Response(match self.peers.get_random_peers(&info_hash) {
                     Some(peers) => ResponseSpecific::GetPeers(GetPeersResponseArguments {
                         responder_id: *routing_table.id(),
                         token: self.tokens.generate_token(from).into(),
@@ -188,9 +193,14 @@ impl Server {
             }
             RequestTypeSpecific::GetValue(GetValueRequestArguments { target, seq, .. }) => {
                 if seq.is_some() {
-                    MessageType::Response(self.handle_get_mutable(routing_table, from, target, seq))
+                    ServerResponse::Response(self.handle_get_mutable(
+                        routing_table,
+                        from,
+                        target,
+                        seq,
+                    ))
                 } else if let Some(v) = self.immutable_values.get(&target) {
-                    MessageType::Response(ResponseSpecific::GetImmutable(
+                    ServerResponse::Response(ResponseSpecific::GetImmutable(
                         GetImmutableResponseArguments {
                             responder_id: *routing_table.id(),
                             token: self.tokens.generate_token(from).into(),
@@ -199,7 +209,12 @@ impl Server {
                         },
                     ))
                 } else {
-                    MessageType::Response(self.handle_get_mutable(routing_table, from, target, seq))
+                    ServerResponse::Response(self.handle_get_mutable(
+                        routing_table,
+                        from,
+                        target,
+                        seq,
+                    ))
                 }
             }
             RequestTypeSpecific::Put(PutRequest {
@@ -221,7 +236,7 @@ impl Server {
                             "Invalid token"
                         );
 
-                        return Some(MessageType::Error(ErrorSpecific {
+                        return Some(ServerResponse::Error(ErrorSpecific {
                             code: 203,
                             description: "Bad token".to_string(),
                         }));
@@ -235,7 +250,7 @@ impl Server {
                     self.peers
                         .add_peer(info_hash, (&request.requester_id, peer));
 
-                    return Some(MessageType::Response(ResponseSpecific::Ping(
+                    return Some(ServerResponse::Response(ResponseSpecific::Ping(
                         PingResponseArguments {
                             responder_id: *routing_table.id(),
                         },
@@ -255,7 +270,7 @@ impl Server {
                             "Invalid token"
                         );
 
-                        return Some(MessageType::Error(ErrorSpecific {
+                        return Some(ServerResponse::Error(ErrorSpecific {
                             code: 203,
                             description: "Bad token".to_string(),
                         }));
@@ -264,7 +279,7 @@ impl Server {
                     if v.len() > 1000 {
                         debug!(?target, ?requester_id, ?from, size = ?v.len(), "Message (v field) too big.");
 
-                        return Some(MessageType::Error(ErrorSpecific {
+                        return Some(ServerResponse::Error(ErrorSpecific {
                             code: 205,
                             description: "Message (v field) too big.".to_string(),
                         }));
@@ -272,7 +287,7 @@ impl Server {
                     if !validate_immutable(&v, target) {
                         debug!(?target, ?requester_id, ?from, v = ?v, "Target doesn't match the sha1 hash of v field.");
 
-                        return Some(MessageType::Error(ErrorSpecific {
+                        return Some(ServerResponse::Error(ErrorSpecific {
                             code: 203,
                             description: "Target doesn't match the sha1 hash of v field"
                                 .to_string(),
@@ -281,7 +296,7 @@ impl Server {
 
                     self.immutable_values.put(target, v);
 
-                    return Some(MessageType::Response(ResponseSpecific::Ping(
+                    return Some(ServerResponse::Response(ResponseSpecific::Ping(
                         PingResponseArguments {
                             responder_id: *routing_table.id(),
                         },
@@ -305,20 +320,20 @@ impl Server {
                             request_type = "put_mutable",
                             "Invalid token"
                         );
-                        return Some(MessageType::Error(ErrorSpecific {
+                        return Some(ServerResponse::Error(ErrorSpecific {
                             code: 203,
                             description: "Bad token".to_string(),
                         }));
                     }
                     if v.len() > 1000 {
-                        return Some(MessageType::Error(ErrorSpecific {
+                        return Some(ServerResponse::Error(ErrorSpecific {
                             code: 205,
                             description: "Message (v field) too big.".to_string(),
                         }));
                     }
                     if let Some(ref salt) = salt {
                         if salt.len() > 64 {
-                            return Some(MessageType::Error(ErrorSpecific {
+                            return Some(ServerResponse::Error(ErrorSpecific {
                                 code: 207,
                                 description: "salt (salt field) too big.".to_string(),
                             }));
@@ -334,7 +349,7 @@ impl Server {
                                     "CAS mismatched, re-read value and try again."
                                 );
 
-                                return Some(MessageType::Error(ErrorSpecific {
+                                return Some(ServerResponse::Error(ErrorSpecific {
                                     code: 301,
                                     description: "CAS mismatched, re-read value and try again."
                                         .to_string(),
@@ -350,7 +365,7 @@ impl Server {
                                 "Sequence number less than current."
                             );
 
-                            return Some(MessageType::Error(ErrorSpecific {
+                            return Some(ServerResponse::Error(ErrorSpecific {
                                 code: 302,
                                 description: "Sequence number less than current.".to_string(),
                             }));
@@ -361,14 +376,16 @@ impl Server {
                         Ok(item) => {
                             self.mutable_values.put(target, item);
 
-                            MessageType::Response(ResponseSpecific::Ping(PingResponseArguments {
-                                responder_id: *routing_table.id(),
-                            }))
+                            ServerResponse::Response(ResponseSpecific::Ping(
+                                PingResponseArguments {
+                                    responder_id: *routing_table.id(),
+                                },
+                            ))
                         }
                         Err(error) => {
                             debug!(?target, ?requester_id, ?from, ?error, "Invalid signature");
 
-                            MessageType::Error(ErrorSpecific {
+                            ServerResponse::Error(ErrorSpecific {
                                 code: 206,
                                 description: "Invalid signature".to_string(),
                             })
@@ -376,11 +393,18 @@ impl Server {
                     }
                 }
             },
-            RequestTypeSpecific::Unknown { .. } => {
-                todo!();
-                MessageType::Response(ResponseSpecific::Ping(PingResponseArguments {
-                    responder_id: *routing_table.id(),
-                }))
+            RequestTypeSpecific::Unknown { q, arguments } => {
+                if let Some(response) = self
+                    .custom_request_handlers
+                    .handle_request(q, arguments, from)
+                {
+                    response
+                } else {
+                    // Return a find_node response to help finding closest nodes.
+                    ServerResponse::Response(ResponseSpecific::Ping(PingResponseArguments {
+                        responder_id: *routing_table.id(),
+                    }))
+                }
             }
         })
     }

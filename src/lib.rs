@@ -23,7 +23,10 @@ pub use dht::{Dht, DhtBuilder, Testnet};
 #[cfg(feature = "node")]
 pub use rpc::{
     messages::{MessageType, PutRequestSpecific, RequestSpecific},
-    server::{RequestFilter, ServerSettings, MAX_INFO_HASHES, MAX_PEERS, MAX_VALUES},
+    server::{
+        RequestFilter, RequestHandler, ServerResponse, ServerSettings, MAX_INFO_HASHES, MAX_PEERS,
+        MAX_VALUES,
+    },
     ClosestNodes, DEFAULT_REQUEST_TIMEOUT,
 };
 

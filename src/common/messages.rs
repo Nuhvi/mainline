@@ -6,7 +6,7 @@
 
 mod internal;
 
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::net::{Ipv4Addr, SocketAddrV4};
 
@@ -67,7 +67,7 @@ pub enum RequestTypeSpecific {
     /// Custom RPC method
     Unknown {
         q: String,
-        arguments: BTreeMap<String, Value>,
+        arguments: HashMap<String, Value>,
     },
 }
 

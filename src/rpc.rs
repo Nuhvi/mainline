@@ -26,6 +26,7 @@ use crate::common::{
     PutRequestSpecific, RequestSpecific, RequestTypeSpecific, ResponseSpecific, RoutingTable,
     MAX_BUCKET_SIZE_K,
 };
+use crate::rpc::server::ServerResponse;
 use server::Server;
 
 use self::messages::{GetPeersRequestArguments, PutMutableRequestArguments};
@@ -532,14 +533,17 @@ impl Rpc {
         if self.server_mode() {
             let server = &mut self.server;
 
-            match server.handle_request(&self.routing_table, from, request_specific) {
-                Some(MessageType::Error(error)) => {
-                    self.error(from, transaction_id, error);
+            if let Some(response) =
+                server.handle_request(&self.routing_table, from, request_specific)
+            {
+                match response {
+                    ServerResponse::Error(error) => {
+                        self.error(from, transaction_id, error);
+                    }
+                    ServerResponse::Response(response) => {
+                        self.response(from, transaction_id, response);
+                    }
                 }
-                Some(MessageType::Response(response)) => {
-                    self.response(from, transaction_id, response);
-                }
-                _ => {}
             };
         }
 

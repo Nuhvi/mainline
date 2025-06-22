@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
 use serde_bencode::value::Value;
@@ -362,7 +362,7 @@ pub struct DHTPutValueRequestArguments {
 pub struct DHTUnknownRequestArguments {
     pub id: [u8; 20],
 
-    pub rest: BTreeMap<String, Value>,
+    pub rest: HashMap<String, Value>,
 }
 
 impl<'de> Deserialize<'de> for DHTUnknownRequestArguments {
@@ -371,7 +371,7 @@ impl<'de> Deserialize<'de> for DHTUnknownRequestArguments {
         D: Deserializer<'de>,
     {
         // First, deserialize into a map so we can separate out known and unknown fields
-        let mut map = BTreeMap::<String, Value>::deserialize(deserializer)?;
+        let mut map = HashMap::<String, Value>::deserialize(deserializer)?;
 
         // Extract the 'id' field (required)
         let id = match map.remove("id") {
