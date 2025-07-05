@@ -1,12 +1,11 @@
 //! Dht node.
 
 use std::{
-    collections::HashMap,
     net::{Ipv4Addr, SocketAddrV4, ToSocketAddrs},
     thread,
 };
 
-use flume::{Receiver, Sender, TryRecvError};
+use flume::{Receiver, Sender};
 
 use tracing::info;
 
@@ -17,12 +16,12 @@ use crate::{
         PutImmutableRequestArguments, PutMutableRequestArguments, PutRequestSpecific,
     },
     rpc::{
-        to_socket_address, ConcurrencyError, GetRequestSpecific, Info, PutError, PutQueryError,
-        Response, Rpc,
+        to_socket_address, ConcurrencyError, GetRequestSpecific, Info, PutError, PutQueryError, Rpc,
     },
     Node, ServerSettings,
 };
 
+use crate::node::actor::{Actor, ActorMessage, ResponseSender};
 use crate::rpc::config::Config;
 
 #[derive(Debug, Clone)]
@@ -95,6 +94,32 @@ impl DhtBuilder {
         self
     }
 
+<<<<<<< HEAD:src/dht.rs
+=======
+    /// UDP socket request timeout duration.
+    ///
+    /// The longer this duration is, the longer queries take until they are deemeed "done".
+    /// The shortet this duration is, the more responses from busy nodes we miss out on,
+    /// which affects the accuracy of queries trying to find closest nodes to a target.
+    ///
+    /// Defaults to [crate::DEFAULT_REQUEST_TIMEOUT]
+    pub fn request_timeout(&mut self, request_timeout: Duration) -> &mut Self {
+        self.0.request_timeout = request_timeout;
+
+        self
+    }
+
+    /// Use a simulated UdpSocket to enable local simulation with thousands or millions of nodes,
+    /// which wouldn't be possible to do with opening real udp sockets.
+    ///
+    /// Any custom [Self::port] will be ignored.
+    pub fn simulated(&mut self) -> &mut Self {
+        self.0.simulated = true;
+
+        self
+    }
+
+>>>>>>> 9bca355 (chore: refactor Actor outside of dht.rs):src/node/dht.rs
     /// Create a Dht node.
     pub fn build(&self) -> Result<Dht, std::io::Error> {
         Dht::new(self.0.clone())
@@ -474,14 +499,14 @@ impl<T> Iterator for GetIterator<T> {
 
 fn run(config: Config, receiver: Receiver<ActorMessage>) {
     match Rpc::new(config) {
-        Ok(mut rpc) => {
+        Ok(rpc) => {
             let address = rpc.local_addr();
             info!(?address, "Mainline DHT listening");
 
-            let mut put_senders = HashMap::new();
-            let mut get_senders = HashMap::new();
+            let mut actor = Actor::new(rpc, receiver);
 
             loop {
+<<<<<<< HEAD:src/dht.rs
                 match receiver.try_recv() {
                     Ok(actor_message) => match actor_message {
                         ActorMessage::Check(sender) => {
@@ -568,6 +593,11 @@ fn run(config: Config, receiver: Receiver<ActorMessage>) {
                         }
                     }
                 }
+=======
+                if !actor.tick() {
+                    break;
+                };
+>>>>>>> 9bca355 (chore: refactor Actor outside of dht.rs):src/node/dht.rs
             }
         }
         Err(err) => {
@@ -578,42 +608,6 @@ fn run(config: Config, receiver: Receiver<ActorMessage>) {
     };
 }
 
-fn send(sender: &ResponseSender, response: Response) {
-    match (sender, response) {
-        (ResponseSender::Peers(s), Response::Peers(r)) => {
-            let _ = s.send(r);
-        }
-        (ResponseSender::Mutable(s), Response::Mutable(r)) => {
-            let _ = s.send(r);
-        }
-        (ResponseSender::Immutable(s), Response::Immutable(r)) => {
-            let _ = s.send(r);
-        }
-        _ => {}
-    }
-}
-
-#[derive(Debug)]
-pub(crate) enum ActorMessage {
-    Info(Sender<Info>),
-    Put(
-        PutRequestSpecific,
-        Sender<Result<Id, PutError>>,
-        Option<Box<[Node]>>,
-    ),
-    Get(GetRequestSpecific, ResponseSender),
-    Check(Sender<Result<(), std::io::Error>>),
-    ToBootstrap(Sender<Vec<String>>),
-}
-
-#[derive(Debug, Clone)]
-pub enum ResponseSender {
-    ClosestNodes(Sender<Box<[Node]>>),
-    Peers(Sender<Vec<SocketAddrV4>>),
-    Mutable(Sender<MutableItem>),
-    Immutable(Sender<Box<[u8]>>),
-}
-
 /// Create a testnet of Dht nodes to run tests against instead of the real mainline network.
 #[derive(Debug)]
 pub struct Testnet {
@@ -621,6 +615,7 @@ pub struct Testnet {
     pub bootstrap: Vec<String>,
     /// all nodes in this testnet
     pub nodes: Vec<Dht>,
+    simulated: bool,
 }
 
 impl Testnet {
@@ -633,7 +628,7 @@ impl Testnet {
     /// This will block until all nodes are [bootstrapped][Dht::bootstrapped],
     /// if you are using an async runtime, consider using [Self::new_async].
     pub fn new(count: usize) -> Result<Testnet, std::io::Error> {
-        let testnet = Testnet::new_inner(count)?;
+        let testnet = Testnet::new_inner(count, false)?;
 
         for node in &testnet.nodes {
             node.bootstrapped();
@@ -644,7 +639,7 @@ impl Testnet {
 
     /// Similar to [Self::new] but awaits all nodes to bootstrap instead of blocking.
     pub async fn new_async(count: usize) -> Result<Testnet, std::io::Error> {
-        let testnet = Testnet::new_inner(count)?;
+        let testnet = Testnet::new_inner(count, false)?;
 
         for node in testnet.nodes.clone() {
             node.as_async().bootstrapped().await;
@@ -653,29 +648,52 @@ impl Testnet {
         Ok(testnet)
     }
 
-    fn new_inner(count: usize) -> Result<Testnet, std::io::Error> {
+    fn new_inner(count: usize, simulated: bool) -> Result<Testnet, std::io::Error> {
         let mut nodes: Vec<Dht> = vec![];
         let mut bootstrap = vec![];
 
-        for i in 0..count {
-            if i == 0 {
-                let node = Dht::builder().server_mode().no_bootstrap().build()?;
-
-                let info = node.info();
-                let addr = info.local_addr();
-
-                bootstrap.push(format!("127.0.0.1:{}", addr.port()));
-
-                nodes.push(node)
-            } else {
-                let node = Dht::builder().server_mode().bootstrap(&bootstrap).build()?;
-                nodes.push(node)
+        for i in 1..=count {
+            if i >= 100 && i % 100 == 0 {
+                println!("Created {i} out of {count} nodes..");
             }
+
+            let mut builder = Dht::builder();
+
+            if simulated {
+                builder.simulated();
+            };
+
+            // The more nodes, the more packets will lag..
+            builder.request_timeout(Duration::from_secs(count as u64));
+
+            let node = if i == 1 {
+                let node = builder.server_mode().no_bootstrap().build()?;
+                bootstrap.push(node.info().local_addr().to_string());
+                node
+            } else {
+                builder.server_mode().bootstrap(&bootstrap).build()?
+            };
+
+            nodes.push(node)
         }
 
-        let testnet = Self { bootstrap, nodes };
+        let testnet = Self {
+            bootstrap,
+            nodes,
+            simulated,
+        };
 
         Ok(testnet)
+    }
+
+    /// Create a new node connected to this testnet.
+    pub fn new_node(&self) -> DhtBuilder {
+        let mut builder = Dht::builder();
+        builder.bootstrap(&self.bootstrap);
+        if self.simulated {
+            builder.simulated();
+        }
+        builder
     }
 
     /// By default as soon as this testnet gets dropped,
@@ -707,9 +725,8 @@ pub enum PutMutableError {
 mod test {
     use std::{str::FromStr, time::Duration};
 
-    use ed25519_dalek::SigningKey;
-
     use crate::rpc::ConcurrencyError;
+    use ed25519_dalek::SigningKey;
 
     use super::*;
 
