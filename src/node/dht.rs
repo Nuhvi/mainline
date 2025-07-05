@@ -810,8 +810,9 @@ mod test {
 
     #[test]
     fn bind_twice() {
-        let a = Dht::client().unwrap();
+        let a = Dht::builder().no_bootstrap().build().unwrap();
         let result = Dht::builder()
+            .no_bootstrap()
             .port(a.info().local_addr().port())
             .server_mode()
             .build();
@@ -823,14 +824,8 @@ mod test {
     fn announce_get_peer() {
         let testnet = Testnet::new(10).unwrap();
 
-        let a = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
-        let b = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let a = testnet.new_node().build().unwrap();
+        let b = testnet.new_node().build().unwrap();
 
         let info_hash = Id::random();
 
@@ -846,14 +841,8 @@ mod test {
     fn put_get_immutable() {
         let testnet = Testnet::new(10).unwrap();
 
-        let a = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
-        let b = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let a = testnet.new_node().build().unwrap();
+        let b = testnet.new_node().build().unwrap();
 
         let value = b"Hello World!";
         let expected_target = Id::from_str("e5f96f6f38320f0f33959cb4d3d656452117aadb").unwrap();
@@ -884,14 +873,8 @@ mod test {
     fn put_get_mutable() {
         let testnet = Testnet::new(10).unwrap();
 
-        let a = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
-        let b = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let a = testnet.new_node().build().unwrap();
+        let b = testnet.new_node().build().unwrap();
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -917,14 +900,8 @@ mod test {
     fn put_get_mutable_no_more_recent_value() {
         let testnet = Testnet::new(10).unwrap();
 
-        let a = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
-        let b = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let a = testnet.new_node().build().unwrap();
+        let b = testnet.new_node().build().unwrap();
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -949,10 +926,7 @@ mod test {
     fn repeated_put_query() {
         let testnet = Testnet::new(10).unwrap();
 
-        let a = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let a = testnet.new_node().build().unwrap();
 
         let id = a.put_immutable(&[1, 2, 3]).unwrap();
 
@@ -963,14 +937,8 @@ mod test {
     fn concurrent_get_mutable() {
         let testnet = Testnet::new(10).unwrap();
 
-        let a = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
-        let b = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let a = testnet.new_node().build().unwrap();
+        let b = testnet.new_node().build().unwrap();
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -1002,10 +970,7 @@ mod test {
     fn concurrent_put_mutable_same() {
         let testnet = Testnet::new(10).unwrap();
 
-        let client = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let client = testnet.new_node().build().unwrap();
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -1037,10 +1002,7 @@ mod test {
     fn concurrent_put_mutable_different() {
         let testnet = Testnet::new(10).unwrap();
 
-        let client = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let client = testnet.new_node().build().unwrap();
 
         let mut handles = vec![];
 
@@ -1083,10 +1045,7 @@ mod test {
     fn concurrent_put_mutable_different_with_cas() {
         let testnet = Testnet::new(10).unwrap();
 
-        let client = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let client = testnet.new_node().build().unwrap();
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -1126,10 +1085,7 @@ mod test {
     fn conflict_302_seq_less_than_current() {
         let testnet = Testnet::new(10).unwrap();
 
-        let client = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let client = testnet.new_node().build().unwrap();
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -1152,10 +1108,7 @@ mod test {
     fn conflict_301_cas() {
         let testnet = Testnet::new(10).unwrap();
 
-        let client = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let client = testnet.new_node().build().unwrap();
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
