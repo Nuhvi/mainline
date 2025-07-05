@@ -24,4 +24,9 @@ pub struct Config {
     ///
     /// Defaults to None, where we depend on suggestions from responding nodes.
     pub public_ip: Option<Ipv4Addr>,
+    /// Use a simulated UdpSocket to enable local simulation with thousands or millions of nodes,
+    /// which wouldn't be possible to do with opening real udp sockets.
+    ///
+    /// Any custom [Self::port] will be ignored.
+    pub simulated: bool,
 }
