@@ -51,6 +51,10 @@ impl Info {
     ///  2. Standard deviaiton as a function of the number of samples used in this estimate.
     ///
     /// [Read more](https://github.com/nuhvi/mainline/blob/main/docs/dht_size_estimate.md)
+    ///
+    /// Note: this function doesn't work well with [crate::Testnet] or similar networks
+    /// made of local nodes, as it makes assumptions about Ip address distribution,
+    /// that won't be present in local networks.
     pub fn dht_size_estimate(&self) -> (usize, f64) {
         self.dht_size_estimate
     }

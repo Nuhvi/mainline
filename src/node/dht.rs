@@ -147,12 +147,6 @@ impl Dht {
             .send((config, receiver))
             .expect("simulation thread unexpectedly shutdown");
 
-        let (tx, rx) = flume::bounded(1);
-        sender
-            .send(ActorMessage::Check(tx))
-            .expect("actor thread unexpectedly shutdown");
-        rx.recv().expect("actor thread unexpectedly shutdown")?;
-
         Ok(Dht(sender))
     }
 
@@ -631,7 +625,6 @@ pub struct Testnet {
     pub bootstrap: Vec<String>,
     /// all nodes in this testnet
     pub nodes: Vec<Dht>,
-    simulated: bool,
 }
 
 impl Testnet {
@@ -641,13 +634,22 @@ impl Testnet {
     /// gets dropped, if you want the network to be `'static`, then
     /// you should call [Self::leak].
     ///
-    /// This will block until all nodes are [bootstrapped][Dht::bootstrapped],
+    /// Unless in "simulated" mode, this will block until all nodes are [bootstrapped][Dht::bootstrapped],
     /// if you are using an async runtime, consider using [Self::new_async].
+    ///
+    /// ## Simulated mode
+    ///
+    /// If you choose a `count` larger than a `100`, this testnet will
+    /// be created in a "simulated" mode, to avoid neither spawning too many
+    /// threads, nor binding too many ports to udp sockets, which can overwhelm
+    /// the operating system's limits.
     pub fn new(count: usize) -> Result<Testnet, std::io::Error> {
-        let testnet = Testnet::new_inner(count, false)?;
+        let testnet = Testnet::new_inner(count)?;
 
-        for node in &testnet.nodes {
-            node.bootstrapped();
+        if testnet.nodes.len() <= 100 {
+            for node in &testnet.nodes {
+                node.bootstrapped();
+            }
         }
 
         Ok(testnet)
@@ -655,38 +657,32 @@ impl Testnet {
 
     /// Similar to [Self::new] but awaits all nodes to bootstrap instead of blocking.
     pub async fn new_async(count: usize) -> Result<Testnet, std::io::Error> {
-        let testnet = Testnet::new_inner(count, false)?;
+        let testnet = Testnet::new_inner(count)?;
 
-        for node in testnet.nodes.clone() {
-            node.as_async().bootstrapped().await;
+        if testnet.nodes.len() <= 100 {
+            for node in testnet.nodes.clone() {
+                node.as_async().clone().bootstrapped().await;
+            }
         }
 
         Ok(testnet)
     }
 
-    /// Similar to [Self::new] but all nodes are sharing the same Udpsocket,
-    /// to enable simulating larger networks.
-    pub fn new_simulation(count: usize) -> Result<Testnet, std::io::Error> {
-        Testnet::new_inner(count, true)
-    }
-
-    fn new_inner(count: usize, simulated: bool) -> Result<Testnet, std::io::Error> {
-        let count = if count < 3 {
+    fn new_inner(count: usize) -> Result<Testnet, std::io::Error> {
+        if count < 3 {
             tracing::warn!("Warning: Too few testnet nodes ({count}), will create 3 instead.");
-
-            3
-        } else if !simulated && count > 100 {
-            tracing::warn!("Warning: Too many testnet nodes ({count}), will create 100 instead. Consider using `Testnet::new_simulation()` for more.");
-
-            100
-        } else {
-            count
         };
 
         let mut nodes: Vec<Dht> = vec![];
         let mut bootstrap = vec![];
 
-        if simulated {
+        let mut builder = Dht::builder();
+        builder.server_mode();
+
+        // Create nodes with simulated udp sockets
+        if count > 100 {
+            builder.simulated();
+
             let (thread_tx, thread_rx) = flume::unbounded::<(Config, Receiver<ActorMessage>)>();
 
             thread::Builder::new()
@@ -716,31 +712,21 @@ impl Testnet {
                     }
                 })?;
 
-            for i in 0..count {
-                let mut builder = Dht::builder();
+            // bootstrapping node
+            let node = builder.no_bootstrap().build()?;
+            bootstrap.push(node.info().local_addr().to_string());
+            nodes.push(node);
 
-                builder
-                    .simulated()
-                    // The more nodes, the more packets will lag..
-                    .request_timeout(Duration::from_secs(count.max(10) as u64));
-
-                let node = if i == 0 {
-                    let node = builder.server_mode().no_bootstrap().build()?;
-                    bootstrap.push(node.info().local_addr().to_string());
-                    node
-                } else {
-                    builder
-                        .server_mode()
-                        .bootstrap(&bootstrap)
-                        .build_to_thread(thread_tx.clone())?
-                };
-
-                nodes.push(node)
+            for _ in 1..count {
+                let node = builder
+                    .bootstrap(&bootstrap)
+                    .build_to_thread(thread_tx.clone())?;
+                nodes.push(node);
             }
         } else {
-            for i in 0..count {
+            for i in 0..count.min(3) {
                 let node = if i == 0 {
-                    let node = Dht::builder().server_mode().no_bootstrap().build()?;
+                    let node = builder.no_bootstrap().build()?;
                     bootstrap.push(node.info().local_addr().to_string());
                     node
                 } else {
@@ -751,11 +737,7 @@ impl Testnet {
             }
         }
 
-        let testnet = Self {
-            bootstrap,
-            nodes,
-            simulated,
-        };
+        let testnet = Self { bootstrap, nodes };
 
         Ok(testnet)
     }
@@ -764,7 +746,7 @@ impl Testnet {
     pub fn new_node(&self) -> DhtBuilder {
         let mut builder = Dht::builder();
         builder.bootstrap(&self.bootstrap);
-        if self.simulated {
+        if self.nodes.len() > 100 {
             builder.simulated();
         }
         builder
@@ -1139,12 +1121,10 @@ mod test {
 
     #[test]
     fn simulation_smoke_test() {
-        // 400 is more than what UdpSocket would allow,
-        // change it to higher values if you want.
-        let count = 400;
+        let count = 8_000_000;
 
         let instant = Instant::now();
-        let testnet = Testnet::new_simulation(count).unwrap();
+        let testnet = Testnet::new(count).unwrap();
 
         println!(
             "Finished creating a testnet of {count} nodes in {} seconds.",
@@ -1153,6 +1133,9 @@ mod test {
 
         let a = testnet.new_node().build().unwrap();
         let b = testnet.new_node().build().unwrap();
+
+        a.bootstrapped();
+        b.bootstrapped();
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
