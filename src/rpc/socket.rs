@@ -372,15 +372,15 @@ impl InflightRequestsMap {
             return;
         }
 
-        match self
+        let index = match self
             .requests
-            .binary_search_by(|(_, request)| request.sent_at.elapsed().cmp(&self.request_timeout))
+            .binary_search_by(|(_, request)| self.request_timeout.cmp(&request.sent_at.elapsed()))
         {
-            Ok(index) => self.requests = self.requests[index..].to_vec(),
-            Err(_) => {
-                // noop
-            }
+            Ok(index) => index,
+            Err(index) => index,
         };
+
+        self.requests = self.requests[index..].to_vec();
     }
 }
 
