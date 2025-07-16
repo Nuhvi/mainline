@@ -368,6 +368,10 @@ impl InflightRequestsMap {
     }
 
     fn cleanup(&mut self) {
+        if self.requests.len() < self.requests.capacity() {
+            return;
+        }
+
         match self
             .requests
             .binary_search_by(|(_, request)| request.sent_at.elapsed().cmp(&self.request_timeout))
