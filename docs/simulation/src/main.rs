@@ -8,8 +8,8 @@ use std::thread;
 use std::net::SocketAddrV4;
 
 use clap::Parser;
+use dht::{ClosestNodes, Id, Node};
 use full_palette::GREY;
-use mainline::{ClosestNodes, Id, Node};
 use plotters::prelude::*;
 use statrs::statistics::*;
 

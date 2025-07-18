@@ -2,7 +2,7 @@
 
 All notable changes to mainline dht will be documented in this file.
 
-## [5.0.0](https://github.com/pubky/mainline/compare/v4.2.1...v5.0.0) - 2025-02-11
+## [5.0.0](https://github.com/nuhvi/mainline/compare/v4.2.1...v5.0.0) - 2025-02-11
 
 ### Added
 
@@ -11,7 +11,7 @@ All notable changes to mainline dht will be documented in this file.
 - Add `RoutingTable::nodes()` iterator.
 - Add `DhtBuilder::server_mode` to force server mode.
 - Add `DhtBuilder::public_ip` for manually setting the node's public ip to generate secure node `Id` from.
-- Add [adaptive mode](https://github.com/pubky/mainline?tab=readme-ov-file#adaptive-mode).
+- Add [adaptive mode](https://github.com/nuhvi/mainline?tab=readme-ov-file#adaptive-mode).
 - Add `DhtBuilder::extra_bootstrap()` to add more bootstrapping nodes from previous sessions.
 - Add `Dht::bootstrapped()` and `AsyncDht::bootstrapped()` to wait for the routing table to be bootstrapped.
 - Add `RoutingTable::to_bootstrap()`, `Dht::to_bootstrap()`, and `AsyncDht::to_bootstrap()` to export the addresses nodes in the routing table.
@@ -71,13 +71,13 @@ All notable changes to mainline dht will be documented in this file.
 - Remove `Server` trait and replace it with `RequestFilter` trait.
 - `DhtBuilder` is not consuming, thanks to `Config` being `Clone`.
 
-## [4.2.0](https://github.com/pubky/mainline/compare/v4.1.0...v4.2.0) - 2024-12-13
+## [4.2.0](https://github.com/nuhvi/mainline/compare/v4.1.0...v4.2.0) - 2024-12-13
 
 ### Added
 
 - Make MutableItem de/serializable (mikedilger)
 
-## [4.1.0](https://github.com/pubky/mainline/compare/v3.0.0...v4.1.0) - 2024-11-29
+## [4.1.0](https://github.com/nuhvi/mainline/compare/v3.0.0...v4.1.0) - 2024-11-29
 
 ### Added
 

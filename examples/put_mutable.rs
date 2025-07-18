@@ -1,6 +1,6 @@
 use std::{convert::TryFrom, time::Instant};
 
-use mainline::{Dht, MutableItem, SigningKey};
+use dht::{Dht, MutableItem, SigningKey};
 
 use clap::Parser;
 

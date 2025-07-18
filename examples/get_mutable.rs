@@ -5,7 +5,7 @@ use tracing_subscriber;
 
 use std::time::Instant;
 
-use mainline::{Dht, MutableItem};
+use dht::{Dht, MutableItem};
 
 use clap::Parser;
 

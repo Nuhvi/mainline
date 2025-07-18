@@ -1,4 +1,4 @@
-use mainline::{Dht, Id};
+use dht::{Dht, Id};
 use tracing::Level;
 
 fn main() {

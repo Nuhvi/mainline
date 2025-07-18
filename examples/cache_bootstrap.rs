@@ -8,7 +8,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
-use mainline::Dht;
+use dht::Dht;
 
 use tracing::Level;
 use tracing_subscriber;

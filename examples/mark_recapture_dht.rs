@@ -47,7 +47,7 @@
 //!
 
 use dashmap::DashSet;
-use mainline::{Dht, Id};
+use dht::{Dht, Id};
 use rayon::{prelude::*, ThreadPool, ThreadPoolBuilder};
 use tracing::{debug, info, Level};
 

@@ -50,7 +50,7 @@ impl Info {
     ///  1. Normal Dht size estimate based on all closer `nodes` in query responses.
     ///  2. Standard deviaiton as a function of the number of samples used in this estimate.
     ///
-    /// [Read more](https://github.com/pubky/mainline/blob/main/docs/dht_size_estimate.md)
+    /// [Read more](https://github.com/nuhvi/mainline/blob/main/docs/dht_size_estimate.md)
     pub fn dht_size_estimate(&self) -> (usize, f64) {
         self.dht_size_estimate
     }

@@ -1,6 +1,6 @@
 # Mainline
 
-Simple, robust, BitTorrent's [Mainline](https://en.wikipedia.org/wiki/Mainline_DHT) DHT implementation.
+Simple, robust, BitTorrent's [Mainline DHT](https://en.wikipedia.org/wiki/Mainline_DHT) implementation.
 
 This library is focused on being the best and simplest Rust client for Mainline, especially focused on reliable and fast time-to-first-response.
 
@@ -11,7 +11,7 @@ However if you are concerned about spam or DoS, you should consider implementing
 
 ## Getting started
 
-Check the [Examples](https://github.com/Pubky/mainline/tree/main/examples).
+Check the [Examples](https://github.com/nuhvi/mainline/tree/main/examples).
 
 ## Features
 
@@ -20,7 +20,7 @@ Check the [Examples](https://github.com/Pubky/mainline/tree/main/examples).
 Running as a client, means you can store and query for values on the DHT, but not accept any incoming requests.
 
 ```rust
-use mainline::Dht;
+use dht::Dht;
 
 let dht = Dht::client().unwrap();
 ```
@@ -38,7 +38,7 @@ This implementation also includes [measures against Vertical Sybil Attacks](./do
 Running as a server is the same as a client, but you also respond to incoming requests and serve as a routing and storing node, supporting the general routing of the DHT, and contributing to the storage capacity of the DHT.
 
 ```rust
-use mainline::Dht;
+use dht::Dht;
 
 let dht = Dht::server().unwrap(); // or `Dht::builder::server_mode().build();` 
 ```

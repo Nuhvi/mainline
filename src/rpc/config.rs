@@ -28,7 +28,7 @@ pub struct Config {
     pub server_settings: ServerSettings,
     /// Whether or not to start in server mode from the get go.
     ///
-    /// Defaults to false where it will run in [Adaptive mode](https://github.com/pubky/mainline?tab=readme-ov-file#adaptive-mode).
+    /// Defaults to false where it will run in [Adaptive mode](https://github.com/nuhvi/mainline?tab=readme-ov-file#adaptive-mode).
     pub server_mode: bool,
     /// A known public IPv4 address for this node to generate
     /// a secure node Id from according to [BEP_0042](https://www.bittorrent.org/beps/bep_0042.html)

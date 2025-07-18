@@ -184,12 +184,12 @@ impl Rpc {
     ///  1. Normal Dht size estimate based on all closer `nodes` in query responses.
     ///  2. Standard deviaiton as a function of the number of samples used in this estimate.
     ///
-    /// [Read more](https://github.com/pubky/mainline/blob/main/docs/dht_size_estimate.md)
+    /// [Read more](https://github.com/nuhvi/mainline/blob/main/docs/dht_size_estimate.md)
     pub fn dht_size_estimate(&self) -> (usize, f64) {
         let normal =
             self.dht_size_estimates_sum as usize / self.cached_iterative_queries.len().max(1);
 
-        // See https://github.com/pubky/mainline/blob/main/docs/standard-deviation-vs-lookups.png
+        // See https://github.com/nuhvi/mainline/blob/main/docs/standard-deviation-vs-lookups.png
         let std_dev = 0.281 * (self.cached_iterative_queries.len() as f64).powf(-0.529);
 
         (normal, std_dev)

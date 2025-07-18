@@ -369,7 +369,7 @@ impl Dht {
     /// then start authoring the new [MutableItem] based on the most recent as in the following example:
     ///
     ///```rust
-    /// use mainline::{Dht, MutableItem, SigningKey, Testnet};
+    /// use dht::{Dht, MutableItem, SigningKey, Testnet};
     ///
     /// let testnet = Testnet::new(3).unwrap();
     /// let dht = Dht::builder().bootstrap(&testnet.bootstrap).build().unwrap();
@@ -421,7 +421,7 @@ impl Dht {
     /// Get closet nodes to a specific target, that support [BEP_0044](https://www.bittorrent.org/beps/bep_0044.html).
     ///
     /// Useful to [Self::put] a request to nodes further from the 20 closest nodes to the
-    /// [PutRequestSpecific::target]. Which itself is useful to circumvent [extreme vertical sybil attacks](https://github.com/pubky/mainline/blob/main/docs/censorship-resistance.md#extreme-vertical-sybil-attacks).
+    /// [PutRequestSpecific::target]. Which itself is useful to circumvent [extreme vertical sybil attacks](https://github.com/nuhvi/mainline/blob/main/docs/censorship-resistance.md#extreme-vertical-sybil-attacks).
     pub fn get_closest_nodes(&self, target: Id) -> Box<[Node]> {
         let (tx, rx) = flume::unbounded::<Box<[Node]>>();
         self.send(ActorMessage::Get(
@@ -537,7 +537,7 @@ fn run(config: Config, receiver: Receiver<ActorMessage>) {
                     },
                     Err(TryRecvError::Disconnected) => {
                         // Node was dropped, kill this thread.
-                        tracing::debug!("mainline::Dht's actor thread was shutdown after Drop.");
+                        tracing::debug!("dht::Dht's actor thread was shutdown after Drop.");
                         break;
                     }
                     Err(TryRecvError::Empty) => {

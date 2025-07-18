@@ -4,11 +4,11 @@ version = "5.5.0"
 authors = ["nuh.dev"]
 edition = "2021"
 description = "Simple, robust, BitTorrent's Mainline DHT implementation"
-homepage = "https://github.com/pubky/mainline"
+homepage = "https://github.com/nuhvi/mainline"
 license = "MIT"
 keywords = ["bittorrent", "torrent", "dht", "kademlia", "mainline"]
 categories = ["network-programming"]
-repository = "https://github.com/pubky/mainline"
+repository = "https://github.com/nuhvi/mainline"
 exclude = ["/docs/*", "/examples/*"]
 
 [dependencies]

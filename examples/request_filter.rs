@@ -1,6 +1,6 @@
 use std::net::SocketAddrV4;
 
-use mainline::{Dht, RequestFilter, RequestSpecific, ServerSettings};
+use dht::{Dht, RequestFilter, RequestSpecific, ServerSettings};
 use tracing::{info, Level};
 
 #[derive(Debug, Default, Clone)]
