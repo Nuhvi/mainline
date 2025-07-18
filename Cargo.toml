@@ -1,5 +1,5 @@
 [package]
-name = "mainline"
+name = "dht"
 version = "5.4.0"
 authors = ["nuh.dev"]
 edition = "2021"
