@@ -207,6 +207,19 @@ impl Rpc {
     /// maintain the routing table, and everything else that needs
     /// to happen at every tick.
     pub fn tick(&mut self) -> RpcTickReport {
+        // Handle new incoming message
+        let new_query_response = self
+            .socket
+            .recv_from()
+            .and_then(|(message, from)| match message.message_type {
+                MessageType::Request(request_specific) => {
+                    self.handle_request(from, message.transaction_id, request_specific);
+
+                    None
+                }
+                _ => self.handle_response(from, message),
+            });
+
         let mut done_get_queries = Vec::with_capacity(self.iterative_queries.len());
         let mut done_put_queries = Vec::with_capacity(self.put_queries.len());
 
@@ -264,7 +277,6 @@ impl Rpc {
 
         // === Cleanup done queries ===
 
-        // Has to happen _before_ `self.socket.recv_from()`.
         for (id, closest_nodes) in &done_get_queries {
             if let Some(query) = self.iterative_queries.remove(id) {
                 self.update_address_votes_from_iterative_query(&query);
@@ -289,19 +301,6 @@ impl Rpc {
 
         // === Periodic node maintaenance ===
         self.periodic_node_maintaenance();
-
-        // Handle new incoming message
-        let new_query_response = self
-            .socket
-            .recv_from()
-            .and_then(|(message, from)| match message.message_type {
-                MessageType::Request(request_specific) => {
-                    self.handle_request(from, message.transaction_id, request_specific);
-
-                    None
-                }
-                _ => self.handle_response(from, message),
-            });
 
         RpcTickReport {
             done_get_queries,
