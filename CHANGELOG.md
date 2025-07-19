@@ -2,7 +2,51 @@
 
 All notable changes to mainline dht will be documented in this file.
 
-## [5.0.0](https://github.com/nuhvi/mainline/compare/v4.2.1...v5.0.0) - 2025-02-11
+## [Unreleased]
+
+### Fixed
+
+- Adaptive interval of polling udp socket for new messages, reducing latency and cpu usage.
+
+## [5.4.0](https://github.com/nuhvi/mainline/compare/v5.3.1...v5.4.0 ) - 2025-04-02
+
+### Added
+
+- Add `Testnet::new_async()`
+- Populate the bootstrapping node's routing table with requesting nodes
+- Update client version from RS04 to RS05
+
+## [5.3.1](https://github.com/nuhvi/mainline/compare/v5.3.0...v5.3.1 ) - 2025-02-21
+
+### Fixed
+
+- Delay DNS lookups for default bootstrap to `Rpc::new()`
+
+## [5.3.0] - 2025-02-20
+
+### Changed
+
+- Replace `rand` with `getrandom`
+
+## [5.2.1] - 2025-02-17
+
+### Fixed
+
+- DHT size estimate from repetitive GET queries (PR #50)
+
+## [5.2.0] - 2025-02-11
+
+### Changed
+
+- Update dev-dependencies
+
+## [5.1.0] - 2025-02-11
+
+### Changed
+
+- Use Rust 2021 edition
+
+## [5.0.0] - 2025-02-11
 
 ### Added
 
