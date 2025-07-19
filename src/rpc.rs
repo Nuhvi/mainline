@@ -207,6 +207,9 @@ impl Rpc {
     /// maintain the routing table, and everything else that needs
     /// to happen at every tick.
     pub fn tick(&mut self) -> RpcTickReport {
+        // === Periodic node maintaenance ===
+        self.periodic_node_maintaenance();
+
         // Handle new incoming message
         let new_query_response = self
             .socket
@@ -298,9 +301,6 @@ impl Rpc {
         for (id, _) in &done_put_queries {
             self.put_queries.remove(id);
         }
-
-        // === Periodic node maintaenance ===
-        self.periodic_node_maintaenance();
 
         RpcTickReport {
             done_get_queries,
