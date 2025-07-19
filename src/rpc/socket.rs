@@ -64,7 +64,7 @@ impl KrpcSocket {
             SocketAddr::V6(_) => unimplemented!("KrpcSocket does not support Ipv6"),
         };
 
-        socket.set_nonblocking(true)?;
+        socket.set_read_timeout(Some(MIN_POLL_INTERVAL))?;
 
         Ok(Self {
             socket,
@@ -176,12 +176,13 @@ impl KrpcSocket {
         match self.socket.recv_from(&mut buf) {
             Ok((amt, SocketAddr::V4(from))) => {
                 if self.poll_interval > MIN_POLL_INTERVAL {
-                    // If we are expecting responses, reset the interval.
+                    // More eagerness if we are expecting responses than requests;
                     if !self.inflight_requests.is_empty() {
                         self.poll_interval = MIN_POLL_INTERVAL;
                     } else if self.server_mode {
                         self.poll_interval = (self.poll_interval / 2).max(MIN_POLL_INTERVAL);
                     }
+                    let _ = self.socket.set_read_timeout(Some(self.poll_interval));
                 }
 
                 let bytes = &buf[..amt];
@@ -244,8 +245,10 @@ impl KrpcSocket {
             }
             Err(error) => match error.kind() {
                 ErrorKind::WouldBlock => {
-                    std::thread::sleep(self.poll_interval);
-                    self.poll_interval = (self.poll_interval * 2).min(MAX_POLL_INTERVAL);
+                    if self.poll_interval < MAX_POLL_INTERVAL {
+                        self.poll_interval = (self.poll_interval * 2).min(MAX_POLL_INTERVAL);
+                        let _ = self.socket.set_read_timeout(Some(self.poll_interval));
+                    }
                 }
                 _ => {
                     warn!("IO error {error}")
