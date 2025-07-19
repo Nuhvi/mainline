@@ -7,7 +7,7 @@ This library is focused on being the best and simplest Rust client for Mainline,
 It should work as a routing / storing node (server mode) as well, and has been running in production for many months without an issue. 
 However if you are concerned about spam or DoS, you should consider implementing [rate limiting](#rate-limiting).
 
-**[API Docs](https://docs.rs/mainline/latest/mainline/)**
+**[API Docs](https://docs.rs/dht/latest/dht/)**
 
 ## Getting started
 

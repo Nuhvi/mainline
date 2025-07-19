@@ -1,9 +1,10 @@
 //! UDP socket layer managing incoming/outgoing requests and responses.
 
 use std::cmp::Ordering;
+use std::io::ErrorKind;
 use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
 use std::time::{Duration, Instant};
-use tracing::{debug, error, trace};
+use tracing::{debug, trace, warn};
 
 use crate::common::{ErrorSpecific, Message, MessageType, RequestSpecific, ResponseSpecific};
 
@@ -15,7 +16,12 @@ const MTU: usize = 2048;
 pub const DEFAULT_PORT: u16 = 6881;
 /// Default request timeout before abandoning an inflight request to a non-responding node.
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_millis(2000); // 2 seconds
-pub const READ_TIMEOUT: Duration = Duration::from_millis(10);
+/// Minimum interval between polling udp socket, lower latency, higher cpu usage.
+/// Useful for checking for expected responses.
+pub const MIN_POLL_INTERVAL: Duration = Duration::from_micros(100);
+/// Maximum interval between polling udp socket, higher latency, lower cpu usage.
+/// Useful for waiting for incoming requests, and [super::Rpc::periodic_node_maintaenance].
+pub const MAX_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 /// A UdpSocket wrapper that formats and correlates DHT requests and responses.
 #[derive(Debug)]
@@ -29,6 +35,7 @@ pub struct KrpcSocket {
     inflight_requests: Vec<InflightRequest>,
 
     local_addr: SocketAddrV4,
+    poll_interval: Duration,
 }
 
 #[derive(Debug)]
@@ -57,7 +64,7 @@ impl KrpcSocket {
             SocketAddr::V6(_) => unimplemented!("KrpcSocket does not support Ipv6"),
         };
 
-        socket.set_read_timeout(Some(READ_TIMEOUT))?;
+        socket.set_read_timeout(Some(MIN_POLL_INTERVAL))?;
 
         Ok(Self {
             socket,
@@ -67,6 +74,8 @@ impl KrpcSocket {
             inflight_requests: Vec::with_capacity(u16::MAX as usize),
 
             local_addr,
+
+            poll_interval: MIN_POLL_INTERVAL,
         })
     }
 
@@ -164,61 +173,87 @@ impl KrpcSocket {
             }
         };
 
-        if let Ok((amt, SocketAddr::V4(from))) = self.socket.recv_from(&mut buf) {
-            let bytes = &buf[..amt];
+        match self.socket.recv_from(&mut buf) {
+            Ok((amt, SocketAddr::V4(from))) => {
+                if self.poll_interval > MIN_POLL_INTERVAL {
+                    // More eagerness if we are expecting responses than requests;
+                    if !self.inflight_requests.is_empty() {
+                        self.poll_interval = MIN_POLL_INTERVAL;
+                    } else if self.server_mode {
+                        self.poll_interval = (self.poll_interval / 2).max(MIN_POLL_INTERVAL);
+                    }
+                    let _ = self.socket.set_read_timeout(Some(self.poll_interval));
+                }
 
-            if from.port() == 0 {
-                trace!(
-                    context = "socket_validation",
-                    message = "Response from port 0"
-                );
-                return None;
+                let bytes = &buf[..amt];
+
+                if from.port() == 0 {
+                    trace!(
+                        context = "socket_validation",
+                        message = "Response from port 0"
+                    );
+                    return None;
+                }
+
+                match Message::from_bytes(bytes) {
+                    Ok(message) => {
+                        // Parsed correctly.
+                        let should_return = match message.message_type {
+                            MessageType::Request(_) => {
+                                trace!(
+                                    context = "socket_message_receiving",
+                                    ?message,
+                                    ?from,
+                                    "Received request message"
+                                );
+
+                                true
+                            }
+                            MessageType::Response(_) => {
+                                trace!(
+                                    context = "socket_message_receiving",
+                                    ?message,
+                                    ?from,
+                                    "Received response message"
+                                );
+
+                                self.is_expected_response(&message, &from)
+                            }
+                            MessageType::Error(_) => {
+                                trace!(
+                                    context = "socket_message_receiving",
+                                    ?message,
+                                    ?from,
+                                    "Received error message"
+                                );
+
+                                self.is_expected_response(&message, &from)
+                            }
+                        };
+
+                        if should_return {
+                            return Some((message, from));
+                        }
+                    }
+                    Err(error) => {
+                        trace!(context = "socket_error", ?error, ?from, message = ?String::from_utf8_lossy(bytes), "Received invalid Bencode message.");
+                    }
+                };
             }
-
-            match Message::from_bytes(bytes) {
-                Ok(message) => {
-                    // Parsed correctly.
-                    let should_return = match message.message_type {
-                        MessageType::Request(_) => {
-                            trace!(
-                                context = "socket_message_receiving",
-                                ?message,
-                                ?from,
-                                "Received request message"
-                            );
-
-                            true
-                        }
-                        MessageType::Response(_) => {
-                            trace!(
-                                context = "socket_message_receiving",
-                                ?message,
-                                ?from,
-                                "Received response message"
-                            );
-
-                            self.is_expected_response(&message, &from)
-                        }
-                        MessageType::Error(_) => {
-                            trace!(
-                                context = "socket_message_receiving",
-                                ?message,
-                                ?from,
-                                "Received error message"
-                            );
-
-                            self.is_expected_response(&message, &from)
-                        }
-                    };
-
-                    if should_return {
-                        return Some((message, from));
+            Ok((_, SocketAddr::V6(_))) => {
+                // Ignore unsupported Ipv6 messages
+            }
+            Err(error) => match error.kind() {
+                ErrorKind::WouldBlock => {
+                    if self.poll_interval < MAX_POLL_INTERVAL {
+                        self.poll_interval = (self.poll_interval * 2).min(MAX_POLL_INTERVAL);
+                        let _ = self.socket.set_read_timeout(Some(self.poll_interval));
                     }
                 }
-                Err(error) => {
-                    trace!(context = "socket_error", ?error, ?from, message = ?String::from_utf8_lossy(bytes), "Received invalid Bencode message.");
+                _ => {
+                    warn!("IO error {error}")
                 }
-            };
+            },
         };
 
         None
