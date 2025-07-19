@@ -1,6 +1,5 @@
 //! UDP socket layer managing incoming/outgoing requests and responses.
 
-use std::cmp::Ordering;
 use std::io::ErrorKind;
 use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
 use std::time::{Duration, Instant};
@@ -26,15 +25,11 @@ pub const MAX_POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// A UdpSocket wrapper that formats and correlates DHT requests and responses.
 #[derive(Debug)]
 pub struct KrpcSocket {
-    next_tid: u16,
     socket: UdpSocket,
     pub(crate) server_mode: bool,
-    request_timeout: Duration,
-    /// We don't need a HashMap, since we know the capacity is `65536` requests.
-    /// Requests are also ordered by their transaction_id and thus sent_at, so lookup is fast.
-    inflight_requests: Vec<InflightRequest>,
-
     local_addr: SocketAddrV4,
+
+    inflight_requests: InflightRequests,
     poll_interval: Duration,
 }
 
@@ -47,7 +42,6 @@ pub struct InflightRequest {
 
 impl KrpcSocket {
     pub(crate) fn new(config: &Config) -> Result<Self, std::io::Error> {
-        let request_timeout = config.request_timeout;
         let port = config.port;
 
         let socket = if let Some(port) = port {
@@ -68,13 +62,9 @@ impl KrpcSocket {
 
         Ok(Self {
             socket,
-            next_tid: 0,
             server_mode: config.server_mode,
-            request_timeout,
-            inflight_requests: Vec::with_capacity(u16::MAX as usize),
-
+            inflight_requests: InflightRequests::new(config.request_timeout),
             local_addr,
-
             poll_interval: MIN_POLL_INTERVAL,
         })
     }
@@ -104,9 +94,7 @@ impl KrpcSocket {
 
     /// Returns true if this message's transaction_id is still inflight
     pub fn inflight(&self, transaction_id: &u16) -> bool {
-        self.inflight_requests
-            .binary_search_by(|request| request.tid.cmp(transaction_id))
-            .is_ok()
+        self.inflight_requests.get(*transaction_id).is_some()
     }
 
     /// Send a request to the given address and return the transaction_id
@@ -156,22 +144,7 @@ impl KrpcSocket {
     pub fn recv_from(&mut self) -> Option<(Message, SocketAddrV4)> {
         let mut buf = [0u8; MTU];
 
-        // Cleanup timed-out transaction_ids.
-        // Find the first timedout request, and delete all earlier requests.
-        match self.inflight_requests.binary_search_by(|request| {
-            if request.sent_at.elapsed() > self.request_timeout {
-                Ordering::Less
-            } else {
-                Ordering::Greater
-            }
-        }) {
-            Ok(index) => {
-                self.inflight_requests.drain(..index);
-            }
-            Err(index) => {
-                self.inflight_requests.drain(..index);
-            }
-        };
+        self.inflight_requests.cleanup();
 
         match self.socket.recv_from(&mut buf) {
             Ok((amt, SocketAddr::V4(from))) => {
@@ -263,20 +236,9 @@ impl KrpcSocket {
 
     fn is_expected_response(&mut self, message: &Message, from: &SocketAddrV4) -> bool {
         // Positive or an error response or to an inflight request.
-        match self
-            .inflight_requests
-            .binary_search_by(|request| request.tid.cmp(&message.transaction_id))
-        {
-            Ok(index) => {
-                let inflight_request = self
-                    .inflight_requests
-                    .get(index)
-                    .expect("should be infallible");
-
-                if compare_socket_addr(&inflight_request.to, from) {
-                    // Confirm that it is a response we actually sent.
-                    self.inflight_requests.remove(index);
-
+        match self.inflight_requests.remove(message.transaction_id) {
+            Some(request) => {
+                if compare_socket_addr(&request.to, from) {
                     return true;
                 } else {
                     trace!(
@@ -285,10 +247,10 @@ impl KrpcSocket {
                     );
                 }
             }
-            Err(_) => {
+            None => {
                 trace!(
                     context = "socket_validation",
-                    message = "Unexpected response id"
+                    message = "Unexpected response id, or timedout request"
                 );
             }
         }
@@ -296,19 +258,9 @@ impl KrpcSocket {
         false
     }
 
-    /// Increments self.next_tid and returns the previous value.
-    fn tid(&mut self) -> u16 {
-        // We don't bother much with reusing freed transaction ids,
-        // since the timeout is so short we are unlikely to run out
-        // of 65535 ids in 2 seconds.
-        let tid = self.next_tid;
-        self.next_tid = self.next_tid.wrapping_add(1);
-        tid
-    }
-
     /// Set transactin_id, version and read_only
     fn request_message(&mut self, message: RequestSpecific) -> Message {
-        let transaction_id = self.tid();
+        let transaction_id = self.inflight_requests.tid();
 
         Message {
             transaction_id,
@@ -369,6 +321,83 @@ fn compare_socket_addr(a: &SocketAddrV4, b: &SocketAddrV4) -> bool {
     a.ip() == b.ip()
 }
 
+#[derive(Debug)]
+/// We don't need a map, since we know the maximum size is `65536` requests.
+/// Requests are also ordered by their transaction_id and thus sent_at, so lookup is fast.
+struct InflightRequests {
+    next_tid: u16,
+    request_timeout: Duration,
+    requests: Vec<InflightRequest>,
+}
+
+impl InflightRequests {
+    fn new(request_timeout: Duration) -> Self {
+        Self {
+            next_tid: 0,
+            request_timeout,
+            requests: Vec::new(),
+        }
+    }
+
+    /// Increments self.next_tid and returns the previous value.
+    fn tid(&mut self) -> u16 {
+        // We don't reuse freed transaction ids, to preserve the sortablitiy
+        // of both `tid`s and `sent_at`.
+        let tid = self.next_tid;
+        self.next_tid = self.next_tid.wrapping_add(1);
+        tid
+    }
+
+    fn is_empty(&self) -> bool {
+        self.requests.is_empty()
+    }
+
+    fn get(&self, key: u16) -> Option<&InflightRequest> {
+        if let Ok(index) = self.find_by_tid(key) {
+            if let Some(request) = self.requests.get(index) {
+                if request.sent_at.elapsed() < self.request_timeout {
+                    return Some(request);
+                }
+            };
+        }
+
+        None
+    }
+
+    fn push(&mut self, inflight_request: InflightRequest) {
+        self.requests.push(inflight_request);
+    }
+
+    fn remove(&mut self, key: u16) -> Option<InflightRequest> {
+        match self.find_by_tid(key) {
+            Ok(index) => Some(self.requests.remove(index)),
+            Err(_) => None,
+        }
+    }
+
+    fn find_by_tid(&self, tid: u16) -> Result<usize, usize> {
+        self.requests
+            .binary_search_by(|request| request.tid.cmp(&tid))
+    }
+
+    /// Removes timeedout requests if necessary to save memory
+    fn cleanup(&mut self) {
+        if self.requests.len() < self.requests.capacity() {
+            return;
+        }
+
+        let index = match self
+            .requests
+            .binary_search_by(|request| self.request_timeout.cmp(&request.sent_at.elapsed()))
+        {
+            Ok(index) => index,
+            Err(index) => index,
+        };
+
+        self.requests.drain(0..index);
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::thread;
@@ -381,14 +410,14 @@ mod test {
     fn tid() {
         let mut socket = KrpcSocket::server().unwrap();
 
-        assert_eq!(socket.tid(), 0);
-        assert_eq!(socket.tid(), 1);
-        assert_eq!(socket.tid(), 2);
+        assert_eq!(socket.inflight_requests.tid(), 0);
+        assert_eq!(socket.inflight_requests.tid(), 1);
+        assert_eq!(socket.inflight_requests.tid(), 2);
 
-        socket.next_tid = u16::MAX;
+        socket.inflight_requests.next_tid = u16::MAX;
 
-        assert_eq!(socket.tid(), 65535);
-        assert_eq!(socket.tid(), 0);
+        assert_eq!(socket.inflight_requests.tid(), 65535);
+        assert_eq!(socket.inflight_requests.tid(), 0);
     }
 
     #[test]
@@ -397,7 +426,7 @@ mod test {
         let server_address = server.local_addr();
 
         let mut client = KrpcSocket::client().unwrap();
-        client.next_tid = 120;
+        client.inflight_requests.next_tid = 120;
 
         let client_address = client.local_addr();
         let request = RequestSpecific {
@@ -438,13 +467,13 @@ mod test {
             let server_address = server.local_addr();
             tx.send(server_address).unwrap();
 
-            loop {
-                server.inflight_requests.push(InflightRequest {
-                    tid: 8,
-                    to: client_address,
-                    sent_at: Instant::now(),
-                });
+            server.inflight_requests.push(InflightRequest {
+                tid: 8,
+                to: client_address,
+                sent_at: Instant::now(),
+            });
 
+            loop {
                 if let Some((message, from)) = server.recv_from() {
                     assert_eq!(from.port(), client_address.port());
                     assert_eq!(message.transaction_id, 8);
@@ -500,5 +529,23 @@ mod test {
         client.response(server_address, 8, response);
 
         server_thread.join().unwrap();
+    }
+
+    #[test]
+    fn inflight_request_timeout() {
+        let mut server = KrpcSocket::client().unwrap();
+
+        let tid = 8;
+        let sent_at = Instant::now();
+
+        server.inflight_requests.push(InflightRequest {
+            tid,
+            to: SocketAddrV4::new([0, 0, 0, 0].into(), 0),
+            sent_at,
+        });
+
+        std::thread::sleep(DEFAULT_REQUEST_TIMEOUT);
+
+        assert!(!server.inflight(&tid));
     }
 }
