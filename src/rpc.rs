@@ -310,7 +310,7 @@ impl Rpc {
     }
 
     /// Send a request to the given address and return the transaction_id
-    pub fn request(&mut self, address: SocketAddrV4, request: RequestSpecific) -> u16 {
+    pub fn request(&mut self, address: SocketAddrV4, request: RequestSpecific) -> u32 {
         self.socket.request(address, request)
     }
 
@@ -318,14 +318,14 @@ impl Rpc {
     pub fn response(
         &mut self,
         address: SocketAddrV4,
-        transaction_id: u16,
+        transaction_id: u32,
         response: ResponseSpecific,
     ) {
         self.socket.response(address, transaction_id, response)
     }
 
     /// Send an error to the given address.
-    pub fn error(&mut self, address: SocketAddrV4, transaction_id: u16, error: ErrorSpecific) {
+    pub fn error(&mut self, address: SocketAddrV4, transaction_id: u32, error: ErrorSpecific) {
         self.socket.error(address, transaction_id, error)
     }
 
@@ -512,7 +512,7 @@ impl Rpc {
     fn handle_request(
         &mut self,
         from: SocketAddrV4,
-        transaction_id: u16,
+        transaction_id: u32,
         request_specific: RequestSpecific,
     ) {
         // By default we only add nodes that responds to our requests.
