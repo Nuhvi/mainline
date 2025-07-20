@@ -1,14 +1,11 @@
 //! Dht node.
 
 use std::{
-    collections::HashMap,
     net::{Ipv4Addr, SocketAddrV4, ToSocketAddrs},
     thread,
 };
 
-use flume::{Receiver, Sender, TryRecvError};
-
-use tracing::info;
+use flume::{Receiver, Sender};
 
 use crate::{
     common::{
@@ -16,13 +13,11 @@ use crate::{
         GetPeersRequestArguments, GetValueRequestArguments, Id, MutableItem,
         PutImmutableRequestArguments, PutMutableRequestArguments, PutRequestSpecific,
     },
-    rpc::{
-        to_socket_address, ConcurrencyError, GetRequestSpecific, Info, PutError, PutQueryError,
-        Response, Rpc,
-    },
+    rpc::{to_socket_address, ConcurrencyError, GetRequestSpecific, Info, PutError, PutQueryError},
     Node, ServerSettings,
 };
 
+use crate::node::actor::{Actor, ActorMessage, ResponseSender};
 use crate::rpc::config::Config;
 
 #[derive(Debug, Clone)]
@@ -95,9 +90,27 @@ impl DhtBuilder {
         self
     }
 
+    /// Use a simulated UdpSocket to enable local simulation with thousands or millions of nodes,
+    /// which wouldn't be possible to do with opening real udp sockets.
+    ///
+    /// Any custom [Self::port] will be ignored.
+    pub fn simulated(&mut self) -> &mut Self {
+        self.0.simulated = true;
+
+        self
+    }
+
     /// Create a Dht node.
     pub fn build(&self) -> Result<Dht, std::io::Error> {
         Dht::new(self.0.clone())
+    }
+
+    /// Create a Dht node.
+    fn build_to_thread(
+        &self,
+        thread_sender: Sender<(Config, Receiver<ActorMessage>)>,
+    ) -> Result<Dht, std::io::Error> {
+        Dht::new_to_thread(self.0.clone(), thread_sender)
     }
 }
 
@@ -120,6 +133,19 @@ impl Dht {
             .expect("actor thread unexpectedly shutdown");
 
         rx.recv().expect("actor thread unexpectedly shutdown")?;
+
+        Ok(Dht(sender))
+    }
+
+    fn new_to_thread(
+        config: Config,
+        thread_sender: Sender<(Config, Receiver<ActorMessage>)>,
+    ) -> Result<Self, std::io::Error> {
+        let (sender, receiver) = flume::unbounded();
+
+        thread_sender
+            .send((config, receiver))
+            .expect("simulation thread unexpectedly shutdown");
 
         Ok(Dht(sender))
     }
@@ -473,145 +499,18 @@ impl<T> Iterator for GetIterator<T> {
 }
 
 fn run(config: Config, receiver: Receiver<ActorMessage>) {
-    match Rpc::new(config) {
-        Ok(mut rpc) => {
-            let address = rpc.local_addr();
-            info!(?address, "Mainline DHT listening");
-
-            let mut put_senders = HashMap::new();
-            let mut get_senders = HashMap::new();
-
-            loop {
-                match receiver.try_recv() {
-                    Ok(actor_message) => match actor_message {
-                        ActorMessage::Check(sender) => {
-                            let _ = sender.send(Ok(()));
-                        }
-                        ActorMessage::Info(sender) => {
-                            let _ = sender.send(rpc.info());
-                        }
-                        ActorMessage::Put(request, sender, extra_nodes) => {
-                            let target = *request.target();
-
-                            match rpc.put(request, extra_nodes) {
-                                Ok(()) => {
-                                    let senders = put_senders.entry(target).or_insert(vec![]);
-
-                                    senders.push(sender);
-                                }
-                                Err(error) => {
-                                    let _ = sender.send(Err(error));
-                                }
-                            };
-                        }
-                        ActorMessage::Get(request, sender) => {
-                            let target = *request.target();
-
-                            if let Some(responses) = rpc.get(request, None) {
-                                for response in responses {
-                                    send(&sender, response);
-                                }
-                            };
-
-                            let senders = get_senders.entry(target).or_insert(vec![]);
-
-                            senders.push(sender);
-                        }
-                        ActorMessage::ToBootstrap(sender) => {
-                            let _ = sender.send(rpc.routing_table().to_bootstrap());
-                        }
-                    },
-                    Err(TryRecvError::Disconnected) => {
-                        // Node was dropped, kill this thread.
-                        tracing::debug!("dht::Dht's actor thread was shutdown after Drop.");
-                        break;
-                    }
-                    Err(TryRecvError::Empty) => {
-                        // No op
-                    }
-                }
-
-                let report = rpc.tick();
-
-                // Response for an ongoing GET query
-                if let Some((target, response)) = report.new_query_response {
-                    if let Some(senders) = get_senders.get(&target) {
-                        for sender in senders {
-                            send(sender, response.clone());
-                        }
-                    }
-                }
-
-                // Cleanup done GET queries
-                for (id, closest_nodes) in report.done_get_queries {
-                    if let Some(senders) = get_senders.remove(&id) {
-                        for sender in senders {
-                            // return closest_nodes to whoever was asking
-                            if let ResponseSender::ClosestNodes(sender) = sender {
-                                let _ = sender.send(closest_nodes.clone());
-                            }
-                        }
-                    }
-                }
-
-                // Cleanup done PUT query and send a resulting error if any.
-                for (id, error) in report.done_put_queries {
-                    if let Some(senders) = put_senders.remove(&id) {
-                        let result = if let Some(error) = error {
-                            Err(error)
-                        } else {
-                            Ok(id)
-                        };
-
-                        for sender in senders {
-                            let _ = sender.send(result.clone());
-                        }
-                    }
-                }
-            }
-        }
+    match Actor::new(config, receiver.clone()) {
+        Ok(mut actor) => loop {
+            if actor.tick().is_err() {
+                break;
+            };
+        },
         Err(err) => {
             if let Ok(ActorMessage::Check(sender)) = receiver.try_recv() {
                 let _ = sender.send(Err(err));
             }
         }
     };
-}
-
-fn send(sender: &ResponseSender, response: Response) {
-    match (sender, response) {
-        (ResponseSender::Peers(s), Response::Peers(r)) => {
-            let _ = s.send(r);
-        }
-        (ResponseSender::Mutable(s), Response::Mutable(r)) => {
-            let _ = s.send(r);
-        }
-        (ResponseSender::Immutable(s), Response::Immutable(r)) => {
-            let _ = s.send(r);
-        }
-        _ => {}
-    }
-}
-
-#[derive(Debug)]
-pub(crate) enum ActorMessage {
-    Info(Sender<Info>),
-    Put(
-        PutRequestSpecific,
-        Sender<Result<Id, PutError>>,
-        Option<Box<[Node]>>,
-    ),
-    Get(GetRequestSpecific, ResponseSender),
-    Check(Sender<Result<(), std::io::Error>>),
-    ToBootstrap(Sender<Vec<String>>),
-}
-
-#[derive(Debug, Clone)]
-pub enum ResponseSender {
-    ClosestNodes(Sender<Box<[Node]>>),
-    Peers(Sender<Vec<SocketAddrV4>>),
-    Mutable(Sender<MutableItem>),
-    Immutable(Sender<Box<[u8]>>),
 }
 
 /// Create a testnet of Dht nodes to run tests against instead of the real mainline network.
@@ -630,13 +529,22 @@ impl Testnet {
     /// gets dropped, if you want the network to be `'static`, then
     /// you should call [Self::leak].
     ///
-    /// This will block until all nodes are [bootstrapped][Dht::bootstrapped],
+    /// Unless in "simulated" mode, this will block until all nodes are [bootstrapped][Dht::bootstrapped],
     /// if you are using an async runtime, consider using [Self::new_async].
+    ///
+    /// ## Simulated mode
+    ///
+    /// If you choose a `count` larger than a `100`, this testnet will
+    /// be created in a "simulated" mode, to avoid neither spawning too many
+    /// threads, nor binding too many ports to udp sockets, which can overwhelm
+    /// the operating system's limits.
     pub fn new(count: usize) -> Result<Testnet, std::io::Error> {
         let testnet = Testnet::new_inner(count)?;
 
-        for node in &testnet.nodes {
-            node.bootstrapped();
+        if testnet.nodes.len() <= 100 {
+            for node in &testnet.nodes {
+                node.bootstrapped();
+            }
         }
 
         Ok(testnet)
@@ -646,29 +554,80 @@ impl Testnet {
     pub async fn new_async(count: usize) -> Result<Testnet, std::io::Error> {
         let testnet = Testnet::new_inner(count)?;
 
-        for node in testnet.nodes.clone() {
-            node.as_async().bootstrapped().await;
+        if testnet.nodes.len() <= 100 {
+            for node in testnet.nodes.clone() {
+                node.as_async().clone().bootstrapped().await;
+            }
         }
 
         Ok(testnet)
     }
 
     fn new_inner(count: usize) -> Result<Testnet, std::io::Error> {
+        if count < 3 {
+            tracing::warn!("Warning: Too few testnet nodes ({count}), will create 3 instead.");
+        };
+
         let mut nodes: Vec<Dht> = vec![];
         let mut bootstrap = vec![];
 
-        for i in 0..count {
-            if i == 0 {
-                let node = Dht::builder().server_mode().no_bootstrap().build()?;
+        let mut builder = Dht::builder();
+        builder.server_mode();
 
-                let info = node.info();
-                let addr = info.local_addr();
+        // Create nodes with simulated udp sockets
+        if count > 100 {
+            builder.simulated();
 
-                bootstrap.push(format!("127.0.0.1:{}", addr.port()));
+            let (thread_tx, thread_rx) = flume::unbounded::<(Config, Receiver<ActorMessage>)>();
 
-                nodes.push(node)
-            } else {
-                let node = Dht::builder().server_mode().bootstrap(&bootstrap).build()?;
+            thread::Builder::new()
+                .name("Simulation actors thread".to_string())
+                .spawn(move || {
+                    let mut actors = vec![];
+
+                    loop {
+                        if let Ok((config, actor_rx)) = thread_rx.recv() {
+                            match Actor::new(config, actor_rx.clone()) {
+                                Ok(actor) => {
+                                    actors.push(actor);
+                                }
+                                Err(err) => {
+                                    if let Ok(ActorMessage::Check(sender)) = actor_rx.try_recv() {
+                                        let _ = sender.send(Err(err));
+                                    }
+                                }
+                            };
+                        }
+
+                        for actor in actors.iter_mut() {
+                            // If the actor was dropped,
+                            // it must be that the Testnet is being dropped.
+                            let _ = actor.tick();
+                        }
+                    }
+                })?;
+
+            // bootstrapping node
+            let node = builder.no_bootstrap().build()?;
+            bootstrap.push(node.info().local_addr().to_string());
+            nodes.push(node);
+
+            for _ in 1..count {
+                let node = builder
+                    .bootstrap(&bootstrap)
+                    .build_to_thread(thread_tx.clone())?;
+                nodes.push(node);
+            }
+        } else {
+            for i in 0..count.min(3) {
+                let node = if i == 0 {
+                    let node = builder.no_bootstrap().build()?;
+                    bootstrap.push(node.info().local_addr().to_string());
+                    node
+                } else {
+                    Dht::builder().server_mode().bootstrap(&bootstrap).build()?
+                };
+
                 nodes.push(node)
             }
         }
@@ -676,6 +635,16 @@ impl Testnet {
         let testnet = Self { bootstrap, nodes };
 
         Ok(testnet)
+    }
+
+    /// Create a new node connected to this testnet.
+    pub fn new_node(&self) -> DhtBuilder {
+        let mut builder = Dht::builder();
+        builder.bootstrap(&self.bootstrap);
+        if self.nodes.len() > 100 {
+            builder.simulated();
+        }
+        builder
     }
 
     /// By default as soon as this testnet gets dropped,
@@ -705,18 +674,21 @@ pub enum PutMutableError {
 
 #[cfg(test)]
 mod test {
-    use std::{str::FromStr, time::Duration};
-
-    use ed25519_dalek::SigningKey;
+    use std::{
+        str::FromStr,
+        time::{Duration, Instant},
+    };
 
     use crate::rpc::ConcurrencyError;
+    use ed25519_dalek::SigningKey;
 
     use super::*;
 
     #[test]
     fn bind_twice() {
-        let a = Dht::client().unwrap();
+        let a = Dht::builder().no_bootstrap().build().unwrap();
         let result = Dht::builder()
+            .no_bootstrap()
             .port(a.info().local_addr().port())
             .server_mode()
             .build();
@@ -728,14 +700,8 @@ mod test {
     fn announce_get_peer() {
         let testnet = Testnet::new(10).unwrap();
 
-        let a = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
-        let b = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let a = testnet.new_node().build().unwrap();
+        let b = testnet.new_node().build().unwrap();
 
         let info_hash = Id::random();
 
@@ -751,14 +717,8 @@ mod test {
     fn put_get_immutable() {
         let testnet = Testnet::new(10).unwrap();
 
-        let a = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
-        let b = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let a = testnet.new_node().build().unwrap();
+        let b = testnet.new_node().build().unwrap();
 
         let value = b"Hello World!";
         let expected_target = Id::from_str("e5f96f6f38320f0f33959cb4d3d656452117aadb").unwrap();
@@ -789,14 +749,8 @@ mod test {
     fn put_get_mutable() {
         let testnet = Testnet::new(10).unwrap();
 
-        let a = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
-        let b = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let a = testnet.new_node().build().unwrap();
+        let b = testnet.new_node().build().unwrap();
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -822,14 +776,8 @@ mod test {
     fn put_get_mutable_no_more_recent_value() {
         let testnet = Testnet::new(10).unwrap();
 
-        let a = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
-        let b = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let a = testnet.new_node().build().unwrap();
+        let b = testnet.new_node().build().unwrap();
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -854,10 +802,7 @@ mod test {
     fn repeated_put_query() {
         let testnet = Testnet::new(10).unwrap();
 
-        let a = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let a = testnet.new_node().build().unwrap();
 
         let id = a.put_immutable(&[1, 2, 3]).unwrap();
 
@@ -868,14 +813,8 @@ mod test {
     fn concurrent_get_mutable() {
         let testnet = Testnet::new(10).unwrap();
 
-        let a = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
-        let b = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let a = testnet.new_node().build().unwrap();
+        let b = testnet.new_node().build().unwrap();
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -907,10 +846,7 @@ mod test {
     fn concurrent_put_mutable_same() {
         let testnet = Testnet::new(10).unwrap();
 
-        let client = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let client = testnet.new_node().build().unwrap();
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -942,10 +878,7 @@ mod test {
     fn concurrent_put_mutable_different() {
         let testnet = Testnet::new(10).unwrap();
 
-        let client = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let client = testnet.new_node().build().unwrap();
 
         let mut handles = vec![];
 
@@ -988,10 +921,7 @@ mod test {
     fn concurrent_put_mutable_different_with_cas() {
         let testnet = Testnet::new(10).unwrap();
 
-        let client = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let client = testnet.new_node().build().unwrap();
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -1031,10 +961,7 @@ mod test {
     fn conflict_302_seq_less_than_current() {
         let testnet = Testnet::new(10).unwrap();
 
-        let client = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let client = testnet.new_node().build().unwrap();
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -1057,10 +984,7 @@ mod test {
     fn conflict_301_cas() {
         let testnet = Testnet::new(10).unwrap();
 
-        let client = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let client = testnet.new_node().build().unwrap();
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -1087,5 +1011,49 @@ mod test {
             .nodes
             .iter()
             .all(|n| n.to_bootstrap().len() == size - 1));
+    }
+
+    #[test]
+    fn simulation_smoke_test() {
+        let count = 2000;
+
+        let instant = Instant::now();
+        let testnet = Testnet::new(count).unwrap();
+
+        println!(
+            "Finished creating a testnet of {count} nodes in {} seconds.",
+            instant.elapsed().as_secs()
+        );
+
+        let a = testnet.new_node().build().unwrap();
+        let b = testnet.new_node().build().unwrap();
+
+        a.bootstrapped();
+        b.bootstrapped();
+
+        let signer = SigningKey::from_bytes(&[
+            56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
+            228, 127, 70, 4, 204, 182, 64, 77, 98, 92, 215, 27, 103,
+        ]);
+
+        let key = signer.verifying_key().to_bytes();
+        let seq = 1000;
+        let value = b"Hello World!";
+
+        let item = MutableItem::new(signer.clone(), value, seq, None);
+
+        a.put_mutable(item.clone(), None).unwrap();
+
+        let _response_first = b
+            .get_mutable(&key, None, None)
+            .next()
+            .expect("No mutable values");
+
+        let response_second = b
+            .get_mutable(&key, None, None)
+            .next()
+            .expect("No mutable values");
+
+        assert_eq!(&response_second, &item);
     }
 }

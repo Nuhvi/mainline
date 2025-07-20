@@ -1,13 +1,15 @@
 //! UDP socket layer managing incoming/outgoing requests and responses.
 
 use std::io::ErrorKind;
-use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
+use std::net::{SocketAddr, SocketAddrV4};
 use std::time::{Duration, Instant};
 use tracing::{debug, trace, warn};
 
 use crate::common::{ErrorSpecific, Message, MessageType, RequestSpecific, ResponseSpecific};
 
 use super::config::Config;
+
+mod udp;
 
 const VERSION: [u8; 4] = [82, 83, 0, 5]; // "RS" version 05
 const MTU: usize = 2048;
@@ -24,7 +26,7 @@ pub const MAX_POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// A UdpSocket wrapper that formats and correlates DHT requests and responses.
 #[derive(Debug)]
 pub struct KrpcSocket {
-    socket: UdpSocket,
+    socket: Box<dyn udp::Udp>,
     pub(crate) server_mode: bool,
     local_addr: SocketAddrV4,
 
@@ -34,14 +36,14 @@ pub struct KrpcSocket {
 
 impl KrpcSocket {
     pub(crate) fn new(config: &Config) -> Result<Self, std::io::Error> {
-        let port = config.port;
-
-        let socket = if let Some(port) = port {
-            UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0], port)))?
+        let mut socket: Box<dyn udp::Udp> = if config.simulated {
+            udp::sim::UdpSocket::bind()?
+        } else if let Some(port) = config.port {
+            udp::real::UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0], port)))?
         } else {
-            match UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0], DEFAULT_PORT))) {
+            match udp::real::UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0], DEFAULT_PORT))) {
                 Ok(socket) => Ok(socket),
-                Err(_) => UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0], 0))),
+                Err(_) => udp::real::UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0], 0))),
             }?
         };
 
@@ -276,7 +278,7 @@ impl KrpcSocket {
 
     /// Send a raw dht message
     fn send(&mut self, address: SocketAddrV4, message: Message) -> Result<(), SendMessageError> {
-        self.socket.send_to(&message.to_bytes()?, address)?;
+        self.socket.send_to(&message.to_bytes()?, address.into())?;
         trace!(context = "socket_message_sending", message = ?message);
         Ok(())
     }
