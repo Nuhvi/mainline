@@ -4,7 +4,6 @@ use std::{
     collections::HashMap,
     net::{Ipv4Addr, SocketAddrV4, ToSocketAddrs},
     thread,
-    time::Duration,
 };
 
 use flume::{Receiver, Sender, TryRecvError};
@@ -92,19 +91,6 @@ impl DhtBuilder {
     /// Defaults to depending on suggestions from responding nodes.
     pub fn public_ip(&mut self, public_ip: Ipv4Addr) -> &mut Self {
         self.0.public_ip = Some(public_ip);
-
-        self
-    }
-
-    /// UDP socket request timeout duration.
-    ///
-    /// The longer this duration is, the longer queries take until they are deemeed "done".
-    /// The shortet this duration is, the more responses from busy nodes we miss out on,
-    /// which affects the accuracy of queries trying to find closest nodes to a target.
-    ///
-    /// Defaults to [crate::DEFAULT_REQUEST_TIMEOUT]
-    pub fn request_timeout(&mut self, request_timeout: Duration) -> &mut Self {
-        self.0.request_timeout = request_timeout;
 
         self
     }
@@ -719,7 +705,7 @@ pub enum PutMutableError {
 
 #[cfg(test)]
 mod test {
-    use std::str::FromStr;
+    use std::{str::FromStr, time::Duration};
 
     use ed25519_dalek::SigningKey;
 
