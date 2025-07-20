@@ -24,7 +24,7 @@ pub use dht::{Dht, DhtBuilder, Testnet};
 pub use rpc::{
     messages::{MessageType, PutRequestSpecific, RequestSpecific},
     server::{RequestFilter, ServerSettings, MAX_INFO_HASHES, MAX_PEERS, MAX_VALUES},
-    ClosestNodes, DEFAULT_REQUEST_TIMEOUT,
+    ClosestNodes,
 };
 
 pub use ed25519_dalek::SigningKey;

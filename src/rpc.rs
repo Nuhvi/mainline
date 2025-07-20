@@ -37,7 +37,6 @@ pub use closest_nodes::ClosestNodes;
 pub use info::Info;
 pub use iterative_query::GetRequestSpecific;
 pub use put_query::{ConcurrencyError, PutError, PutQueryError};
-pub use socket::DEFAULT_REQUEST_TIMEOUT;
 
 pub const DEFAULT_BOOTSTRAP_NODES: [&str; 4] = [
     "router.bittorrent.com:6881",

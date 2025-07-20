@@ -13,8 +13,7 @@ const VERSION: [u8; 4] = [82, 83, 0, 5]; // "RS" version 05
 const MTU: usize = 2048;
 
 pub const DEFAULT_PORT: u16 = 6881;
-/// Default request timeout before abandoning an inflight request to a non-responding node.
-pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_millis(2000); // 2 seconds
+
 /// Minimum interval between polling udp socket, lower latency, higher cpu usage.
 /// Useful for checking for expected responses.
 pub const MIN_POLL_INTERVAL: Duration = Duration::from_micros(100);
@@ -56,7 +55,7 @@ impl KrpcSocket {
         Ok(Self {
             socket,
             server_mode: config.server_mode,
-            inflight_requests: InflightRequests::new(config.request_timeout),
+            inflight_requests: InflightRequests::new(),
             local_addr,
             poll_interval: MIN_POLL_INTERVAL,
         })
@@ -320,16 +319,18 @@ pub struct InflightRequest {
 /// Requests are also ordered by their transaction_id and thus sent_at, so lookup is fast.
 struct InflightRequests {
     next_tid: u32,
-    request_timeout: Duration,
     requests: Vec<InflightRequest>,
+    estimated_rtt: Duration,
+    deviation_rtt: Duration,
 }
 
 impl InflightRequests {
-    fn new(request_timeout: Duration) -> Self {
+    fn new() -> Self {
         Self {
             next_tid: 0,
-            request_timeout,
             requests: Vec::new(),
+            estimated_rtt: Duration::from_secs(5),
+            deviation_rtt: Duration::from_secs(0),
         }
     }
 
@@ -342,6 +343,10 @@ impl InflightRequests {
         tid
     }
 
+    fn request_timeout(&self) -> Duration {
+        self.estimated_rtt + self.deviation_rtt.mul_f64(4.0)
+    }
+
     fn is_empty(&self) -> bool {
         self.requests.is_empty()
     }
@@ -349,7 +354,7 @@ impl InflightRequests {
     fn get(&self, key: u32) -> Option<&InflightRequest> {
         if let Ok(index) = self.find_by_tid(key) {
             if let Some(request) = self.requests.get(index) {
-                if request.sent_at.elapsed() < self.request_timeout {
+                if request.sent_at.elapsed() < self.request_timeout() {
                     return Some(request);
                 }
             };
@@ -372,9 +377,32 @@ impl InflightRequests {
 
     fn remove(&mut self, key: u32) -> Option<InflightRequest> {
         match self.find_by_tid(key) {
-            Ok(index) => Some(self.requests.remove(index)),
+            Ok(index) => {
+                let request = self.requests.remove(index);
+
+                self.update_rtt_estimates(request.sent_at.elapsed());
+
+                Some(request)
+            }
             Err(_) => None,
         }
+    }
+
+    fn update_rtt_estimates(&mut self, sample_rtt: Duration) {
+        // Use TCP-like alpha = 1/8, beta = 1/4
+        let alpha = 0.125;
+        let beta = 0.25;
+
+        let sample_rtt_secs = sample_rtt.as_secs_f64();
+        let est_rtt_secs = self.estimated_rtt.as_secs_f64();
+        let dev_rtt_secs = self.deviation_rtt.as_secs_f64();
+
+        let new_est_rtt = (1.0 - alpha) * est_rtt_secs + alpha * sample_rtt_secs;
+        let new_dev_rtt =
+            (1.0 - beta) * dev_rtt_secs + beta * (sample_rtt_secs - new_est_rtt).abs();
+
+        self.estimated_rtt = Duration::from_secs_f64(new_est_rtt);
+        self.deviation_rtt = Duration::from_secs_f64(new_dev_rtt);
     }
 
     fn find_by_tid(&self, tid: u32) -> Result<usize, usize> {
@@ -390,7 +418,7 @@ impl InflightRequests {
 
         let index = match self
             .requests
-            .binary_search_by(|request| self.request_timeout.cmp(&request.sent_at.elapsed()))
+            .binary_search_by(|request| self.request_timeout().cmp(&request.sent_at.elapsed()))
         {
             Ok(index) => index,
             Err(index) => index,
@@ -546,7 +574,7 @@ mod test {
             sent_at,
         });
 
-        std::thread::sleep(DEFAULT_REQUEST_TIMEOUT);
+        std::thread::sleep(server.inflight_requests.request_timeout());
 
         assert!(!server.inflight(&tid));
     }
