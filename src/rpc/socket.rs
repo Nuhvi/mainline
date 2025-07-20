@@ -86,12 +86,12 @@ impl KrpcSocket {
     // === Public Methods ===
 
     /// Returns true if this message's transaction_id is still inflight
-    pub fn inflight(&self, transaction_id: &u16) -> bool {
+    pub fn inflight(&self, transaction_id: &u32) -> bool {
         self.inflight_requests.get(*transaction_id).is_some()
     }
 
     /// Send a request to the given address and return the transaction_id
-    pub fn request(&mut self, address: SocketAddrV4, request: RequestSpecific) -> u16 {
+    pub fn request(&mut self, address: SocketAddrV4, request: RequestSpecific) -> u32 {
         let transaction_id = self.inflight_requests.add(address);
 
         let message = self.request_message(transaction_id, request);
@@ -109,7 +109,7 @@ impl KrpcSocket {
     pub fn response(
         &mut self,
         address: SocketAddrV4,
-        transaction_id: u16,
+        transaction_id: u32,
         response: ResponseSpecific,
     ) {
         let message =
@@ -121,7 +121,7 @@ impl KrpcSocket {
     }
 
     /// Send an error to the given address.
-    pub fn error(&mut self, address: SocketAddrV4, transaction_id: u16, error: ErrorSpecific) {
+    pub fn error(&mut self, address: SocketAddrV4, transaction_id: u32, error: ErrorSpecific) {
         let message = self.response_message(MessageType::Error(error), address, transaction_id);
         let _ = self.send(address, message).map_err(|e| {
             debug!(?e, "Error sending error message");
@@ -248,7 +248,7 @@ impl KrpcSocket {
     }
 
     /// Set transactin_id, version and read_only
-    fn request_message(&mut self, transaction_id: u16, message: RequestSpecific) -> Message {
+    fn request_message(&mut self, transaction_id: u32, message: RequestSpecific) -> Message {
         Message {
             transaction_id,
             message_type: MessageType::Request(message),
@@ -263,7 +263,7 @@ impl KrpcSocket {
         &mut self,
         message: MessageType,
         requester_ip: SocketAddrV4,
-        request_tid: u16,
+        request_tid: u32,
     ) -> Message {
         Message {
             transaction_id: request_tid,
@@ -310,7 +310,7 @@ fn compare_socket_addr(a: &SocketAddrV4, b: &SocketAddrV4) -> bool {
 
 #[derive(Debug)]
 pub struct InflightRequest {
-    tid: u16,
+    tid: u32,
     to: SocketAddrV4,
     sent_at: Instant,
 }
@@ -319,7 +319,7 @@ pub struct InflightRequest {
 /// We don't need a map, since we know the maximum size is `65536` requests.
 /// Requests are also ordered by their transaction_id and thus sent_at, so lookup is fast.
 struct InflightRequests {
-    next_tid: u16,
+    next_tid: u32,
     request_timeout: Duration,
     requests: Vec<InflightRequest>,
 }
@@ -334,7 +334,7 @@ impl InflightRequests {
     }
 
     /// Increments self.next_tid and returns the previous value.
-    fn tid(&mut self) -> u16 {
+    fn tid(&mut self) -> u32 {
         // We don't reuse freed transaction ids, to preserve the sortablitiy
         // of both `tid`s and `sent_at`.
         let tid = self.next_tid;
@@ -346,7 +346,7 @@ impl InflightRequests {
         self.requests.is_empty()
     }
 
-    fn get(&self, key: u16) -> Option<&InflightRequest> {
+    fn get(&self, key: u32) -> Option<&InflightRequest> {
         if let Ok(index) = self.find_by_tid(key) {
             if let Some(request) = self.requests.get(index) {
                 if request.sent_at.elapsed() < self.request_timeout {
@@ -359,7 +359,7 @@ impl InflightRequests {
     }
 
     /// Adds a [InflightRequest] with new transaction_id, and returns that id.
-    fn add(&mut self, to: SocketAddrV4) -> u16 {
+    fn add(&mut self, to: SocketAddrV4) -> u32 {
         let tid = self.tid();
         self.requests.push(InflightRequest {
             tid,
@@ -370,14 +370,14 @@ impl InflightRequests {
         tid
     }
 
-    fn remove(&mut self, key: u16) -> Option<InflightRequest> {
+    fn remove(&mut self, key: u32) -> Option<InflightRequest> {
         match self.find_by_tid(key) {
             Ok(index) => Some(self.requests.remove(index)),
             Err(_) => None,
         }
     }
 
-    fn find_by_tid(&self, tid: u16) -> Result<usize, usize> {
+    fn find_by_tid(&self, tid: u32) -> Result<usize, usize> {
         self.requests
             .binary_search_by(|request| request.tid.cmp(&tid))
     }
@@ -416,9 +416,9 @@ mod test {
         assert_eq!(socket.inflight_requests.tid(), 1);
         assert_eq!(socket.inflight_requests.tid(), 2);
 
-        socket.inflight_requests.next_tid = u16::MAX;
+        socket.inflight_requests.next_tid = u32::MAX;
 
-        assert_eq!(socket.inflight_requests.tid(), 65535);
+        assert_eq!(socket.inflight_requests.tid(), u32::MAX);
         assert_eq!(socket.inflight_requests.tid(), 0);
     }
 
