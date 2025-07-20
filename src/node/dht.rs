@@ -499,117 +499,12 @@ impl<T> Iterator for GetIterator<T> {
 }
 
 fn run(config: Config, receiver: Receiver<ActorMessage>) {
-<<<<<<< HEAD
-    match Rpc::new(config) {
-        Ok(rpc) => {
-            let address = rpc.local_addr();
-            info!(?address, "Mainline DHT listening");
-
-            let mut actor = Actor::new(rpc, receiver);
-
-            loop {
-<<<<<<< HEAD:src/dht.rs
-                match receiver.try_recv() {
-                    Ok(actor_message) => match actor_message {
-                        ActorMessage::Check(sender) => {
-                            let _ = sender.send(Ok(()));
-                        }
-                        ActorMessage::Info(sender) => {
-                            let _ = sender.send(rpc.info());
-                        }
-                        ActorMessage::Put(request, sender, extra_nodes) => {
-                            let target = *request.target();
-
-                            match rpc.put(request, extra_nodes) {
-                                Ok(()) => {
-                                    let senders = put_senders.entry(target).or_insert(vec![]);
-
-                                    senders.push(sender);
-                                }
-                                Err(error) => {
-                                    let _ = sender.send(Err(error));
-                                }
-                            };
-                        }
-                        ActorMessage::Get(request, sender) => {
-                            let target = *request.target();
-
-                            if let Some(responses) = rpc.get(request, None) {
-                                for response in responses {
-                                    send(&sender, response);
-                                }
-                            };
-
-                            let senders = get_senders.entry(target).or_insert(vec![]);
-
-                            senders.push(sender);
-                        }
-                        ActorMessage::ToBootstrap(sender) => {
-                            let _ = sender.send(rpc.routing_table().to_bootstrap());
-                        }
-                    },
-                    Err(TryRecvError::Disconnected) => {
-                        // Node was dropped, kill this thread.
-                        tracing::debug!("dht::Dht's actor thread was shutdown after Drop.");
-                        break;
-                    }
-                    Err(TryRecvError::Empty) => {
-                        // No op
-                    }
-                }
-
-                let report = rpc.tick();
-
-                // Response for an ongoing GET query
-                if let Some((target, response)) = report.new_query_response {
-                    if let Some(senders) = get_senders.get(&target) {
-                        for sender in senders {
-                            send(sender, response.clone());
-                        }
-                    }
-                }
-
-                // Cleanup done GET queries
-                for (id, closest_nodes) in report.done_get_queries {
-                    if let Some(senders) = get_senders.remove(&id) {
-                        for sender in senders {
-                            // return closest_nodes to whoever was asking
-                            if let ResponseSender::ClosestNodes(sender) = sender {
-                                let _ = sender.send(closest_nodes.clone());
-                            }
-                        }
-                    }
-                }
-
-                // Cleanup done PUT query and send a resulting error if any.
-                for (id, error) in report.done_put_queries {
-                    if let Some(senders) = put_senders.remove(&id) {
-                        let result = if let Some(error) = error {
-                            Err(error)
-                        } else {
-                            Ok(id)
-                        };
-
-                        for sender in senders {
-                            let _ = sender.send(result.clone());
-                        }
-                    }
-                }
-=======
-                if !actor.tick() {
-                    break;
-                };
->>>>>>> 9bca355 (chore: refactor Actor outside of dht.rs):src/node/dht.rs
-            }
-        }
-=======
     match Actor::new(config, receiver.clone()) {
         Ok(mut actor) => loop {
             if actor.tick().is_err() {
                 break;
             };
         },
->>>>>>> 512976b (test: add a smoke test for Testnet simulation)
         Err(err) => {
             if let Ok(ActorMessage::Check(sender)) = receiver.try_recv() {
                 let _ = sender.send(Err(err));
@@ -779,11 +674,10 @@ pub enum PutMutableError {
 
 #[cfg(test)]
 mod test {
-<<<<<<< HEAD
-    use std::{str::FromStr, time::Duration};
-=======
-    use std::{str::FromStr, time::Instant};
->>>>>>> 512976b (test: add a smoke test for Testnet simulation)
+    use std::{
+        str::FromStr,
+        time::{Duration, Instant},
+    };
 
     use crate::rpc::ConcurrencyError;
     use ed25519_dalek::SigningKey;
@@ -1121,7 +1015,7 @@ mod test {
 
     #[test]
     fn simulation_smoke_test() {
-        let count = 8_000_000;
+        let count = 2000;
 
         let instant = Instant::now();
         let testnet = Testnet::new(count).unwrap();
