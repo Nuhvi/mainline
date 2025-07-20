@@ -33,13 +33,6 @@ pub struct KrpcSocket {
     poll_interval: Duration,
 }
 
-#[derive(Debug)]
-pub struct InflightRequest {
-    tid: u16,
-    to: SocketAddrV4,
-    sent_at: Instant,
-}
-
 impl KrpcSocket {
     pub(crate) fn new(config: &Config) -> Result<Self, std::io::Error> {
         let port = config.port;
@@ -99,14 +92,10 @@ impl KrpcSocket {
 
     /// Send a request to the given address and return the transaction_id
     pub fn request(&mut self, address: SocketAddrV4, request: RequestSpecific) -> u16 {
-        let message = self.request_message(request);
-        trace!(context = "socket_message_sending", message = ?message);
+        let transaction_id = self.inflight_requests.add(address);
 
-        self.inflight_requests.push(InflightRequest {
-            tid: message.transaction_id,
-            to: address,
-            sent_at: Instant::now(),
-        });
+        let message = self.request_message(transaction_id, request);
+        trace!(context = "socket_message_sending", message = ?message);
 
         let tid = message.transaction_id;
         let _ = self.send(address, message).map_err(|e| {
@@ -259,9 +248,7 @@ impl KrpcSocket {
     }
 
     /// Set transactin_id, version and read_only
-    fn request_message(&mut self, message: RequestSpecific) -> Message {
-        let transaction_id = self.inflight_requests.tid();
-
+    fn request_message(&mut self, transaction_id: u16, message: RequestSpecific) -> Message {
         Message {
             transaction_id,
             message_type: MessageType::Request(message),
@@ -322,6 +309,13 @@ fn compare_socket_addr(a: &SocketAddrV4, b: &SocketAddrV4) -> bool {
 }
 
 #[derive(Debug)]
+pub struct InflightRequest {
+    tid: u16,
+    to: SocketAddrV4,
+    sent_at: Instant,
+}
+
+#[derive(Debug)]
 /// We don't need a map, since we know the maximum size is `65536` requests.
 /// Requests are also ordered by their transaction_id and thus sent_at, so lookup is fast.
 struct InflightRequests {
@@ -364,8 +358,16 @@ impl InflightRequests {
         None
     }
 
-    fn push(&mut self, inflight_request: InflightRequest) {
-        self.requests.push(inflight_request);
+    /// Adds a [InflightRequest] with new transaction_id, and returns that id.
+    fn add(&mut self, to: SocketAddrV4) -> u16 {
+        let tid = self.tid();
+        self.requests.push(InflightRequest {
+            tid,
+            to,
+            sent_at: Instant::now(),
+        });
+
+        tid
     }
 
     fn remove(&mut self, key: u16) -> Option<InflightRequest> {
@@ -467,7 +469,7 @@ mod test {
             let server_address = server.local_addr();
             tx.send(server_address).unwrap();
 
-            server.inflight_requests.push(InflightRequest {
+            server.inflight_requests.requests.push(InflightRequest {
                 tid: 8,
                 to: client_address,
                 sent_at: Instant::now(),
@@ -506,7 +508,7 @@ mod test {
 
         let client_address = client.local_addr();
 
-        server.inflight_requests.push(InflightRequest {
+        server.inflight_requests.requests.push(InflightRequest {
             tid: 8,
             to: SocketAddrV4::new([127, 0, 0, 1].into(), client_address.port() + 1),
             sent_at: Instant::now(),
@@ -538,7 +540,7 @@ mod test {
         let tid = 8;
         let sent_at = Instant::now();
 
-        server.inflight_requests.push(InflightRequest {
+        server.inflight_requests.requests.push(InflightRequest {
             tid,
             to: SocketAddrV4::new([0, 0, 0, 0].into(), 0),
             sent_at,
