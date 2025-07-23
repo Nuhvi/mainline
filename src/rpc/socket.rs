@@ -101,6 +101,9 @@ impl KrpcSocket {
             debug!(?e, "Error sending request message");
         });
 
+        self.poll_interval = MIN_POLL_INTERVAL;
+        let _ = self.socket.set_read_timeout(Some(self.poll_interval));
+
         tid
     }
 
