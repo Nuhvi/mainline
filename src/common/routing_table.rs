@@ -112,7 +112,7 @@ impl RoutingTable {
     }
 
     /// Returns an iterator over the nodes in this routing table.
-    pub fn nodes(&self) -> RoutingTableIterator {
+    pub fn nodes(&self) -> RoutingTableIterator<'_> {
         RoutingTableIterator {
             bucket_index: 1,
             node_index: 0,
