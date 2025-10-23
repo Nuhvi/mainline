@@ -754,4 +754,22 @@ mod test {
 
         futures::executor::block_on(test());
     }
+
+    #[test]
+    fn bootstrap_with_one_node() {
+        async fn test() {
+            let testnet = Testnet::new(1).unwrap();
+
+            let client = Dht::builder()
+                .bootstrap(&testnet.bootstrap)
+                .build()
+                .unwrap();
+
+            assert!(client.bootstrapped());
+
+            dbg!(client.info());
+        }
+
+        futures::executor::block_on(test());
+    }
 }

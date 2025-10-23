@@ -1088,4 +1088,18 @@ mod test {
             .iter()
             .all(|n| n.to_bootstrap().len() == size - 1));
     }
+
+    #[test]
+    fn bootstrap_with_one_node() {
+        let testnet = Testnet::new(1).unwrap();
+
+        let client = Dht::builder()
+            .bootstrap(&testnet.bootstrap)
+            .build()
+            .unwrap();
+
+        assert!(client.bootstrapped());
+
+        dbg!(client.info());
+    }
 }

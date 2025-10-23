@@ -1,5 +1,6 @@
 //! UDP socket layer managing incoming/outgoing requests and responses.
 
+use std::fmt::Debug;
 use std::io::ErrorKind;
 use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
 use std::time::{Duration, Instant};
@@ -212,6 +213,7 @@ impl KrpcSocket {
                     if self.poll_interval < MAX_POLL_INTERVAL {
                         self.poll_interval = (self.poll_interval * 2).min(MAX_POLL_INTERVAL);
                         let _ = self.socket.set_read_timeout(Some(self.poll_interval));
+                        trace!("Increased poll_interval {:?}", self.poll_interval);
                     }
                 }
                 _ => {
@@ -310,14 +312,22 @@ fn compare_socket_addr(a: &SocketAddrV4, b: &SocketAddrV4) -> bool {
     a.ip() == b.ip()
 }
 
-#[derive(Debug)]
 pub struct InflightRequest {
     tid: u32,
     to: SocketAddrV4,
     sent_at: Instant,
 }
 
-#[derive(Debug)]
+impl Debug for InflightRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InflightRequest")
+            .field("tid", &self.tid)
+            .field("to", &self.to)
+            .field("elapsed", &self.sent_at.elapsed())
+            .finish()
+    }
+}
+
 /// We don't need a map, since we know the maximum size is `65536` requests.
 /// Requests are also ordered by their transaction_id and thus sent_at, so lookup is fast.
 struct InflightRequests {
@@ -332,7 +342,7 @@ impl InflightRequests {
         Self {
             next_tid: 0,
             requests: Vec::new(),
-            estimated_rtt: Duration::from_secs(5),
+            estimated_rtt: Duration::from_millis(500),
             deviation_rtt: Duration::from_secs(0),
         }
     }
@@ -384,6 +394,11 @@ impl InflightRequests {
                 let request = self.requests.remove(index);
 
                 self.update_rtt_estimates(request.sent_at.elapsed());
+                trace!(
+                    "Updated estimated round trip time {:?} and request timeout {:?}",
+                    self.estimated_rtt,
+                    self.request_timeout()
+                );
 
                 Some(request)
             }
@@ -428,6 +443,25 @@ impl InflightRequests {
         };
 
         self.requests.drain(0..index);
+    }
+}
+
+impl Debug for InflightRequests {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let timeout = self.request_timeout();
+        let non_expired: Vec<_> = self
+            .requests
+            .iter()
+            .filter(|req| req.sent_at.elapsed() < timeout)
+            .collect();
+
+        f.debug_struct("InflightRequests")
+            .field("next_tid", &self.next_tid)
+            .field("requests", &non_expired)
+            .field("estimated_rtt", &self.estimated_rtt)
+            .field("deviation_rtt", &self.deviation_rtt)
+            .field("request_timeout", &timeout)
+            .finish()
     }
 }
 

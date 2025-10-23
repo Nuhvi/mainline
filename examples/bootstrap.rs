@@ -8,11 +8,22 @@ fn main() {
         .with_max_level(Level::DEBUG)
         .init();
 
-    let client = Dht::client().unwrap();
+    let client = Dht::server().unwrap();
 
     client.bootstrapped();
 
     let info = client.info();
 
-    println!("{:?}", info);
+    println!("{info:?}");
+
+    let client = Dht::builder()
+        .bootstrap(&[info.local_addr()])
+        .build()
+        .unwrap();
+
+    client.bootstrapped();
+
+    let info = client.info();
+
+    println!("Bootstrapped using local node. {info:?}");
 }
