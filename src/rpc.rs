@@ -251,7 +251,7 @@ impl Rpc {
                 let closest_nodes =
                     if let RequestTypeSpecific::FindNode(_) = query.request.request_type {
                         if *id == self_id {
-                            if table_size == 0 {
+                            if !self.bootstrap.is_empty() && table_size == 0 {
                                 error!("Could not bootstrap the routing table");
                             } else {
                                 debug!(?self_id, table_size, "Populated the routing table");
