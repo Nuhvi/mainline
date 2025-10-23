@@ -23,11 +23,9 @@ ed25519-dalek = "3.0.0-pre.1"
 tracing = "0.1"
 lru = { version = "0.13.0", default-features = false }
 dyn-clone = "1.0.18"
+flume = { version = "0.11.1", features = [], default-features = false }
 
 document-features = "0.2.10"
-
-# `node` dependencies
-flume = { version = "0.11.1", features = [], default-features = false, optional = true }
 
 # `async` dependencies
 futures-lite = { version = "2.6.0", default-features = false, optional = true }
@@ -45,10 +43,8 @@ colored = "3.0.0"
 chrono = "0.4"
 
 [features]
-## Include [Dht] node.
-node = ["dep:flume"]
 ## Enable [Dht::as_async()] to use [async_dht::AsyncDht].
-async = ["node", "flume/async", "dep:futures-lite"]
+async = ["flume/async", "dep:futures-lite"]
 
 full = ["async"]
 
