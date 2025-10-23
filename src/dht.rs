@@ -1099,7 +1099,5 @@ mod test {
             .unwrap();
 
         assert!(client.bootstrapped());
-
-        dbg!(client.info());
     }
 }

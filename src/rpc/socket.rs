@@ -21,6 +21,7 @@ pub const MIN_POLL_INTERVAL: Duration = Duration::from_micros(100);
 /// Maximum interval between polling udp socket, higher latency, lower cpu usage.
 /// Useful for waiting for incoming requests, and [super::Rpc::periodic_node_maintaenance].
 pub const MAX_POLL_INTERVAL: Duration = Duration::from_secs(1);
+pub const MIN_REQUEST_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// A UdpSocket wrapper that formats and correlates DHT requests and responses.
 #[derive(Debug)]
@@ -342,7 +343,7 @@ impl InflightRequests {
         Self {
             next_tid: 0,
             requests: Vec::new(),
-            estimated_rtt: Duration::from_millis(500),
+            estimated_rtt: MIN_REQUEST_TIMEOUT,
             deviation_rtt: Duration::from_secs(0),
         }
     }
@@ -407,6 +408,10 @@ impl InflightRequests {
     }
 
     fn update_rtt_estimates(&mut self, sample_rtt: Duration) {
+        if sample_rtt < MIN_REQUEST_TIMEOUT {
+            return;
+        }
+
         // Use TCP-like alpha = 1/8, beta = 1/4
         let alpha = 0.125;
         let beta = 0.25;

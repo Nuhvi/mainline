@@ -766,8 +766,6 @@ mod test {
                 .unwrap();
 
             assert!(client.bootstrapped());
-
-            dbg!(client.info());
         }
 
         futures::executor::block_on(test());
