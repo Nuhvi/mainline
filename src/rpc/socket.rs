@@ -20,7 +20,7 @@ pub const DEFAULT_PORT: u16 = 6881;
 pub const MIN_POLL_INTERVAL: Duration = Duration::from_micros(100);
 /// Maximum interval between polling udp socket, higher latency, lower cpu usage.
 /// Useful for waiting for incoming requests, and [super::Rpc::periodic_node_maintaenance].
-pub const MAX_POLL_INTERVAL: Duration = Duration::from_secs(1);
+pub const MAX_POLL_INTERVAL: Duration = Duration::from_millis(500);
 pub const MIN_REQUEST_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// A UdpSocket wrapper that formats and correlates DHT requests and responses.
@@ -212,7 +212,8 @@ impl KrpcSocket {
             Err(error) => match error.kind() {
                 ErrorKind::WouldBlock => {
                     if self.poll_interval < MAX_POLL_INTERVAL {
-                        self.poll_interval = (self.poll_interval * 2).min(MAX_POLL_INTERVAL);
+                        self.poll_interval =
+                            (self.poll_interval.mul_f32(1.1)).min(MAX_POLL_INTERVAL);
                         let _ = self.socket.set_read_timeout(Some(self.poll_interval));
                         trace!("Increased poll_interval {:?}", self.poll_interval);
                     }
