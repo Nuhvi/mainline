@@ -4,9 +4,18 @@ All notable changes to mainline dht will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Internal `request_timeout` estimation based on observed RTTs.
+
 ### Removed
 
-- `DhtBuilder::request_timeout()`
+- `DhtBuilder::request_timeout()` (Breaking change).
+
+### Changed
+
+- Upgrade `getrandom` to `v0.3`
+- Upgrade `ed25519-dalek` to `v3.0.0-pre.1` (Breaking change)
 
 ### Fixed
 
