@@ -11,6 +11,7 @@ All notable changes to mainline dht will be documented in this file.
 ### Removed
 
 - `DhtBuilder::request_timeout()` (Breaking change).
+- `node` Feature flag, now the `Dht` is always available
 
 ### Changed
 

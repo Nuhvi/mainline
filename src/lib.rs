@@ -8,7 +8,6 @@
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
 
 mod common;
-#[cfg(feature = "node")]
 mod dht;
 mod rpc;
 
@@ -18,9 +17,7 @@ pub mod async_dht;
 
 pub use common::{Id, MutableItem, Node, RoutingTable};
 
-#[cfg(feature = "node")]
 pub use dht::{Dht, DhtBuilder, Testnet};
-#[cfg(feature = "node")]
 pub use rpc::{
     messages::{MessageType, PutRequestSpecific, RequestSpecific},
     server::{RequestFilter, ServerSettings, MAX_INFO_HASHES, MAX_PEERS, MAX_VALUES},
@@ -31,11 +28,8 @@ pub use ed25519_dalek::SigningKey;
 
 pub mod errors {
     //! Exported errors
-    #[cfg(feature = "node")]
     pub use super::common::ErrorSpecific;
-    #[cfg(feature = "node")]
     pub use super::dht::PutMutableError;
-    #[cfg(feature = "node")]
     pub use super::rpc::{ConcurrencyError, PutError, PutQueryError};
 
     pub use super::common::DecodeIdError;
