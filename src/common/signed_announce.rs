@@ -22,15 +22,15 @@ pub struct SignedAnnounce {
 }
 
 impl SignedAnnounce {
-    /// Create a new SignedAnnounce for a target (infohash).
-    pub fn new(signer: &SigningKey, target: &Id) -> Self {
+    /// Create a new SignedAnnounce for a info_hash.
+    pub fn new(signer: &SigningKey, info_hash: &Id) -> Self {
         let timestamp = system_time();
 
-        Self::new_with_timestamp(&signer, target, timestamp)
+        Self::new_with_timestamp(&signer, info_hash, timestamp)
     }
 
-    pub(crate) fn new_with_timestamp(signer: &SigningKey, target: &Id, timestamp: u64) -> Self {
-        let signable = encode_signable(target, timestamp);
+    pub(crate) fn new_with_timestamp(signer: &SigningKey, info_hash: &Id, timestamp: u64) -> Self {
+        let signable = encode_signable(info_hash, timestamp);
         let signature = signer.sign(&signable);
 
         Self {
@@ -41,7 +41,7 @@ impl SignedAnnounce {
     }
 
     pub(crate) fn from_dht_message(
-        target: &Id,
+        info_hash: &Id,
         key: &[u8],
         timestamp: u64,
         signature: &[u8],
@@ -52,7 +52,7 @@ impl SignedAnnounce {
         let signature = Signature::from_slice(signature)
             .map_err(|_| SignedAnnounceError::InvalidSignedAnnounceSignature)?;
 
-        key.verify(&encode_signable(target, timestamp), &signature)
+        key.verify(&encode_signable(info_hash, timestamp), &signature)
             .map_err(|_| SignedAnnounceError::InvalidSignedAnnounceSignature)?;
 
         let now = system_time();
@@ -80,7 +80,7 @@ impl SignedAnnounce {
         self.timestamp
     }
 
-    /// Returns the signature over this announcement's `target` (infohash) and timestamp.
+    /// Returns the signature over this announcement's `info_hash` (infohash) and timestamp.
     pub fn signature(&self) -> &[u8; 64] {
         &self.signature
     }
@@ -93,10 +93,10 @@ fn system_time() -> u64 {
         .as_micros() as u64
 }
 
-pub fn encode_signable(target: &Id, timestamp: u64) -> Box<[u8]> {
+pub fn encode_signable(info_hash: &Id, timestamp: u64) -> Box<[u8]> {
     let mut signable = vec![];
 
-    signable.extend(target.as_bytes());
+    signable.extend(info_hash.as_bytes());
     signable.extend(timestamp.to_be_bytes());
 
     signable.into()
@@ -128,13 +128,14 @@ mod tests {
         getrandom::fill(&mut secret_key).unwrap();
         let signer = SigningKey::from_bytes(&secret_key);
 
-        let target = Id::random();
+        let info_hash = Id::random();
 
         let now = system_time();
-        let announce = SignedAnnounce::new_with_timestamp(&signer, &target, now + 50 * 1000 * 1000);
+        let announce =
+            SignedAnnounce::new_with_timestamp(&signer, &info_hash, now + 50 * 1000 * 1000);
 
         let result = SignedAnnounce::from_dht_message(
-            &target,
+            &info_hash,
             announce.key(),
             announce.timestamp,
             &announce.signature,
@@ -147,10 +148,11 @@ mod tests {
         ));
 
         let now = system_time();
-        let announce = SignedAnnounce::new_with_timestamp(&signer, &target, now - 50 * 1000 * 1000);
+        let announce =
+            SignedAnnounce::new_with_timestamp(&signer, &info_hash, now - 50 * 1000 * 1000);
 
         let result = SignedAnnounce::from_dht_message(
-            &target,
+            &info_hash,
             announce.key(),
             announce.timestamp,
             &announce.signature,
@@ -168,20 +170,24 @@ mod tests {
         getrandom::fill(&mut secret_key).unwrap();
         let signer = SigningKey::from_bytes(&secret_key);
 
-        let target = Id::random();
+        let info_hash = Id::random();
 
-        let announce = SignedAnnounce::new(&signer, &target);
+        let announce = SignedAnnounce::new(&signer, &info_hash);
 
         SignedAnnounce::from_dht_message(
-            &target,
+            &info_hash,
             announce.key(),
             announce.timestamp,
             &announce.signature,
         )
         .unwrap();
 
-        let result =
-            SignedAnnounce::from_dht_message(&target, announce.key(), announce.timestamp, &[0; 64]);
+        let result = SignedAnnounce::from_dht_message(
+            &info_hash,
+            announce.key(),
+            announce.timestamp,
+            &[0; 64],
+        );
 
         assert!(matches!(
             result,
@@ -189,7 +195,7 @@ mod tests {
         ));
 
         let result = SignedAnnounce::from_dht_message(
-            &target,
+            &info_hash,
             &[0; 30],
             announce.timestamp,
             &announce.signature,

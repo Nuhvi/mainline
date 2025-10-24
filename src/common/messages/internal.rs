@@ -74,6 +74,12 @@ pub enum DHTRequestSpecific {
         arguments: DHTAnnouncePeerRequestArguments,
     },
 
+    #[serde(rename = "announce_signed_peer")]
+    AnnounceSignedPeer {
+        #[serde(rename = "a")]
+        arguments: DHTAnnounceSignedPeerRequestArguments,
+    },
+
     #[serde(rename = "get")]
     GetValue {
         #[serde(rename = "a")]
@@ -224,6 +230,27 @@ pub struct DHTAnnouncePeerRequestArguments {
 
     #[serde(default)]
     pub implied_port: Option<u8>,
+}
+
+/// === Announce Signed Peer ===
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct DHTAnnounceSignedPeerRequestArguments {
+    #[serde(with = "serde_bytes")]
+    pub id: [u8; 20],
+
+    #[serde(with = "serde_bytes")]
+    pub info_hash: [u8; 20],
+
+    #[serde(with = "serde_bytes")]
+    pub token: Box<[u8]>,
+
+    #[serde(with = "serde_bytes")]
+    pub k: [u8; 32],
+
+    #[serde(with = "serde_bytes")]
+    pub sig: [u8; 64],
+
+    pub t: i64,
 }
 
 // === Get Value ===

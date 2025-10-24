@@ -71,6 +71,7 @@ pub struct PutRequest {
 #[derive(Debug, PartialEq, Clone)]
 pub enum PutRequestSpecific {
     AnnouncePeer(AnnouncePeerRequestArguments),
+    AnnounceSignedPeer(AnnounceSignedPeerRequestArguments),
     PutImmutable(PutImmutableRequestArguments),
     PutMutable(PutMutableRequestArguments),
 }
@@ -80,6 +81,10 @@ impl PutRequestSpecific {
         match self {
             PutRequestSpecific::AnnouncePeer(AnnouncePeerRequestArguments {
                 info_hash, ..
+            }) => info_hash,
+            PutRequestSpecific::AnnounceSignedPeer(AnnounceSignedPeerRequestArguments {
+                info_hash,
+                ..
             }) => info_hash,
             PutRequestSpecific::PutMutable(PutMutableRequestArguments { target, .. }) => target,
             PutRequestSpecific::PutImmutable(PutImmutableRequestArguments { target, .. }) => target,
@@ -157,6 +162,14 @@ pub struct AnnouncePeerRequestArguments {
     pub info_hash: Id,
     pub port: u16,
     pub implied_port: Option<bool>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct AnnounceSignedPeerRequestArguments {
+    pub info_hash: Id,
+    pub t: u64,
+    pub k: [u8; 32],
+    pub sig: [u8; 64],
 }
 
 // === Get Immutable ===
@@ -272,6 +285,19 @@ impl Message {
                                     } else {
                                         Some(0)
                                     },
+                                },
+                            }
+                        }
+                        PutRequestSpecific::AnnounceSignedPeer(announce_signed_peer_args) => {
+                            internal::DHTRequestSpecific::AnnounceSignedPeer {
+                                arguments: internal::DHTAnnounceSignedPeerRequestArguments {
+                                    id: requester_id.into(),
+                                    token,
+
+                                    info_hash: announce_signed_peer_args.info_hash.into(),
+                                    t: announce_signed_peer_args.t as i64,
+                                    k: announce_signed_peer_args.k,
+                                    sig: announce_signed_peer_args.sig,
                                 },
                             }
                         }
@@ -456,6 +482,23 @@ impl Message {
                                                 .map(|implied_port| implied_port != 0),
                                             info_hash: arguments.info_hash.into(),
                                             port: arguments.port,
+                                        },
+                                    ),
+                                }),
+                            }
+                        }
+                        internal::DHTRequestSpecific::AnnounceSignedPeer { arguments } => {
+                            RequestSpecific {
+                                requester_id: Id::from_bytes(arguments.id)?,
+
+                                request_type: RequestTypeSpecific::Put(PutRequest {
+                                    token: arguments.token,
+                                    put_request_type: PutRequestSpecific::AnnounceSignedPeer(
+                                        AnnounceSignedPeerRequestArguments {
+                                            info_hash: Id::from_bytes(arguments.info_hash)?,
+                                            t: arguments.t as u64,
+                                            k: arguments.k,
+                                            sig: arguments.sig,
                                         },
                                     ),
                                 }),

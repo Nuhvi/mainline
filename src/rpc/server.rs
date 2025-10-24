@@ -11,12 +11,13 @@ use lru::LruCache;
 use tracing::debug;
 
 use crate::common::{
-    validate_immutable, AnnouncePeerRequestArguments, ErrorSpecific, FindNodeRequestArguments,
-    FindNodeResponseArguments, GetImmutableResponseArguments, GetMutableResponseArguments,
-    GetPeersRequestArguments, GetPeersResponseArguments, GetValueRequestArguments, Id, MutableItem,
+    validate_immutable, AnnouncePeerRequestArguments, AnnounceSignedPeerRequestArguments,
+    ErrorSpecific, FindNodeRequestArguments, FindNodeResponseArguments,
+    GetImmutableResponseArguments, GetMutableResponseArguments, GetPeersRequestArguments,
+    GetPeersResponseArguments, GetValueRequestArguments, Id, MutableItem,
     NoMoreRecentValueResponseArguments, NoValuesResponseArguments, PingResponseArguments,
     PutImmutableRequestArguments, PutMutableRequestArguments, PutRequest, PutRequestSpecific,
-    RequestTypeSpecific, ResponseSpecific, RoutingTable,
+    RequestTypeSpecific, ResponseSpecific, RoutingTable, SignedAnnounce,
 };
 
 use peers::PeersStore;
@@ -251,6 +252,54 @@ impl Server {
                             responder_id: *routing_table.id(),
                         },
                     )));
+                }
+                PutRequestSpecific::AnnounceSignedPeer(AnnounceSignedPeerRequestArguments {
+                    info_hash,
+                    t,
+                    k,
+                    sig,
+                }) => {
+                    if !self.tokens.validate(from, &token) {
+                        debug!(
+                            ?info_hash,
+                            ?requester_id,
+                            ?from,
+                            request_type = "announce_signed_peer",
+                            "Invalid token"
+                        );
+
+                        return Some(MessageType::Error(ErrorSpecific {
+                            code: 203,
+                            description: "Bad token".to_string(),
+                        }));
+                    }
+
+                    match SignedAnnounce::from_dht_message(&info_hash, &k, t, &sig) {
+                        Ok(peer) => {
+                            self.signed_peers.add_peer(info_hash, peer);
+
+                            return Some(MessageType::Response(ResponseSpecific::Ping(
+                                PingResponseArguments {
+                                    responder_id: *routing_table.id(),
+                                },
+                            )));
+                        }
+                        Err(error) => {
+                            debug!(
+                                ?info_hash,
+                                ?requester_id,
+                                ?from,
+                                ?error,
+                                request_type = "announce_signed_peer",
+                                "Invalid signed announce"
+                            );
+
+                            return Some(MessageType::Error(ErrorSpecific {
+                                code: 203,
+                                description: error.to_string(),
+                            }));
+                        }
+                    }
                 }
                 PutRequestSpecific::PutImmutable(PutImmutableRequestArguments {
                     v,
