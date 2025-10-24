@@ -26,7 +26,7 @@ impl SignedAnnounce {
     pub fn new(signer: &SigningKey, info_hash: &Id) -> Self {
         let timestamp = system_time();
 
-        Self::new_with_timestamp(&signer, info_hash, timestamp)
+        Self::new_with_timestamp(signer, info_hash, timestamp)
     }
 
     pub(crate) fn new_with_timestamp(signer: &SigningKey, info_hash: &Id, timestamp: u64) -> Self {
@@ -46,19 +46,18 @@ impl SignedAnnounce {
         timestamp: u64,
         signature: &[u8],
     ) -> Result<Self, SignedAnnounceError> {
-        let key = VerifyingKey::try_from(key)
-            .map_err(|_| SignedAnnounceError::InvalidSignedAnnouncePublicKey)?;
+        let key = VerifyingKey::try_from(key).map_err(|_| SignedAnnounceError::PublicKey)?;
 
-        let signature = Signature::from_slice(signature)
-            .map_err(|_| SignedAnnounceError::InvalidSignedAnnounceSignature)?;
+        let signature =
+            Signature::from_slice(signature).map_err(|_| SignedAnnounceError::Signature)?;
 
         key.verify(&encode_signable(info_hash, timestamp), &signature)
-            .map_err(|_| SignedAnnounceError::InvalidSignedAnnounceSignature)?;
+            .map_err(|_| SignedAnnounceError::Signature)?;
 
         let now = system_time();
 
         if now.abs_diff(timestamp) > MAX_TIMESTAMP_TOLERANCE {
-            return Err(SignedAnnounceError::InvalidSignedAnnounceTimestamp);
+            return Err(SignedAnnounceError::Timestamp);
         }
 
         Ok(Self {
@@ -107,15 +106,15 @@ pub fn encode_signable(info_hash: &Id, timestamp: u64) -> Box<[u8]> {
 pub enum SignedAnnounceError {
     #[error("Invalid signed announce signature")]
     /// Invalid signed announce signature
-    InvalidSignedAnnounceSignature,
+    Signature,
 
     #[error("Invalid signed announce public key")]
     /// Invalid signed announce public key
-    InvalidSignedAnnouncePublicKey,
+    PublicKey,
 
     #[error("Invalid signed announce timestamp (too far in the future or the past)")]
     /// Invalid signed announce timestamp
-    InvalidSignedAnnounceTimestamp,
+    Timestamp,
 }
 
 #[cfg(test)]
@@ -142,10 +141,7 @@ mod tests {
         );
 
         dbg!(&result);
-        assert!(matches!(
-            result,
-            Err(SignedAnnounceError::InvalidSignedAnnounceTimestamp)
-        ));
+        assert!(matches!(result, Err(SignedAnnounceError::Timestamp)));
 
         let now = system_time();
         let announce =
@@ -158,10 +154,7 @@ mod tests {
             &announce.signature,
         );
 
-        assert!(matches!(
-            result,
-            Err(SignedAnnounceError::InvalidSignedAnnounceTimestamp)
-        ));
+        assert!(matches!(result, Err(SignedAnnounceError::Timestamp)));
     }
 
     #[test]
@@ -189,10 +182,7 @@ mod tests {
             &[0; 64],
         );
 
-        assert!(matches!(
-            result,
-            Err(SignedAnnounceError::InvalidSignedAnnounceSignature)
-        ));
+        assert!(matches!(result, Err(SignedAnnounceError::Signature)));
 
         let result = SignedAnnounce::from_dht_message(
             &info_hash,
@@ -202,9 +192,6 @@ mod tests {
         );
         dbg!(&result);
 
-        assert!(matches!(
-            result,
-            Err(SignedAnnounceError::InvalidSignedAnnouncePublicKey)
-        ));
+        assert!(matches!(result, Err(SignedAnnounceError::PublicKey)));
     }
 }

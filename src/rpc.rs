@@ -21,9 +21,10 @@ use put_query::PutQuery;
 
 use crate::common::{
     validate_immutable, ErrorSpecific, FindNodeRequestArguments, GetImmutableResponseArguments,
-    GetMutableResponseArguments, GetPeersResponseArguments, GetValueRequestArguments, Id, Message,
-    MessageType, MutableItem, NoMoreRecentValueResponseArguments, NoValuesResponseArguments, Node,
-    PutRequestSpecific, RequestSpecific, RequestTypeSpecific, ResponseSpecific, RoutingTable,
+    GetMutableResponseArguments, GetPeersResponseArguments, GetSignedPeersResponseArguments,
+    GetValueRequestArguments, Id, Message, MessageType, MutableItem,
+    NoMoreRecentValueResponseArguments, NoValuesResponseArguments, Node, PutRequestSpecific,
+    RequestSpecific, RequestTypeSpecific, ResponseSpecific, RoutingTable, SignedAnnounce,
     MAX_BUCKET_SIZE_K,
 };
 use server::Server;
@@ -629,6 +630,41 @@ impl Rpc {
 
                     return Some((target, response));
                 }
+                MessageType::Response(ResponseSpecific::GetSignedPeers(
+                    GetSignedPeersResponseArguments {
+                        responder_id,
+                        peers,
+                        ..
+                    },
+                )) => {
+                    let mut verified_peers = vec![];
+                    let mut malicious = false;
+
+                    for (k, t, sig) in peers {
+                        if let Ok(peer) = SignedAnnounce::from_dht_message(&target, &k, t, &sig) {
+                            verified_peers.push(peer);
+                        } else {
+                            malicious = true;
+                            break;
+                        }
+                    }
+
+                    if malicious {
+                        debug!(
+                            ?from,
+                            ?responder_id,
+                            ?from_version,
+                            "Invalid signed announce record"
+                        );
+
+                        should_add_node = false;
+                    } else {
+                        let response = Response::SignedPeers(verified_peers);
+                        query.response(from, response.clone());
+
+                        return Some((target, response));
+                    }
+                }
                 MessageType::Response(ResponseSpecific::GetImmutable(
                     GetImmutableResponseArguments {
                         v, responder_id, ..
@@ -926,6 +962,7 @@ pub struct RpcTickReport {
 #[derive(Debug, Clone)]
 pub enum Response {
     Peers(Vec<SocketAddrV4>),
+    SignedPeers(Vec<SignedAnnounce>),
     Immutable(Box<[u8]>),
     Mutable(MutableItem),
 }

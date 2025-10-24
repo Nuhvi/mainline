@@ -14,10 +14,10 @@ use crate::common::{
     validate_immutable, AnnouncePeerRequestArguments, AnnounceSignedPeerRequestArguments,
     ErrorSpecific, FindNodeRequestArguments, FindNodeResponseArguments,
     GetImmutableResponseArguments, GetMutableResponseArguments, GetPeersRequestArguments,
-    GetPeersResponseArguments, GetValueRequestArguments, Id, MutableItem,
-    NoMoreRecentValueResponseArguments, NoValuesResponseArguments, PingResponseArguments,
-    PutImmutableRequestArguments, PutMutableRequestArguments, PutRequest, PutRequestSpecific,
-    RequestTypeSpecific, ResponseSpecific, RoutingTable, SignedAnnounce,
+    GetPeersResponseArguments, GetSignedPeersResponseArguments, GetValueRequestArguments, Id,
+    MutableItem, NoMoreRecentValueResponseArguments, NoValuesResponseArguments,
+    PingResponseArguments, PutImmutableRequestArguments, PutMutableRequestArguments, PutRequest,
+    PutRequestSpecific, RequestTypeSpecific, ResponseSpecific, RoutingTable, SignedAnnounce,
 };
 
 use peers::PeersStore;
@@ -191,6 +191,26 @@ impl Server {
                         nodes: Some(routing_table.closest(info_hash)),
                         values: peers,
                     }),
+                    None => ResponseSpecific::NoValues(NoValuesResponseArguments {
+                        responder_id: *routing_table.id(),
+                        token: self.tokens.generate_token(from).into(),
+                        nodes: Some(routing_table.closest(info_hash)),
+                    }),
+                })
+            }
+            RequestTypeSpecific::GetSignedPeers(GetPeersRequestArguments { info_hash, .. }) => {
+                MessageType::Response(match self.signed_peers.get_random_peers(&info_hash) {
+                    Some(peers) => {
+                        ResponseSpecific::GetSignedPeers(GetSignedPeersResponseArguments {
+                            responder_id: *routing_table.id(),
+                            token: self.tokens.generate_token(from).into(),
+                            nodes: Some(routing_table.closest(info_hash)),
+                            peers: peers
+                                .iter()
+                                .map(|p| (*p.key(), p.timestamp(), *p.signature()))
+                                .collect(),
+                        })
+                    }
                     None => ResponseSpecific::NoValues(NoValuesResponseArguments {
                         responder_id: *routing_table.id(),
                         token: self.tokens.generate_token(from).into(),
