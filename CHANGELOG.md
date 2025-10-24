@@ -17,6 +17,7 @@ All notable changes to mainline dht will be documented in this file.
 
 - Upgrade `getrandom` to `v0.3`
 - Upgrade `ed25519-dalek` to `v3.0.0-pre.1` (Breaking change)
+- `MutableItem::new()` takes a reference to the signer.
 
 ### Fixed
 

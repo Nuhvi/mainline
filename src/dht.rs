@@ -807,7 +807,7 @@ mod test {
         let seq = 1000;
         let value = b"Hello World!";
 
-        let item = MutableItem::new(signer.clone(), value, seq, None);
+        let item = MutableItem::new(&signer, value, seq, None);
 
         a.put_mutable(item.clone(), None).unwrap();
 
@@ -840,7 +840,7 @@ mod test {
         let seq = 1000;
         let value = b"Hello World!";
 
-        let item = MutableItem::new(signer.clone(), value, seq, None);
+        let item = MutableItem::new(&signer, value, seq, None);
 
         a.put_mutable(item.clone(), None).unwrap();
 
@@ -887,7 +887,7 @@ mod test {
         let seq = 1000;
         let value = b"Hello World!";
 
-        let item = MutableItem::new(signer.clone(), value, seq, None);
+        let item = MutableItem::new(&signer, value, seq, None);
 
         a.put_mutable(item.clone(), None).unwrap();
 
@@ -921,7 +921,7 @@ mod test {
         let seq = 1000;
         let value = b"Hello World!";
 
-        let item = MutableItem::new(signer.clone(), value, seq, None);
+        let item = MutableItem::new(&signer, value, seq, None);
 
         let mut handles = vec![];
 
@@ -963,7 +963,7 @@ mod test {
             let mut value = b"Hello World!".to_vec();
             value.push(i);
 
-            let item = MutableItem::new(signer.clone(), &value, seq, None);
+            let item = MutableItem::new(&signer, &value, seq, None);
 
             let handle = std::thread::spawn(move || {
                 let result = client.put_mutable(item, None);
@@ -1001,7 +1001,7 @@ mod test {
 
         // First
         {
-            let item = MutableItem::new(signer.clone(), &[], 1000, None);
+            let item = MutableItem::new(&signer, &[], 1000, None);
 
             let (sender, _) = flume::bounded::<Result<Id, PutError>>(1);
             let request =
@@ -1016,7 +1016,7 @@ mod test {
 
         // Second
         {
-            let item = MutableItem::new(signer, &[], 1001, None);
+            let item = MutableItem::new(&signer, &[], 1001, None);
 
             let most_recent = client.get_mutable_most_recent(item.key(), None);
 
@@ -1043,11 +1043,11 @@ mod test {
         ]);
 
         client
-            .put_mutable(MutableItem::new(signer.clone(), &[], 1001, None), None)
+            .put_mutable(MutableItem::new(&signer, &[], 1001, None), None)
             .unwrap();
 
         assert!(matches!(
-            client.put_mutable(MutableItem::new(signer, &[], 1000, None), None),
+            client.put_mutable(MutableItem::new(&signer, &[], 1000, None), None),
             Err(PutMutableError::Concurrency(
                 ConcurrencyError::NotMostRecent
             ))
@@ -1069,11 +1069,11 @@ mod test {
         ]);
 
         client
-            .put_mutable(MutableItem::new(signer.clone(), &[], 1001, None), None)
+            .put_mutable(MutableItem::new(&signer, &[], 1001, None), None)
             .unwrap();
 
         assert!(matches!(
-            client.put_mutable(MutableItem::new(signer, &[], 1002, None), Some(1000)),
+            client.put_mutable(MutableItem::new(&signer, &[], 1002, None), Some(1000)),
             Err(PutMutableError::Concurrency(ConcurrencyError::CasFailed))
         ));
     }

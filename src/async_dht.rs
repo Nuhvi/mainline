@@ -268,12 +268,12 @@ impl AsyncDht {
     ///         let new_seq = most_recent_seq + 1;
     ///
     ///         (
-    ///             MutableItem::new(signing_key, &new_value, new_seq, salt),
+    ///             MutableItem::new(&signing_key, &new_value, new_seq, salt),
     ///             // 3. Use the most recent [MutableItem::seq] as a `CAS`.
     ///             Some(most_recent_seq)
     ///         )
     ///     } else {
-    ///         (MutableItem::new(signing_key, b"first value", 1, salt), None)
+    ///         (MutableItem::new(&signing_key, b"first value", 1, salt), None)
     ///     };
     ///
     ///     dht.put_mutable(item, cas).await.unwrap();
@@ -467,7 +467,7 @@ mod test {
             let seq = 1000;
             let value = b"Hello World!";
 
-            let item = MutableItem::new(signer.clone(), value, seq, None);
+            let item = MutableItem::new(&signer, value, seq, None);
 
             a.put_mutable(item.clone(), None).await.unwrap();
 
@@ -507,7 +507,7 @@ mod test {
             let seq = 1000;
             let value = b"Hello World!";
 
-            let item = MutableItem::new(signer.clone(), value, seq, None);
+            let item = MutableItem::new(&signer, value, seq, None);
 
             a.put_mutable(item.clone(), None).await.unwrap();
 
@@ -566,7 +566,7 @@ mod test {
             let seq = 1000;
             let value = b"Hello World!";
 
-            let item = MutableItem::new(signer.clone(), value, seq, None);
+            let item = MutableItem::new(&signer, value, seq, None);
 
             a.put_mutable(item.clone(), None).await.unwrap();
 
@@ -606,7 +606,7 @@ mod test {
         let seq = 1000;
         let value = b"Hello World!";
 
-        let item = MutableItem::new(signer.clone(), value, seq, None);
+        let item = MutableItem::new(&signer, value, seq, None);
 
         let mut handles = vec![];
 
@@ -651,7 +651,7 @@ mod test {
             let mut value = b"Hello World!".to_vec();
             value.push(i);
 
-            let item = MutableItem::new(signer.clone(), &value, seq, None);
+            let item = MutableItem::new(&signer, &value, seq, None);
 
             let handle = std::thread::spawn(move || {
                 futures::executor::block_on(async {
@@ -694,7 +694,7 @@ mod test {
 
             // First
             {
-                let item = MutableItem::new(signer.clone(), &value, 1000, None);
+                let item = MutableItem::new(&signer, &value, 1000, None);
 
                 let (sender, _) = flume::bounded::<Result<Id, PutError>>(1);
                 let request =
@@ -709,7 +709,7 @@ mod test {
 
             // Second
             {
-                let item = MutableItem::new(signer, &value, 1001, None);
+                let item = MutableItem::new(&signer, &value, 1001, None);
 
                 let most_recent = dht.get_mutable_most_recent(item.key(), None).await;
 
@@ -741,12 +741,12 @@ mod test {
             ]);
             let value = b"Hello World!".to_vec();
 
-            dht.put_mutable(MutableItem::new(signer.clone(), &value, 1001, None), None)
+            dht.put_mutable(MutableItem::new(&signer, &value, 1001, None), None)
                 .await
                 .unwrap();
 
             assert!(matches!(
-                dht.put_mutable(MutableItem::new(signer, &value, 1002, None), Some(1000))
+                dht.put_mutable(MutableItem::new(&signer, &value, 1002, None), Some(1000))
                     .await,
                 Err(PutMutableError::Concurrency(ConcurrencyError::CasFailed))
             ));

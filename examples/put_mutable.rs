@@ -63,12 +63,12 @@ fn put(dht: &Dht, signer: &SigningKey, value: &[u8], salt: Option<&[u8]>) {
         println!("Found older seq {most_recent_seq} incremnting sequence to {new_seq}...",);
 
         (
-            MutableItem::new(signer.clone(), &new_value, new_seq, salt),
+            MutableItem::new(&signer, &new_value, new_seq, salt),
             // 3. Use the most recent [MutableItem::seq] as a `CAS`.
             Some(most_recent_seq),
         )
     } else {
-        (MutableItem::new(signer.clone(), value, 1, salt), None)
+        (MutableItem::new(&signer, value, 1, salt), None)
     };
 
     dht.put_mutable(item, cas).unwrap();
