@@ -1,6 +1,7 @@
 //! Modules needed only for nodes running in server mode (not read-only).
 
 pub mod peers;
+pub mod signed_peers;
 pub mod tokens;
 
 use std::{fmt::Debug, net::SocketAddrV4, num::NonZeroUsize};
@@ -19,6 +20,7 @@ use crate::common::{
 };
 
 use peers::PeersStore;
+use signed_peers::SignedPeersStore;
 use tokens::Tokens;
 
 pub use crate::common::{MessageType, RequestSpecific};
@@ -60,6 +62,8 @@ pub struct Server {
     tokens: Tokens,
     /// Peers store
     peers: PeersStore,
+    /// signed peers store
+    signed_peers: SignedPeersStore,
     /// Immutable values store
     immutable_values: LruCache<Id, Box<[u8]>>,
     /// Mutable values store
@@ -120,6 +124,13 @@ impl Server {
         Self {
             tokens,
             peers: PeersStore::new(
+                NonZeroUsize::new(settings.max_info_hashes).unwrap_or(
+                    NonZeroUsize::new(MAX_INFO_HASHES).expect("MAX_PEERS is NonZeroUsize"),
+                ),
+                NonZeroUsize::new(settings.max_peers_per_info_hash)
+                    .unwrap_or(NonZeroUsize::new(MAX_PEERS).expect("MAX_PEERS is NonZeroUsize")),
+            ),
+            signed_peers: SignedPeersStore::new(
                 NonZeroUsize::new(settings.max_info_hashes).unwrap_or(
                     NonZeroUsize::new(MAX_INFO_HASHES).expect("MAX_PEERS is NonZeroUsize"),
                 ),

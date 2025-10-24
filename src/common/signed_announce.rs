@@ -23,13 +23,13 @@ pub struct SignedAnnounce {
 
 impl SignedAnnounce {
     /// Create a new SignedAnnounce for a target (infohash).
-    pub fn new(signer: &SigningKey, target: Id) -> Self {
+    pub fn new(signer: &SigningKey, target: &Id) -> Self {
         let timestamp = system_time();
 
         Self::new_with_timestamp(&signer, target, timestamp)
     }
 
-    pub(crate) fn new_with_timestamp(signer: &SigningKey, target: Id, timestamp: u64) -> Self {
+    pub(crate) fn new_with_timestamp(signer: &SigningKey, target: &Id, timestamp: u64) -> Self {
         let signable = encode_signable(target, timestamp);
         let signature = signer.sign(&signable);
 
@@ -41,7 +41,7 @@ impl SignedAnnounce {
     }
 
     pub(crate) fn from_dht_message(
-        target: Id,
+        target: &Id,
         key: &[u8],
         timestamp: u64,
         signature: &[u8],
@@ -93,7 +93,7 @@ fn system_time() -> u64 {
         .as_micros() as u64
 }
 
-pub fn encode_signable(target: Id, timestamp: u64) -> Box<[u8]> {
+pub fn encode_signable(target: &Id, timestamp: u64) -> Box<[u8]> {
     let mut signable = vec![];
 
     signable.extend(target.as_bytes());
@@ -131,10 +131,10 @@ mod tests {
         let target = Id::random();
 
         let now = system_time();
-        let announce = SignedAnnounce::new_with_timestamp(&signer, target, now + 50 * 1000 * 1000);
+        let announce = SignedAnnounce::new_with_timestamp(&signer, &target, now + 50 * 1000 * 1000);
 
         let result = SignedAnnounce::from_dht_message(
-            target,
+            &target,
             announce.key(),
             announce.timestamp,
             &announce.signature,
@@ -147,10 +147,10 @@ mod tests {
         ));
 
         let now = system_time();
-        let announce = SignedAnnounce::new_with_timestamp(&signer, target, now - 50 * 1000 * 1000);
+        let announce = SignedAnnounce::new_with_timestamp(&signer, &target, now - 50 * 1000 * 1000);
 
         let result = SignedAnnounce::from_dht_message(
-            target,
+            &target,
             announce.key(),
             announce.timestamp,
             &announce.signature,
@@ -170,10 +170,10 @@ mod tests {
 
         let target = Id::random();
 
-        let announce = SignedAnnounce::new(&signer, target);
+        let announce = SignedAnnounce::new(&signer, &target);
 
         SignedAnnounce::from_dht_message(
-            target,
+            &target,
             announce.key(),
             announce.timestamp,
             &announce.signature,
@@ -181,7 +181,7 @@ mod tests {
         .unwrap();
 
         let result =
-            SignedAnnounce::from_dht_message(target, announce.key(), announce.timestamp, &[0; 64]);
+            SignedAnnounce::from_dht_message(&target, announce.key(), announce.timestamp, &[0; 64]);
 
         assert!(matches!(
             result,
@@ -189,7 +189,7 @@ mod tests {
         ));
 
         let result = SignedAnnounce::from_dht_message(
-            target,
+            &target,
             &[0; 30],
             announce.timestamp,
             &announce.signature,
