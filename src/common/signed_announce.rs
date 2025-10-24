@@ -8,9 +8,8 @@ use crate::Id;
 
 const MAX_TIMESTAMP_TOLERANCE: u64 = 45 * 1000 * 1000; // 45 seconds in micro seconds
 
-// TODO: update docs after getting a bep number, if ever.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-/// [BEP_xxxx](https://www.bittorrent.org/beps/bep_xxxx.html)'s `announce_signed_peer`.
+/// [BEP_????](https://github.com/nuhvi/mainline/beps/bep_xxxx.html)'s `announce_signed_peer`.
 pub struct SignedAnnounce {
     /// ed25519 public key
     key: [u8; 32],

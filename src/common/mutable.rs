@@ -27,7 +27,6 @@ pub struct MutableItem {
     salt: Option<Box<[u8]>>,
 }
 
-// TODO: take a ref of signer instead of cloning it (confirm usage in pkarr first).
 impl MutableItem {
     /// Create a new mutable item from a signing key, value, sequence number and optional salt.
     pub fn new(signer: &SigningKey, value: &[u8], seq: i64, salt: Option<&[u8]>) -> Self {
