@@ -4,7 +4,7 @@ use serde_bytes::ByteBuf;
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct DHTMessage {
     #[serde(rename = "t", with = "serde_bytes")]
-    pub transaction_id: [u8; 4],
+    pub transaction_id: Vec<u8>,
 
     #[serde(default)]
     #[serde(rename = "v", with = "serde_bytes")]

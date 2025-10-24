@@ -214,7 +214,7 @@ pub struct PutMutableRequestArguments {
 impl Message {
     fn into_serde_message(self) -> internal::DHTMessage {
         internal::DHTMessage {
-            transaction_id: self.transaction_id.to_be_bytes(),
+            transaction_id: self.transaction_id.to_be_bytes().to_vec(),
             version: self.version,
             ip: self
                 .requester_ip
@@ -401,7 +401,11 @@ impl Message {
 
     fn from_serde_message(msg: internal::DHTMessage) -> Result<Message, DecodeMessageError> {
         Ok(Message {
-            transaction_id: u32::from_be_bytes(msg.transaction_id),
+            transaction_id: match *msg.transaction_id.as_slice() {
+                [a, b] => u16::from_be_bytes([a, b]) as u32,
+                [a, b, c, d] => u32::from_be_bytes([a, b, c, d]),
+                _ => return Err(DecodeMessageError::InvalidTransactionIdSize),
+            },
             version: msg.version,
             requester_ip: match msg.ip {
                 Some(ip) => Some(bytes_to_sockaddr(ip)?),
@@ -768,6 +772,9 @@ pub enum DecodeMessageError {
 
     #[error(transparent)]
     InvalidIdSize(#[from] InvalidIdSize),
+
+    #[error("Invalid transaction id size (expected [u8;2] or [u8;4])")]
+    InvalidTransactionIdSize,
 }
 
 #[cfg(test)]
@@ -979,7 +986,7 @@ mod tests {
         let serde_message = internal::DHTMessage {
             ip: None,
             read_only: None,
-            transaction_id: [1, 2, 3, 4],
+            transaction_id: vec![1, 2], // test u16
             version: None,
             variant: internal::DHTMessageVariant::Response(
                 internal::DHTResponseSpecific::NoValues {

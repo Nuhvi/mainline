@@ -22,7 +22,7 @@ All notable changes to mainline dht will be documented in this file.
 
 - Adaptive request timeout 
 - Adaptive interval of polling udp socket for new messages, reducing latency and cpu usage.
-- Use u32 transaction ids instead of u16
+- Accept both u16 or u32 transaction ids
 
 ## [5.4.0](https://github.com/nuhvi/mainline/compare/v5.3.1...v5.4.0 ) - 2025-04-02
 
