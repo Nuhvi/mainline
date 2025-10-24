@@ -56,7 +56,8 @@ in a torrent. The query has six arguments:
 
 The ``k`` and ``sig`` fields use the same Ed25519 signing scheme as
 BEP 44 [#BEP-44]_. The signature must be computed over the concatenation
-of ``info_hash`` and ``t`` (28 bytes total). The queried node must verify:
+of ``info_hash`` (20 bytes) and ``t`` (big-endian 64-bit integer 8 bytes). 
+The queried node must verify:
 
 1. The token was previously issued to the querying node's IP address
 2. The timestamp ``t`` is within ±45 seconds of the current time
@@ -107,10 +108,9 @@ query has two arguments, identical to ``get_peers``:
 If the queried node has signed peer announcements for the infohash,
 they are returned in a key ``peers`` as a list of strings. Each string
 is 104 bytes containing the compact signed peer info: 32-byte public
-key, 8-byte timestamp (Unix time in microseconds as big-endian signed
-integer), and 64-byte signature. The queried node should return a
-random sample of stored announcements, similar to ``get_peers``
-behavior for regular peers.
+key, 8-byte timestamp (Unix time in microseconds as big-endian 64-bit integer integer), 
+and 64-byte signature. The queried node should return a random sample 
+of stored announcements, similar to ``get_peers`` behavior for regular peers.
 
 If the queried node has no signed peer announcements for the infohash,
 it returns a key ``nodes`` containing the K closest nodes in its
@@ -160,7 +160,7 @@ Signed peer information is encoded as a 104-byte string with the
 following structure:
 
 - Bytes 0-31: Ed25519 public key (32 bytes)
-- Bytes 32-39: Unix timestamp in microseconds, big-endian signed 64-bit integer (8 bytes)
+- Bytes 32-39: Unix timestamp in microseconds, big-endian 64-bit integer (8 bytes)
 - Bytes 40-103: Ed25519 signature (64 bytes)
 
 The signature is computed over the concatenation of the infohash (20
