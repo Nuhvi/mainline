@@ -1,4 +1,4 @@
-//! Helper functions and structs for signed peer announcements.
+//! Helper functions and structs for announcing signed peers.
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
@@ -8,7 +8,7 @@ use crate::Id;
 
 // TODO: update docs after getting a bep number, if ever.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-/// [BEP_xxxx](https://www.bittorrent.org/beps/bep_xxxx.html)'s signed Peer announce.
+/// [BEP_xxxx](https://www.bittorrent.org/beps/bep_xxxx.html)'s `announce_signed_peer`.
 pub struct SignedAnnounce {
     /// ed25519 public key
     key: [u8; 32],
@@ -20,7 +20,7 @@ pub struct SignedAnnounce {
 }
 
 impl SignedAnnounce {
-    /// Create a new mutable item from a signing key, value, sequence number and optional salt.
+    /// Create a new SignedAnnounce for a target (infohash).
     pub fn new(signer: SigningKey, target: Id) -> Self {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -30,19 +30,10 @@ impl SignedAnnounce {
         let signable = encode_signable(target, timestamp);
         let signature = signer.sign(&signable);
 
-        Self::new_signed_unchecked(
-            signer.verifying_key().to_bytes(),
-            timestamp,
-            signature.into(),
-        )
-    }
-
-    /// Create a new mutable item from an already signed value.
-    pub fn new_signed_unchecked(key: [u8; 32], timestamp: u64, signature: [u8; 64]) -> Self {
         Self {
-            key,
+            key: signer.verifying_key().to_bytes(),
             timestamp,
-            signature,
+            signature: signature.into(),
         }
     }
 
@@ -80,7 +71,7 @@ impl SignedAnnounce {
         self.timestamp
     }
 
-    /// Returns the signature over this item.
+    /// Returns the signature over this announcement's `target` (infohash) and timestamp.
     pub fn signature(&self) -> &[u8; 64] {
         &self.signature
     }
