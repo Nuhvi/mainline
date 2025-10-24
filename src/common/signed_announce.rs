@@ -6,6 +6,8 @@ use std::{convert::TryFrom, time::SystemTime};
 
 use crate::Id;
 
+const MAX_TIMESTAMP_TOLERANCE: u64 = 45 * 1000 * 1000; // 45 seconds in micro seconds
+
 // TODO: update docs after getting a bep number, if ever.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 /// [BEP_xxxx](https://www.bittorrent.org/beps/bep_xxxx.html)'s `announce_signed_peer`.
@@ -21,12 +23,13 @@ pub struct SignedAnnounce {
 
 impl SignedAnnounce {
     /// Create a new SignedAnnounce for a target (infohash).
-    pub fn new(signer: SigningKey, target: Id) -> Self {
-        let timestamp = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("time drift")
-            .as_micros() as u64;
+    pub fn new(signer: &SigningKey, target: Id) -> Self {
+        let timestamp = system_time();
 
+        Self::new_with_timestamp(&signer, target, timestamp)
+    }
+
+    pub(crate) fn new_with_timestamp(signer: &SigningKey, target: Id, timestamp: u64) -> Self {
         let signable = encode_signable(target, timestamp);
         let signature = signer.sign(&signable);
 
@@ -38,8 +41,8 @@ impl SignedAnnounce {
     }
 
     pub(crate) fn from_dht_message(
-        key: &[u8],
         target: Id,
+        key: &[u8],
         timestamp: u64,
         signature: &[u8],
     ) -> Result<Self, SignedAnnounceError> {
@@ -51,6 +54,12 @@ impl SignedAnnounce {
 
         key.verify(&encode_signable(target, timestamp), &signature)
             .map_err(|_| SignedAnnounceError::InvalidSignedAnnounceSignature)?;
+
+        let now = system_time();
+
+        if now.abs_diff(timestamp) > MAX_TIMESTAMP_TOLERANCE {
+            return Err(SignedAnnounceError::InvalidSignedAnnounceTimestamp);
+        }
 
         Ok(Self {
             key: key.to_bytes(),
@@ -77,6 +86,13 @@ impl SignedAnnounce {
     }
 }
 
+fn system_time() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("time drift")
+        .as_micros() as u64
+}
+
 pub fn encode_signable(target: Id, timestamp: u64) -> Box<[u8]> {
     let mut signable = vec![];
 
@@ -89,11 +105,100 @@ pub fn encode_signable(target: Id, timestamp: u64) -> Box<[u8]> {
 #[derive(thiserror::Error, Debug)]
 /// Mainline crate error enum.
 pub enum SignedAnnounceError {
-    #[error("Invalid mutable item signature")]
-    /// Invalid mutable item signature
+    #[error("Invalid signed announce signature")]
+    /// Invalid signed announce signature
     InvalidSignedAnnounceSignature,
 
-    #[error("Invalid mutable item public key")]
-    /// Invalid mutable item public key
+    #[error("Invalid signed announce public key")]
+    /// Invalid signed announce public key
     InvalidSignedAnnouncePublicKey,
+
+    #[error("Invalid signed announce timestamp (too far in the future or the past)")]
+    /// Invalid signed announce timestamp
+    InvalidSignedAnnounceTimestamp,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn more_than_time_tolerance() {
+        let mut secret_key = [0; 32];
+        getrandom::fill(&mut secret_key).unwrap();
+        let signer = SigningKey::from_bytes(&secret_key);
+
+        let target = Id::random();
+
+        let now = system_time();
+        let announce = SignedAnnounce::new_with_timestamp(&signer, target, now + 50 * 1000 * 1000);
+
+        let result = SignedAnnounce::from_dht_message(
+            target,
+            announce.key(),
+            announce.timestamp,
+            &announce.signature,
+        );
+
+        dbg!(&result);
+        assert!(matches!(
+            result,
+            Err(SignedAnnounceError::InvalidSignedAnnounceTimestamp)
+        ));
+
+        let now = system_time();
+        let announce = SignedAnnounce::new_with_timestamp(&signer, target, now - 50 * 1000 * 1000);
+
+        let result = SignedAnnounce::from_dht_message(
+            target,
+            announce.key(),
+            announce.timestamp,
+            &announce.signature,
+        );
+
+        assert!(matches!(
+            result,
+            Err(SignedAnnounceError::InvalidSignedAnnounceTimestamp)
+        ));
+    }
+
+    #[test]
+    fn invalid_signature() {
+        let mut secret_key = [0; 32];
+        getrandom::fill(&mut secret_key).unwrap();
+        let signer = SigningKey::from_bytes(&secret_key);
+
+        let target = Id::random();
+
+        let announce = SignedAnnounce::new(&signer, target);
+
+        SignedAnnounce::from_dht_message(
+            target,
+            announce.key(),
+            announce.timestamp,
+            &announce.signature,
+        )
+        .unwrap();
+
+        let result =
+            SignedAnnounce::from_dht_message(target, announce.key(), announce.timestamp, &[0; 64]);
+
+        assert!(matches!(
+            result,
+            Err(SignedAnnounceError::InvalidSignedAnnounceSignature)
+        ));
+
+        let result = SignedAnnounce::from_dht_message(
+            target,
+            &[0; 30],
+            announce.timestamp,
+            &announce.signature,
+        );
+        dbg!(&result);
+
+        assert!(matches!(
+            result,
+            Err(SignedAnnounceError::InvalidSignedAnnouncePublicKey)
+        ));
+    }
 }
