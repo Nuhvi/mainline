@@ -9,7 +9,7 @@ license = "MIT"
 keywords = ["bittorrent", "torrent", "dht", "kademlia", "mainline"]
 categories = ["network-programming"]
 repository = "https://github.com/nuhvi/mainline"
-exclude = ["/docs/*", "/examples/*"]
+exclude = ["/docs/*", "/examples/*", "/beps/*"]
 
 [dependencies]
 getrandom = "0.3"
