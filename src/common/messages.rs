@@ -861,7 +861,7 @@ fn bytes_to_signed_peer<T: AsRef<[u8]>>(
 ) -> Result<([u8; 32], u64, [u8; 64]), DecodeMessageError> {
     let bytes = bytes.as_ref();
 
-    if !bytes.len().is_multiple_of(32 + 8 + 40) {
+    if !bytes.len().is_multiple_of(104) {
         return Err(DecodeMessageError::InvalidSignedPeersEncodingLength);
     }
 
@@ -884,9 +884,9 @@ fn signed_peers_to_bytes(peers: &[([u8; 32], u64, [u8; 64])]) -> Vec<serde_bytes
 fn signed_peer_to_bytes(peer: &([u8; 32], u64, [u8; 64])) -> [u8; 104] {
     let mut bytes = [0; 104];
 
-    bytes.copy_from_slice(&peer.0);
-    bytes.copy_from_slice(&peer.1.to_be_bytes());
-    bytes.copy_from_slice(&peer.2);
+    bytes[0..32].copy_from_slice(&peer.0);
+    bytes[32..40].copy_from_slice(&peer.1.to_be_bytes());
+    bytes[40..].copy_from_slice(&peer.2);
 
     bytes
 }

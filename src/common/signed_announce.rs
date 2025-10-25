@@ -139,7 +139,6 @@ mod tests {
             &announce.signature,
         );
 
-        dbg!(&result);
         assert!(matches!(result, Err(SignedAnnounceError::Timestamp)));
 
         let now = system_time();
@@ -189,7 +188,6 @@ mod tests {
             announce.timestamp,
             &announce.signature,
         );
-        dbg!(&result);
 
         assert!(matches!(result, Err(SignedAnnounceError::PublicKey)));
     }
