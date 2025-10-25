@@ -2,7 +2,7 @@
 :Title: DHT Signed Peer Announcements
 :Version: $Revision$
 :Last-Modified: $Date$
-:Author: Anonymous
+:Author: Nuh <nuh@nuh.dev>
 :Status: Draft
 :Type: Standards Track
 :Created: 24-Oct-2025
