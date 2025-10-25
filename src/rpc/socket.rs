@@ -10,7 +10,7 @@ use crate::common::{ErrorSpecific, Message, MessageType, RequestSpecific, Respon
 
 use super::config::Config;
 
-const VERSION: [u8; 4] = [82, 83, 0, 6]; // "RS" version 06
+pub(crate) const VERSION: [u8; 4] = [82, 83, 0, 6]; // "RS" version 06
 const MTU: usize = 2048;
 
 pub const DEFAULT_PORT: u16 = 6881;
@@ -279,7 +279,7 @@ impl KrpcSocket {
         Message {
             transaction_id,
             message_type: MessageType::Request(message),
-            version: Some(VERSION),
+            version: Some(self.version()),
             read_only: !self.server_mode,
             requester_ip: None,
         }
@@ -295,11 +295,18 @@ impl KrpcSocket {
         Message {
             transaction_id: request_tid,
             message_type: message,
-            version: Some(VERSION),
+            version: Some(self.version()),
             read_only: !self.server_mode,
             // BEP_0042 Only relevant in responses.
             requester_ip: Some(requester_ip),
         }
+    }
+
+    fn version(&self) -> [u8; 4] {
+        #[cfg(test)]
+        return self.version;
+        #[cfg(not(test))]
+        return VERSION;
     }
 
     /// Send a raw dht message
