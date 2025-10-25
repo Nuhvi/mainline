@@ -1,4 +1,4 @@
-use std::{str::FromStr, time::Instant};
+use std::{collections::HashSet, str::FromStr, time::Instant};
 
 use dht::{Dht, Id};
 
@@ -39,9 +39,9 @@ fn get_peers(dht: &Dht, info_hash: &Id) {
     let start = Instant::now();
     let mut first = false;
 
-    let mut count = 0;
+    let mut peers = HashSet::new();
 
-    for peer in dht.get_peers(*info_hash) {
+    for response in dht.get_peers(*info_hash) {
         if !first {
             first = true;
             println!(
@@ -49,15 +49,17 @@ fn get_peers(dht: &Dht, info_hash: &Id) {
                 start.elapsed().as_millis()
             );
 
-            println!("peer {:?}", peer,);
+            println!("peers {:?}", response);
         }
 
-        count += 1;
+        for peer in response {
+            peers.insert(peer);
+        }
     }
 
     println!(
-        "\nQuery exhausted in {:?} milliseconds, got {:?} peers.",
+        "\nQuery exhausted in {:?} milliseconds, got {:?} unique peers.",
         start.elapsed().as_millis(),
-        count
+        peers.len()
     );
 }
