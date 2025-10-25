@@ -294,7 +294,7 @@ impl Server {
                         }));
                     }
 
-                    match SignedAnnounce::from_dht_message(&info_hash, &k, t, &sig) {
+                    match SignedAnnounce::from_dht_request(&info_hash, &k, t, &sig) {
                         Ok(peer) => {
                             self.signed_peers.add_peer(info_hash, peer);
 

@@ -644,7 +644,7 @@ impl Rpc {
                     let mut malicious = false;
 
                     for (k, t, sig) in peers {
-                        if let Ok(peer) = SignedAnnounce::from_dht_message(&target, &k, t, &sig) {
+                        if let Ok(peer) = SignedAnnounce::from_dht_response(&target, &k, t, &sig) {
                             verified_peers.push(peer);
                         } else {
                             malicious = true;

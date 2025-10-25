@@ -39,11 +39,30 @@ impl SignedAnnounce {
         }
     }
 
-    pub(crate) fn from_dht_message(
+    pub(crate) fn from_dht_request(
         info_hash: &Id,
         key: &[u8],
         timestamp: u64,
         signature: &[u8],
+    ) -> Result<Self, SignedAnnounceError> {
+        Self::from_dht_message(info_hash, key, timestamp, signature, true)
+    }
+
+    pub(crate) fn from_dht_response(
+        info_hash: &Id,
+        key: &[u8],
+        timestamp: u64,
+        signature: &[u8],
+    ) -> Result<Self, SignedAnnounceError> {
+        Self::from_dht_message(info_hash, key, timestamp, signature, false)
+    }
+
+    fn from_dht_message(
+        info_hash: &Id,
+        key: &[u8],
+        timestamp: u64,
+        signature: &[u8],
+        validate_timestamp: bool,
     ) -> Result<Self, SignedAnnounceError> {
         let key = VerifyingKey::try_from(key).map_err(|_| SignedAnnounceError::PublicKey)?;
 
@@ -55,7 +74,7 @@ impl SignedAnnounce {
 
         let now = system_time();
 
-        if now.abs_diff(timestamp) > MAX_TIMESTAMP_TOLERANCE {
+        if validate_timestamp && now.abs_diff(timestamp) > MAX_TIMESTAMP_TOLERANCE {
             return Err(SignedAnnounceError::Timestamp);
         }
 
@@ -132,7 +151,7 @@ mod tests {
         let announce =
             SignedAnnounce::new_with_timestamp(&signer, &info_hash, now + 50 * 1000 * 1000);
 
-        let result = SignedAnnounce::from_dht_message(
+        let result = SignedAnnounce::from_dht_request(
             &info_hash,
             announce.key(),
             announce.timestamp,
@@ -145,7 +164,7 @@ mod tests {
         let announce =
             SignedAnnounce::new_with_timestamp(&signer, &info_hash, now - 50 * 1000 * 1000);
 
-        let result = SignedAnnounce::from_dht_message(
+        let result = SignedAnnounce::from_dht_request(
             &info_hash,
             announce.key(),
             announce.timestamp,
@@ -165,7 +184,7 @@ mod tests {
 
         let announce = SignedAnnounce::new(&signer, &info_hash);
 
-        SignedAnnounce::from_dht_message(
+        SignedAnnounce::from_dht_request(
             &info_hash,
             announce.key(),
             announce.timestamp,
@@ -173,7 +192,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = SignedAnnounce::from_dht_message(
+        let result = SignedAnnounce::from_dht_request(
             &info_hash,
             announce.key(),
             announce.timestamp,
@@ -182,7 +201,7 @@ mod tests {
 
         assert!(matches!(result, Err(SignedAnnounceError::Signature)));
 
-        let result = SignedAnnounce::from_dht_message(
+        let result = SignedAnnounce::from_dht_request(
             &info_hash,
             &[0; 30],
             announce.timestamp,
