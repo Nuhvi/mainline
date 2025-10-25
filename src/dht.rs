@@ -2,7 +2,7 @@
 
 use std::{
     collections::HashMap,
-    net::{Ipv4Addr, SocketAddrV4, ToSocketAddrs},
+    net::{Ipv4Addr, SocketAddrV4},
     thread,
 };
 
@@ -16,10 +16,7 @@ use crate::{
         GetPeersRequestArguments, GetValueRequestArguments, Id, MutableItem,
         PutImmutableRequestArguments, PutMutableRequestArguments, PutRequestSpecific,
     },
-    rpc::{
-        to_socket_address, ConcurrencyError, GetRequestSpecific, Info, PutError, PutQueryError,
-        Response, Rpc,
-    },
+    rpc::{ConcurrencyError, GetRequestSpecific, Info, PutError, PutQueryError, Response, Rpc},
     Node, ServerSettings,
 };
 
@@ -51,8 +48,8 @@ impl DhtBuilder {
     }
 
     /// Set bootstrapping nodes.
-    pub fn bootstrap<T: ToSocketAddrs>(&mut self, bootstrap: &[T]) -> &mut Self {
-        self.0.bootstrap = Some(to_socket_address(bootstrap));
+    pub fn bootstrap<T: ToString>(&mut self, bootstrap: &[T]) -> &mut Self {
+        self.0.bootstrap = bootstrap.iter().map(|b| b.to_string()).collect();
 
         self
     }
@@ -61,19 +58,17 @@ impl DhtBuilder {
     ///
     /// Useful when you want to augment the default bootstrapping nodes with
     /// dynamic list of nodes you have seen in previous sessions.
-    pub fn extra_bootstrap<T: ToSocketAddrs>(&mut self, extra_bootstrap: &[T]) -> &mut Self {
-        let mut bootstrap = self.0.bootstrap.clone().unwrap_or_default();
-        for address in to_socket_address(extra_bootstrap) {
-            bootstrap.push(address);
+    pub fn extra_bootstrap<T: ToString>(&mut self, extra_bootstrap: &[T]) -> &mut Self {
+        for address in extra_bootstrap {
+            self.0.bootstrap.push(address.to_string());
         }
-        self.0.bootstrap = Some(bootstrap);
 
         self
     }
 
     /// Remove the existing bootstrapping nodes, usually to create the first node in a new network.
     pub fn no_bootstrap(&mut self) -> &mut Self {
-        self.0.bootstrap = Some(vec![]);
+        self.0.bootstrap = vec![];
 
         self
     }

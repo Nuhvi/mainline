@@ -18,12 +18,14 @@ All notable changes to mainline dht will be documented in this file.
 - Upgrade `getrandom` to `v0.3`
 - Upgrade `ed25519-dalek` to `v3.0.0-pre.1` (Breaking change)
 - `MutableItem::new()` takes a reference to the signer.
+- `DhtBuilder::bootstrap()` and `DhtBuilder::extra_bootstrap()` takes a `ToString`.
 
 ### Fixed
 
 - Adaptive request timeout 
 - Adaptive interval of polling udp socket for new messages, reducing latency and cpu usage.
 - Accept both u16 or u32 transaction ids
+- `DhtBuilder::extra_bootstrap()` was removing existing defaults
 
 ## [5.4.0](https://github.com/nuhvi/mainline/compare/v5.3.1...v5.4.0 ) - 2025-04-02
 

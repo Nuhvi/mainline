@@ -1,14 +1,16 @@
-use std::net::{Ipv4Addr, SocketAddrV4};
+use std::net::Ipv4Addr;
+
+use crate::rpc::DEFAULT_BOOTSTRAP_NODES;
 
 use super::ServerSettings;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 /// Dht Configurations
 pub struct Config {
     /// Bootstrap nodes
     ///
     /// Defaults to [super::DEFAULT_BOOTSTRAP_NODES]
-    pub bootstrap: Option<Vec<SocketAddrV4>>,
+    pub bootstrap: Vec<String>,
     /// Explicit port to listen on.
     ///
     /// Defaults to None
@@ -24,4 +26,19 @@ pub struct Config {
     ///
     /// Defaults to None, where we depend on suggestions from responding nodes.
     pub public_ip: Option<Ipv4Addr>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            bootstrap: DEFAULT_BOOTSTRAP_NODES
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            port: None,
+            server_settings: Default::default(),
+            server_mode: false,
+            public_ip: None,
+        }
+    }
 }

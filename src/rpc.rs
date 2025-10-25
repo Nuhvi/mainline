@@ -107,10 +107,7 @@ impl Rpc {
         let socket = KrpcSocket::new(&config)?;
 
         Ok(Rpc {
-            bootstrap: config
-                .bootstrap
-                .unwrap_or(to_socket_address(&DEFAULT_BOOTSTRAP_NODES))
-                .into(),
+            bootstrap: to_socket_address(&config.bootstrap).into(),
             socket,
 
             routing_table: RoutingTable::new(id),
