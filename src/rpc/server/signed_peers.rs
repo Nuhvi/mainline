@@ -11,7 +11,7 @@ const CHANCE_SCALE: f32 = 2.0 * (1u32 << 31) as f32;
 #[derive(Debug, Clone)]
 /// An LRU cache of signed peers announced per info hashes.
 ///
-/// Read [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_announce_signed_peers.rst) for more information.
+/// Read [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst) for more information.
 pub struct SignedPeersStore {
     info_hashes: LruCache<Id, LruCache<[u8; 32], SignedAnnounce>>,
     max_peers: NonZeroUsize,

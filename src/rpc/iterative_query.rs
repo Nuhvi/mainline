@@ -31,6 +31,7 @@ pub(crate) struct IterativeQuery {
 pub enum GetRequestSpecific {
     FindNode(FindNodeRequestArguments),
     GetPeers(GetPeersRequestArguments),
+    GetSignedPeers(GetPeersRequestArguments),
     GetValue(GetValueRequestArguments),
 }
 
@@ -39,6 +40,7 @@ impl GetRequestSpecific {
         match self {
             GetRequestSpecific::FindNode(args) => &args.target,
             GetRequestSpecific::GetPeers(args) => &args.info_hash,
+            GetRequestSpecific::GetSignedPeers(args) => &args.info_hash,
             GetRequestSpecific::GetValue(args) => &args.target,
         }
     }
@@ -49,6 +51,7 @@ impl IterativeQuery {
         let request_type = match request {
             GetRequestSpecific::FindNode(s) => RequestTypeSpecific::FindNode(s),
             GetRequestSpecific::GetPeers(s) => RequestTypeSpecific::GetPeers(s),
+            GetRequestSpecific::GetSignedPeers(s) => RequestTypeSpecific::GetSignedPeers(s),
             GetRequestSpecific::GetValue(s) => RequestTypeSpecific::GetValue(s),
         };
 

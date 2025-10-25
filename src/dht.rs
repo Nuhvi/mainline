@@ -6,15 +6,17 @@ use std::{
     thread,
 };
 
+use ed25519_dalek::SigningKey;
 use flume::{Receiver, Sender, TryRecvError};
 
 use tracing::info;
 
 use crate::{
     common::{
-        hash_immutable, AnnouncePeerRequestArguments, FindNodeRequestArguments,
-        GetPeersRequestArguments, GetValueRequestArguments, Id, MutableItem,
-        PutImmutableRequestArguments, PutMutableRequestArguments, PutRequestSpecific,
+        hash_immutable, AnnouncePeerRequestArguments, AnnounceSignedPeerRequestArguments,
+        FindNodeRequestArguments, GetPeersRequestArguments, GetValueRequestArguments, Id,
+        MutableItem, PutImmutableRequestArguments, PutMutableRequestArguments, PutRequestSpecific,
+        SignedAnnounce,
     },
     rpc::{ConcurrencyError, GetRequestSpecific, Info, PutError, PutQueryError, Response, Rpc},
     Node, ServerSettings,
@@ -244,6 +246,74 @@ impl Dht {
                 unreachable!("should not receive a concurrency error from announce peer query")
             }
         })
+    }
+
+    // === Signed Peers ===
+
+    /// Announce a signed peer for a given infohash.
+    ///
+    /// ## Namespacing
+    /// It is important to distinguish your overlay network and any other differentiator like a
+    /// sub-network or geographical distribution, by namespacing your `info_hash`, to avoid getting
+    /// signed peers you can't or don't want to connect to.
+    ///
+    /// The easiest way for namespacing is to hash a concatenation of your original `info_hash`
+    /// with the name of your network and any other filters, then pass the first 20 bytes as the
+    /// `info_hash` to this method.
+    ///
+    /// Read [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst) for more information.
+    pub fn announce_signed_peer(
+        &self,
+        info_hash: Id,
+        signer: &SigningKey,
+    ) -> Result<Id, PutQueryError> {
+        let signed_announce = SignedAnnounce::new(signer, &info_hash);
+
+        self.put(
+            PutRequestSpecific::AnnounceSignedPeer(AnnounceSignedPeerRequestArguments {
+                info_hash,
+                k: *signed_announce.key(),
+                t: signed_announce.timestamp(),
+                sig: *signed_announce.signature(),
+            }),
+            None,
+        )
+        .map_err(|error| match error {
+            PutError::Query(error) => error,
+            PutError::Concurrency(_) => {
+                unreachable!("should not receive a concurrency error from announce peer query")
+            }
+        })
+    }
+
+    /// Get peers verifiably announced for a given infohash by their public key.
+    ///
+    /// ## Namespacing
+    /// It is important to distinguish your overlay network and any other differentiator like a
+    /// sub-network or geographical distribution, by namespacing your `info_hash`, to avoid getting
+    /// signed peers you can't or don't want to connect to.
+    ///
+    /// The easiest way for namespacing is to hash a concatenation of your original `info_hash`
+    /// with the name of your network and any other filters, then pass the first 20 bytes as the
+    /// `info_hash` to this method.
+    ///
+    /// Note: each node of the network will only return a _random_ subset (usually 20)
+    /// of the total peers it has for a given infohash, so if you are getting responses
+    /// from 20 nodes, you can expect up to 400 peers in total, but if there are more
+    /// announced peers on that infohash, you are likely to miss some, the logic here
+    /// for Bittorrent is that any peer will introduce you to more peers through "peer exchange"
+    /// so if you are implementing something different from Bittorrent, you might want
+    /// to implement your own logic for gossipping more peers after you discover the first ones.
+    ///
+    /// Read [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst) for more information.
+    pub fn get_signed_peers(&self, info_hash: Id) -> GetIterator<Vec<SignedAnnounce>> {
+        let (tx, rx) = flume::unbounded::<Vec<SignedAnnounce>>();
+        self.send(ActorMessage::Get(
+            GetRequestSpecific::GetSignedPeers(GetPeersRequestArguments { info_hash }),
+            ResponseSender::SignedPeers(tx),
+        ));
+
+        GetIterator(rx.into_iter())
     }
 
     // === Immutable data ===
@@ -578,6 +648,9 @@ fn send(sender: &ResponseSender, response: Response) {
         (ResponseSender::Peers(s), Response::Peers(r)) => {
             let _ = s.send(r);
         }
+        (ResponseSender::SignedPeers(s), Response::SignedPeers(r)) => {
+            let _ = s.send(r);
+        }
         (ResponseSender::Mutable(s), Response::Mutable(r)) => {
             let _ = s.send(r);
         }
@@ -605,6 +678,7 @@ pub(crate) enum ActorMessage {
 pub enum ResponseSender {
     ClosestNodes(Sender<Box<[Node]>>),
     Peers(Sender<Vec<SocketAddrV4>>),
+    SignedPeers(Sender<Vec<SignedAnnounce>>),
     Mutable(Sender<MutableItem>),
     Immutable(Sender<Box<[u8]>>),
 }
@@ -1095,5 +1169,48 @@ mod test {
             .unwrap();
 
         assert!(client.bootstrapped());
+    }
+
+    #[test]
+    fn announce_signed_peers_at_full_adoption() {
+        let testnet = Testnet::new(10).unwrap();
+
+        let a = Dht::builder()
+            .bootstrap(&testnet.bootstrap)
+            .build()
+            .unwrap();
+        let b = Dht::builder()
+            .bootstrap(&testnet.bootstrap)
+            .build()
+            .unwrap();
+
+        let info_hash = Id::random();
+
+        let signers = [0, 1, 2]
+            .iter()
+            .map(|_| {
+                let mut secret_key = [0; 32];
+                getrandom::fill(&mut secret_key).unwrap();
+                SigningKey::from_bytes(&secret_key)
+            })
+            .collect::<Vec<_>>();
+
+        let mut expected_keys = signers
+            .iter()
+            .map(|s| s.verifying_key().as_bytes().to_vec())
+            .collect::<Vec<_>>();
+        expected_keys.sort();
+
+        for signer in signers {
+            a.announce_signed_peer(info_hash, &signer)
+                .expect("failed to announce");
+        }
+
+        let peers = b.get_signed_peers(info_hash).next().expect("No peers");
+
+        let mut keys = peers.iter().map(|a| a.key().to_vec()).collect::<Vec<_>>();
+        keys.sort();
+
+        assert_eq!(keys, expected_keys);
     }
 }

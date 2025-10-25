@@ -423,6 +423,9 @@ impl Rpc {
         let target = match request {
             GetRequestSpecific::FindNode(FindNodeRequestArguments { target }) => target,
             GetRequestSpecific::GetPeers(GetPeersRequestArguments { info_hash, .. }) => info_hash,
+            GetRequestSpecific::GetSignedPeers(GetPeersRequestArguments { info_hash, .. }) => {
+                info_hash
+            }
             GetRequestSpecific::GetValue(GetValueRequestArguments { target, .. }) => target,
         };
 
