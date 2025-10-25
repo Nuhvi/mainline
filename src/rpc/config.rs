@@ -26,6 +26,12 @@ pub struct Config {
     ///
     /// Defaults to None, where we depend on suggestions from responding nodes.
     pub public_ip: Option<Ipv4Addr>,
+
+    // Testing helpers
+    //
+    /// Used to simulate a DHT that doesn't support `announce_signed_peers`
+    #[cfg(test)]
+    pub(crate) disable_announce_signed_peers: bool,
 }
 
 impl Default for Config {

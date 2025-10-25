@@ -75,6 +75,14 @@ impl DhtBuilder {
         self
     }
 
+    /// Used to simulate a DHT that doesn't support `announce_signed_peers`
+    #[cfg(test)]
+    fn disable_signed_peers(&mut self) -> &mut Self {
+        self.0.disable_announce_signed_peers = true;
+
+        self
+    }
+
     /// Set an explicit port to listen on.
     pub fn port(&mut self, port: u16) -> &mut Self {
         self.0.port = Some(port);
@@ -702,7 +710,18 @@ impl Testnet {
     /// This will block until all nodes are [bootstrapped][Dht::bootstrapped],
     /// if you are using an async runtime, consider using [Self::new_async].
     pub fn new(count: usize) -> Result<Testnet, std::io::Error> {
-        let testnet = Testnet::new_inner(count)?;
+        let testnet = Testnet::new_inner(count, false)?;
+
+        for node in &testnet.nodes {
+            node.bootstrapped();
+        }
+
+        Ok(testnet)
+    }
+
+    #[cfg(test)]
+    fn new_without_signed_peers(count: usize) -> Result<Testnet, std::io::Error> {
+        let testnet = Testnet::new_inner(count, true)?;
 
         for node in &testnet.nodes {
             node.bootstrapped();
@@ -714,7 +733,7 @@ impl Testnet {
     /// Similar to [Self::new] but awaits all nodes to bootstrap instead of blocking.
     #[cfg(feature = "async")]
     pub async fn new_async(count: usize) -> Result<Testnet, std::io::Error> {
-        let testnet = Testnet::new_inner(count)?;
+        let testnet = Testnet::new_inner(count, false)?;
 
         for node in testnet.nodes.clone() {
             node.as_async().bootstrapped().await;
@@ -723,13 +742,22 @@ impl Testnet {
         Ok(testnet)
     }
 
-    fn new_inner(count: usize) -> Result<Testnet, std::io::Error> {
+    fn new_inner(count: usize, disable_signed_peers: bool) -> Result<Testnet, std::io::Error> {
         let mut nodes: Vec<Dht> = vec![];
         let mut bootstrap = vec![];
 
         for i in 0..count {
             if i == 0 {
-                let node = Dht::builder().server_mode().no_bootstrap().build()?;
+                let mut builder = Dht::builder();
+
+                builder.server_mode().no_bootstrap();
+
+                if disable_signed_peers {
+                    #[cfg(test)]
+                    builder.disable_signed_peers();
+                }
+
+                let node = builder.build()?;
 
                 let info = node.info();
                 let addr = info.local_addr();
@@ -738,7 +766,15 @@ impl Testnet {
 
                 nodes.push(node)
             } else {
-                let node = Dht::builder().server_mode().bootstrap(&bootstrap).build()?;
+                let mut builder = Dht::builder();
+
+                if disable_signed_peers {
+                    #[cfg(test)]
+                    builder.disable_signed_peers();
+                }
+
+                let node = builder.server_mode().bootstrap(&bootstrap).build()?;
+
                 nodes.push(node)
             }
         }
@@ -1212,5 +1248,58 @@ mod test {
         keys.sort();
 
         assert_eq!(keys, expected_keys);
+    }
+
+    #[test]
+    fn announce_signed_peers_at_low_adoption() {
+        let testnet_legacy = Testnet::new_without_signed_peers(30).unwrap();
+        let testnet_new = Testnet::new(3).unwrap();
+
+        let signers = [0, 1, 2]
+            .iter()
+            .map(|_| {
+                let mut secret_key = [0; 32];
+                getrandom::fill(&mut secret_key).unwrap();
+                SigningKey::from_bytes(&secret_key)
+            })
+            .collect::<Vec<_>>();
+
+        let mut expected_keys = signers
+            .iter()
+            .map(|s| s.verifying_key().as_bytes().to_vec())
+            .collect::<Vec<_>>();
+        expected_keys.sort();
+
+        let info_hash = Id::random();
+
+        // confirm that our code disables `signed_announce_peers` for older versions
+        {
+            let a = Dht::builder()
+                .bootstrap(&testnet_legacy.bootstrap)
+                .disable_signed_peers()
+                .build()
+                .unwrap();
+            assert!(a.announce_signed_peer(info_hash, &signers[0]).is_err());
+            assert_eq!(a.get_signed_peers(info_hash).next(), None)
+        }
+
+        {
+            let bootstrap = testnet_new.bootstrap;
+
+            let a = Dht::builder().bootstrap(&bootstrap).build().unwrap();
+            let b = Dht::builder().bootstrap(&bootstrap).build().unwrap();
+
+            for signer in &signers {
+                a.announce_signed_peer(info_hash, signer)
+                    .expect("failed to announce");
+            }
+
+            let peers = b.get_signed_peers(info_hash).next().expect("No peers");
+
+            let mut keys = peers.iter().map(|a| a.key().to_vec()).collect::<Vec<_>>();
+            keys.sort();
+
+            assert_eq!(keys, expected_keys);
+        }
     }
 }

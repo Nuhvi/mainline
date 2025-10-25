@@ -10,7 +10,7 @@ use crate::common::{ErrorSpecific, Message, MessageType, RequestSpecific, Respon
 
 use super::config::Config;
 
-const VERSION: [u8; 4] = [82, 83, 0, 5]; // "RS" version 05
+const VERSION: [u8; 4] = [82, 83, 0, 6]; // "RS" version 06
 const MTU: usize = 2048;
 
 pub const DEFAULT_PORT: u16 = 6881;
@@ -23,6 +23,10 @@ pub const MIN_POLL_INTERVAL: Duration = Duration::from_micros(100);
 pub const MAX_POLL_INTERVAL: Duration = Duration::from_millis(500);
 pub const MIN_REQUEST_TIMEOUT: Duration = Duration::from_millis(500);
 
+/// Version before supporting `announce_signed_peers`
+#[cfg(test)]
+const LEGACY_VERSION: [u8; 4] = [82, 83, 0, 5]; // "RS" version 05
+
 /// A UdpSocket wrapper that formats and correlates DHT requests and responses.
 #[derive(Debug)]
 pub struct KrpcSocket {
@@ -32,6 +36,9 @@ pub struct KrpcSocket {
 
     inflight_requests: InflightRequests,
     poll_interval: Duration,
+
+    #[cfg(test)]
+    version: [u8; 4],
 }
 
 impl KrpcSocket {
@@ -60,6 +67,13 @@ impl KrpcSocket {
             inflight_requests: InflightRequests::new(),
             local_addr,
             poll_interval: MIN_POLL_INTERVAL,
+
+            #[cfg(test)]
+            version: if config.disable_announce_signed_peers {
+                LEGACY_VERSION
+            } else {
+                VERSION
+            },
         })
     }
 
@@ -165,7 +179,14 @@ impl KrpcSocket {
                     Ok(message) => {
                         // Parsed correctly.
                         let should_return = match message.message_type {
-                            MessageType::Request(_) => {
+                            MessageType::Request(ref _request_specific) => {
+                                // simulate legacy nodes not supporting `announce_signed_peers` and `get_signed_peers`
+                                #[cfg(test)]
+                                let should_return =
+                                    supports_request(&self.version, _request_specific);
+                                #[cfg(not(test))]
+                                let should_return = true;
+
                                 trace!(
                                     context = "socket_message_receiving",
                                     ?message,
@@ -173,7 +194,7 @@ impl KrpcSocket {
                                     "Received request message"
                                 );
 
-                                true
+                                should_return
                             }
                             MessageType::Response(_) => {
                                 trace!(
@@ -468,6 +489,22 @@ impl Debug for InflightRequests {
             .field("deviation_rtt", &self.deviation_rtt)
             .field("request_timeout", &timeout)
             .finish()
+    }
+}
+
+#[cfg(test)]
+fn supports_request(version: &[u8; 4], request_specific: &crate::common::RequestSpecific) -> bool {
+    use crate::{
+        common::{PutRequest, RequestTypeSpecific},
+        PutRequestSpecific,
+    };
+    match request_specific.request_type {
+        RequestTypeSpecific::GetSignedPeers(_)
+        | RequestTypeSpecific::Put(PutRequest {
+            put_request_type: PutRequestSpecific::AnnounceSignedPeer(_),
+            ..
+        }) => version != &LEGACY_VERSION,
+        _ => true,
     }
 }
 
