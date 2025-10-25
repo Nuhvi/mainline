@@ -1252,8 +1252,7 @@ mod test {
 
     #[test]
     fn announce_signed_peers_at_low_adoption() {
-        let testnet_legacy = Testnet::new_without_signed_peers(30).unwrap();
-        let testnet_new = Testnet::new(3).unwrap();
+        let testnet_legacy = Testnet::new_without_signed_peers(10).unwrap();
 
         let signers = [0, 1, 2]
             .iter()
@@ -1284,7 +1283,16 @@ mod test {
         }
 
         {
-            let bootstrap = testnet_new.bootstrap;
+            // Without a separate table internally, this new bootstrapping node,
+            // will tell `a` and `b` that there are closer nodes than itself
+            // to the info_hash they request, while these "closer" nodes don't
+            // support these queries at all, thus, a separate table is necessary.
+            let new_bootstrap = Dht::builder()
+                .bootstrap(&testnet_legacy.bootstrap)
+                .build()
+                .unwrap();
+
+            let bootstrap = vec![new_bootstrap.info().local_addr().to_string()];
 
             let a = Dht::builder().bootstrap(&bootstrap).build().unwrap();
             let b = Dht::builder().bootstrap(&bootstrap).build().unwrap();
