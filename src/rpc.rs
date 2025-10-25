@@ -51,6 +51,13 @@ const PING_TABLE_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 const MAX_CACHED_ITERATIVE_QUERIES: usize = 1000;
 
+const VERSIONS_SUPPORTING_SIGNED_PEERS: &[[u8; 4]] = &[
+    // This node
+    socket::VERSION,
+    // Add more nodes as we learn about supporting clients
+    // b"LT.."
+];
+
 #[derive(Debug)]
 /// Internal Rpc called in the Dht thread loop, useful to create your own actor setup.
 pub struct Rpc {
@@ -62,6 +69,10 @@ pub struct Rpc {
     // Routing
     /// Closest nodes to this node
     routing_table: RoutingTable,
+    /// Closest nodes to this node that support the signed peers
+    /// [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst) proposal.
+    signed_peers_routing_table: RoutingTable,
+
     /// Last time we refreshed the routing table with a find_node query.
     last_table_refresh: Instant,
     /// Last time we pinged nodes in the routing table.
@@ -112,6 +123,7 @@ impl Rpc {
             socket,
 
             routing_table: RoutingTable::new(id),
+            signed_peers_routing_table: RoutingTable::new(id),
             iterative_queries: HashMap::new(),
             put_queries: HashMap::new(),
 
@@ -238,6 +250,7 @@ impl Rpc {
 
         let self_id = *self.id();
         let table_size = self.routing_table.size();
+        // TODO: log size of signed_peers_routing_table
 
         let responders_based_dht_size_estimate = self.responders_based_dht_size_estimate();
         let average_subnets = self.average_subnets();
@@ -380,19 +393,32 @@ impl Rpc {
         {
             query.start(&mut self.socket, &closest_nodes)?
         } else {
-            let salt = match request {
-                PutRequestSpecific::PutMutable(args) => args.salt,
-                _ => None,
+            let get_request = match request {
+                PutRequestSpecific::PutImmutable(_) => {
+                    GetRequestSpecific::GetValue(GetValueRequestArguments {
+                        target,
+                        seq: None,
+                        salt: None,
+                    })
+                }
+                PutRequestSpecific::PutMutable(args) => {
+                    GetRequestSpecific::GetValue(GetValueRequestArguments {
+                        target,
+                        seq: None,
+                        salt: args.salt,
+                    })
+                }
+                PutRequestSpecific::AnnouncePeer(_) => {
+                    GetRequestSpecific::GetPeers(GetPeersRequestArguments { info_hash: target })
+                }
+                PutRequestSpecific::AnnounceSignedPeer(_) => {
+                    GetRequestSpecific::GetSignedPeers(GetPeersRequestArguments {
+                        info_hash: target,
+                    })
+                }
             };
 
-            self.get(
-                GetRequestSpecific::GetValue(GetValueRequestArguments {
-                    target,
-                    seq: None,
-                    salt,
-                }),
-                None,
-            );
+            self.get(get_request, None);
         };
 
         self.put_queries.insert(target, query);
@@ -455,12 +481,20 @@ impl Rpc {
             debug!(?node_id, "Bootstrapping the routing table");
         }
 
+        // We have multiple routing table now, so we should first figure out which one
+        // is the appropriate for this query.
+
+        let relevant_routing_table = match &request {
+            GetRequestSpecific::GetSignedPeers(_) => &self.signed_peers_routing_table,
+            _ => &self.routing_table,
+        };
+
         let mut query = IterativeQuery::new(*self.id(), target, request);
 
         // Seed the query either with the closest nodes from the routing table, or the
         // bootstrapping nodes if the closest nodes are not enough.
 
-        let routing_table_closest = self.routing_table.closest_secure(
+        let routing_table_closest = relevant_routing_table.closest_secure(
             target,
             self.responders_based_dht_size_estimate(),
             self.average_subnets(),
@@ -523,6 +557,8 @@ impl Rpc {
         if self.bootstrap.is_empty() {
             if let RequestTypeSpecific::FindNode(param) = &request_specific.request_type {
                 self.routing_table.add(Node::new(param.target, from));
+                self.signed_peers_routing_table
+                    .add(Node::new(param.target, from));
             }
         }
 
@@ -531,7 +567,16 @@ impl Rpc {
         if self.server_mode() {
             let server = &mut self.server;
 
-            match server.handle_request(&self.routing_table, from, request_specific) {
+            let relevant_routing_table = if matches!(
+                request_specific.request_type,
+                RequestTypeSpecific::GetSignedPeers(_)
+            ) {
+                &self.routing_table
+            } else {
+                &self.signed_peers_routing_table
+            };
+
+            match server.handle_request(relevant_routing_table, from, request_specific) {
                 Some(MessageType::Error(error)) => {
                     self.error(from, transaction_id, error);
                 }
@@ -565,6 +610,7 @@ impl Rpc {
                     );
 
                     self.routing_table = RoutingTable::new(new_id);
+                    self.signed_peers_routing_table = RoutingTable::new(new_id);
                 }
             }
         }
@@ -775,6 +821,10 @@ impl Rpc {
 
             if let Some(id) = author_id {
                 self.routing_table.add(Node::new(id, from));
+
+                if supports_signed_peers(message.version) {
+                    self.signed_peers_routing_table.add(Node::new(id, from));
+                }
             }
         }
 
@@ -786,6 +836,8 @@ impl Rpc {
         if self.routing_table.is_empty() {
             self.populate();
         }
+
+        // TODO: refresh signed_peers_routing_table
 
         // Every 15 minutes refresh the routing table.
         if self.last_table_refresh.elapsed() > REFRESH_TABLE_INTERVAL {
@@ -800,6 +852,8 @@ impl Rpc {
             self.populate();
         }
 
+        // TODO: handle signed_peers routing table differently, since we might have
+        // very few nodes that we really don't want to remove nodes we can't afford to lose.
         if self.last_table_ping.elapsed() > PING_TABLE_INTERVAL {
             self.last_table_ping = Instant::now();
 
@@ -830,6 +884,7 @@ impl Rpc {
             return;
         }
 
+        // TODO: populate signed_peers_routing_table
         self.get(
             GetRequestSpecific::FindNode(FindNodeRequestArguments { target: *self.id() }),
             None,
@@ -985,4 +1040,14 @@ pub(crate) fn to_socket_address<T: ToSocketAddrs>(bootstrap: &[T]) -> Vec<Socket
         })
         .flatten()
         .collect()
+}
+
+fn supports_signed_peers(version: Option<[u8; 4]>) -> bool {
+    version
+        .map(|version| {
+            VERSIONS_SUPPORTING_SIGNED_PEERS
+                .iter()
+                .any(|v| version[0..2] == v[0..2] && version[2..] > v[2..])
+        })
+        .unwrap_or_default()
 }

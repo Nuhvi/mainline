@@ -45,6 +45,8 @@ impl Default for Config {
             server_settings: Default::default(),
             server_mode: false,
             public_ip: None,
+            #[cfg(test)]
+            disable_announce_signed_peers: false,
         }
     }
 }

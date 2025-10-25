@@ -710,18 +710,7 @@ impl Testnet {
     /// This will block until all nodes are [bootstrapped][Dht::bootstrapped],
     /// if you are using an async runtime, consider using [Self::new_async].
     pub fn new(count: usize) -> Result<Testnet, std::io::Error> {
-        let testnet = Testnet::new_inner(count, false)?;
-
-        for node in &testnet.nodes {
-            node.bootstrapped();
-        }
-
-        Ok(testnet)
-    }
-
-    #[cfg(test)]
-    fn new_without_signed_peers(count: usize) -> Result<Testnet, std::io::Error> {
-        let testnet = Testnet::new_inner(count, true)?;
+        let testnet = Testnet::new_inner(count, false, None)?;
 
         for node in &testnet.nodes {
             node.bootstrapped();
@@ -733,7 +722,7 @@ impl Testnet {
     /// Similar to [Self::new] but awaits all nodes to bootstrap instead of blocking.
     #[cfg(feature = "async")]
     pub async fn new_async(count: usize) -> Result<Testnet, std::io::Error> {
-        let testnet = Testnet::new_inner(count, false)?;
+        let testnet = Testnet::new_inner(count, false, None)?;
 
         for node in testnet.nodes.clone() {
             node.as_async().bootstrapped().await;
@@ -742,9 +731,35 @@ impl Testnet {
         Ok(testnet)
     }
 
-    fn new_inner(count: usize, disable_signed_peers: bool) -> Result<Testnet, std::io::Error> {
+    #[cfg(test)]
+    fn new_without_signed_peers(count: usize) -> Result<Testnet, std::io::Error> {
+        let testnet = Testnet::new_inner(count, true, None)?;
+
+        for node in &testnet.nodes {
+            node.bootstrapped();
+        }
+
+        Ok(testnet)
+    }
+
+    #[cfg(test)]
+    fn new_with_bootstrap(count: usize, bootstrap: &[String]) -> Result<Testnet, std::io::Error> {
+        let testnet = Testnet::new_inner(count, false, Some(bootstrap.to_vec()))?;
+
+        for node in &testnet.nodes {
+            node.bootstrapped();
+        }
+
+        Ok(testnet)
+    }
+
+    fn new_inner(
+        count: usize,
+        disable_signed_peers: bool,
+        bootstrap: Option<Vec<String>>,
+    ) -> Result<Testnet, std::io::Error> {
         let mut nodes: Vec<Dht> = vec![];
-        let mut bootstrap = vec![];
+        let mut bootstrap = bootstrap.unwrap_or_default();
 
         for i in 0..count {
             if i == 0 {
@@ -1287,12 +1302,9 @@ mod test {
             // will tell `a` and `b` that there are closer nodes than itself
             // to the info_hash they request, while these "closer" nodes don't
             // support these queries at all, thus, a separate table is necessary.
-            let new_bootstrap = Dht::builder()
-                .bootstrap(&testnet_legacy.bootstrap)
-                .build()
-                .unwrap();
+            let testnet_new = Testnet::new_with_bootstrap(3, &testnet_legacy.bootstrap).unwrap();
 
-            let bootstrap = vec![new_bootstrap.info().local_addr().to_string()];
+            let bootstrap = testnet_new.bootstrap;
 
             let a = Dht::builder().bootstrap(&bootstrap).build().unwrap();
             let b = Dht::builder().bootstrap(&bootstrap).build().unwrap();
