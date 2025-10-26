@@ -228,41 +228,46 @@ impl Rpc {
             let is_done = query.tick(&mut self.socket);
 
             if is_done {
-                let closest_nodes =
-                    if let RequestTypeSpecific::FindNode(_) = query.request.request_type {
-                        let table_size = self.routing_table.size();
+                let closest_nodes = if let RequestTypeSpecific::FindNode(_) =
+                    query.request.request_type
+                {
+                    let table_size = self.routing_table.size();
+                    let signed_peers_table_size = self.signed_peers_routing_table.size();
 
-                        if *id == self_id {
-                            if !self.bootstrap.is_empty() && table_size == 0 {
-                                error!("Could not bootstrap the routing table");
-                            } else {
-                                debug!(?self_id, table_size, "Populated the routing table");
-                            }
-                        };
-
-                        query
-                            .closest()
-                            .nodes()
-                            .iter()
-                            .take(MAX_BUCKET_SIZE_K)
-                            .cloned()
-                            .collect::<Box<[_]>>()
-                    } else {
-                        let relevant_routing_table = choose_relevant_routing_table(
-                            query.request.request_type.clone(),
-                            basic_routing_table,
-                            signed_peers_routing_table,
-                        );
-
-                        query
-                            .responders()
-                            .take_until_secure(
-                                relevant_routing_table.responders_based_dht_size_estimate(),
-                                relevant_routing_table.average_subnets(),
-                            )
-                            .to_vec()
-                            .into_boxed_slice()
+                    if *id == self_id {
+                        if !self.bootstrap.is_empty() && table_size == 0 {
+                            error!("Could not bootstrap the routing table");
+                        } else {
+                            debug!(
+                                ?self_id,
+                                table_size, signed_peers_table_size, "Populated the routing table"
+                            );
+                        }
                     };
+
+                    query
+                        .closest()
+                        .nodes()
+                        .iter()
+                        .take(MAX_BUCKET_SIZE_K)
+                        .cloned()
+                        .collect::<Box<[_]>>()
+                } else {
+                    let relevant_routing_table = choose_relevant_routing_table(
+                        query.request.request_type.clone(),
+                        basic_routing_table,
+                        signed_peers_routing_table,
+                    );
+
+                    query
+                        .responders()
+                        .take_until_secure(
+                            relevant_routing_table.responders_based_dht_size_estimate(),
+                            relevant_routing_table.average_subnets(),
+                        )
+                        .to_vec()
+                        .into_boxed_slice()
+                };
 
                 done_get_queries.push((*id, closest_nodes));
             };
@@ -819,8 +824,6 @@ impl Rpc {
             self.populate();
         }
 
-        // TODO: refresh signed_peers_routing_table
-
         // Every 15 minutes refresh the routing table.
         if self.last_table_refresh.elapsed() > REFRESH_TABLE_INTERVAL {
             self.last_table_refresh = Instant::now();
@@ -834,24 +837,28 @@ impl Rpc {
             self.populate();
         }
 
-        // TODO: handle signed_peers routing table differently, since we might have
-        // very few nodes that we really don't want to remove nodes we can't afford to lose.
         if self.last_table_ping.elapsed() > PING_TABLE_INTERVAL {
             self.last_table_ping = Instant::now();
 
-            let mut to_remove = Vec::with_capacity(self.routing_table.size());
-            let mut to_ping = Vec::with_capacity(self.routing_table.size());
+            let mut to_ping = vec![];
 
-            for node in self.routing_table.nodes() {
-                if node.is_stale() {
-                    to_remove.push(*node.id())
-                } else if node.should_ping() {
-                    to_ping.push(node.address())
+            for routing_table in [
+                &mut self.routing_table,
+                &mut self.signed_peers_routing_table,
+            ] {
+                let mut to_remove = Vec::with_capacity(routing_table.size());
+
+                for node in routing_table.nodes() {
+                    if node.is_stale() {
+                        to_remove.push(*node.id())
+                    } else if node.should_ping() {
+                        to_ping.push(node.address())
+                    }
                 }
-            }
 
-            for id in to_remove {
-                self.routing_table.remove(&id);
+                for id in to_remove {
+                    routing_table.remove(&id);
+                }
             }
 
             for address in to_ping {
@@ -866,7 +873,6 @@ impl Rpc {
             return;
         }
 
-        // TODO: populate signed_peers_routing_table
         self.get(
             GetRequestSpecific::FindNode(FindNodeRequestArguments { target: *self.id() }),
             None,
@@ -965,8 +971,6 @@ impl Rpc {
             ..
         }) = query
         {
-            // TODO: get the relevant routing table
-
             match request_type {
                 RequestTypeSpecific::FindNode(..) => {
                     self.routing_table
@@ -1064,7 +1068,7 @@ fn supports_signed_peers(version: Option<[u8; 4]>) -> bool {
         .map(|version| {
             VERSIONS_SUPPORTING_SIGNED_PEERS
                 .iter()
-                .any(|v| version[0..2] == v[0..2] && version[2..] > v[2..])
+                .any(|v| version[0..2] == v[0..2] && version[2..] >= v[2..])
         })
         .unwrap_or_default()
 }
