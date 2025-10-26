@@ -12,6 +12,7 @@ All notable changes to mainline dht will be documented in this file.
 
 - `DhtBuilder::request_timeout()` (Breaking change).
 - `node` Feature flag, now the `Dht` is always available
+- `RoutingTable::closest_secure()` made private.
 
 ### Changed
 

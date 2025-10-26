@@ -10,7 +10,7 @@ use tracing_subscriber;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// info_hash to annouce a peer on
+    /// info_hash to announce a peer on
     infohash: String,
 }
 

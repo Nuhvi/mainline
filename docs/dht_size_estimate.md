@@ -28,7 +28,7 @@ you should see nodes distributed somewhat like this:
 0      1      2      3      4      5      6      7      8      9      10     11     12     13     14     15
 ```
 
-So if you make a lookup and optained this partial view of the network:
+So if you make a lookup and obtained this partial view of the network:
 ```md
              (1)    (2)                  (3)                                (4)                  (5)       
 |------|------|------|------|------|------|------|------|------|------|------|------|------|------|------|
@@ -41,7 +41,7 @@ the routing table works.
 Seeing one node at distance (d1=2), suggests that the routing table might contain 8 nodes,
 since its full length is 8 times (d1).
 
-Similarily, seeing two nodes at (d2=3), suggests that the routing table might contain ~11
+Similarly, seeing two nodes at (d2=3), suggests that the routing table might contain ~11
 nodes, since the key space is more than (d2).
 
 If we repeat this estimation for as many nodes as the routing table's `k` bucket size,

@@ -6,15 +6,17 @@ use std::{
     thread,
 };
 
+use ed25519_dalek::SigningKey;
 use flume::{Receiver, Sender, TryRecvError};
 
 use tracing::info;
 
 use crate::{
     common::{
-        hash_immutable, AnnouncePeerRequestArguments, FindNodeRequestArguments,
-        GetPeersRequestArguments, GetValueRequestArguments, Id, MutableItem,
-        PutImmutableRequestArguments, PutMutableRequestArguments, PutRequestSpecific,
+        hash_immutable, AnnouncePeerRequestArguments, AnnounceSignedPeerRequestArguments,
+        FindNodeRequestArguments, GetPeersRequestArguments, GetValueRequestArguments, Id,
+        MutableItem, PutImmutableRequestArguments, PutMutableRequestArguments, PutRequestSpecific,
+        SignedAnnounce,
     },
     rpc::{ConcurrencyError, GetRequestSpecific, Info, PutError, PutQueryError, Response, Rpc},
     Node, ServerSettings,
@@ -69,6 +71,14 @@ impl DhtBuilder {
     /// Remove the existing bootstrapping nodes, usually to create the first node in a new network.
     pub fn no_bootstrap(&mut self) -> &mut Self {
         self.0.bootstrap = vec![];
+
+        self
+    }
+
+    /// Used to simulate a DHT that doesn't support `announce_signed_peers`
+    #[cfg(test)]
+    fn disable_signed_peers(&mut self) -> &mut Self {
+        self.0.disable_announce_signed_peers = true;
 
         self
     }
@@ -244,6 +254,74 @@ impl Dht {
                 unreachable!("should not receive a concurrency error from announce peer query")
             }
         })
+    }
+
+    // === Signed Peers ===
+
+    /// Announce a signed peer for a given infohash.
+    ///
+    /// ## Namespacing
+    /// It is important to distinguish your overlay network and any other differentiator like a
+    /// sub-network or geographical distribution, by namespacing your `info_hash`, to avoid getting
+    /// signed peers you can't or don't want to connect to.
+    ///
+    /// The easiest way for namespacing is to hash a concatenation of your original `info_hash`
+    /// with the name of your network and any other filters, then pass the first 20 bytes as the
+    /// `info_hash` to this method.
+    ///
+    /// Read [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst) for more information.
+    pub fn announce_signed_peer(
+        &self,
+        info_hash: Id,
+        signer: &SigningKey,
+    ) -> Result<Id, PutQueryError> {
+        let signed_announce = SignedAnnounce::new(signer, &info_hash);
+
+        self.put(
+            PutRequestSpecific::AnnounceSignedPeer(AnnounceSignedPeerRequestArguments {
+                info_hash,
+                k: *signed_announce.key(),
+                t: signed_announce.timestamp(),
+                sig: *signed_announce.signature(),
+            }),
+            None,
+        )
+        .map_err(|error| match error {
+            PutError::Query(error) => error,
+            PutError::Concurrency(_) => {
+                unreachable!("should not receive a concurrency error from announce peer query")
+            }
+        })
+    }
+
+    /// Get peers verifiably announced for a given infohash by their public key.
+    ///
+    /// ## Namespacing
+    /// It is important to distinguish your overlay network and any other differentiator like a
+    /// sub-network or geographical distribution, by namespacing your `info_hash`, to avoid getting
+    /// signed peers you can't or don't want to connect to.
+    ///
+    /// The easiest way for namespacing is to hash a concatenation of your original `info_hash`
+    /// with the name of your network and any other filters, then pass the first 20 bytes as the
+    /// `info_hash` to this method.
+    ///
+    /// Note: each node of the network will only return a _random_ subset (usually 20)
+    /// of the total peers it has for a given infohash, so if you are getting responses
+    /// from 20 nodes, you can expect up to 400 peers in total, but if there are more
+    /// announced peers on that infohash, you are likely to miss some, the logic here
+    /// for Bittorrent is that any peer will introduce you to more peers through "peer exchange"
+    /// so if you are implementing something different from Bittorrent, you might want
+    /// to implement your own logic for gossipping more peers after you discover the first ones.
+    ///
+    /// Read [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst) for more information.
+    pub fn get_signed_peers(&self, info_hash: Id) -> GetIterator<Vec<SignedAnnounce>> {
+        let (tx, rx) = flume::unbounded::<Vec<SignedAnnounce>>();
+        self.send(ActorMessage::Get(
+            GetRequestSpecific::GetSignedPeers(GetPeersRequestArguments { info_hash }),
+            ResponseSender::SignedPeers(tx),
+        ));
+
+        GetIterator(rx.into_iter())
     }
 
     // === Immutable data ===
@@ -578,6 +656,9 @@ fn send(sender: &ResponseSender, response: Response) {
         (ResponseSender::Peers(s), Response::Peers(r)) => {
             let _ = s.send(r);
         }
+        (ResponseSender::SignedPeers(s), Response::SignedPeers(r)) => {
+            let _ = s.send(r);
+        }
         (ResponseSender::Mutable(s), Response::Mutable(r)) => {
             let _ = s.send(r);
         }
@@ -605,6 +686,7 @@ pub(crate) enum ActorMessage {
 pub enum ResponseSender {
     ClosestNodes(Sender<Box<[Node]>>),
     Peers(Sender<Vec<SocketAddrV4>>),
+    SignedPeers(Sender<Vec<SignedAnnounce>>),
     Mutable(Sender<MutableItem>),
     Immutable(Sender<Box<[u8]>>),
 }
@@ -628,7 +710,7 @@ impl Testnet {
     /// This will block until all nodes are [bootstrapped][Dht::bootstrapped],
     /// if you are using an async runtime, consider using [Self::new_async].
     pub fn new(count: usize) -> Result<Testnet, std::io::Error> {
-        let testnet = Testnet::new_inner(count)?;
+        let testnet = Testnet::new_inner(count, false, None)?;
 
         for node in &testnet.nodes {
             node.bootstrapped();
@@ -640,7 +722,7 @@ impl Testnet {
     /// Similar to [Self::new] but awaits all nodes to bootstrap instead of blocking.
     #[cfg(feature = "async")]
     pub async fn new_async(count: usize) -> Result<Testnet, std::io::Error> {
-        let testnet = Testnet::new_inner(count)?;
+        let testnet = Testnet::new_inner(count, false, None)?;
 
         for node in testnet.nodes.clone() {
             node.as_async().bootstrapped().await;
@@ -649,13 +731,48 @@ impl Testnet {
         Ok(testnet)
     }
 
-    fn new_inner(count: usize) -> Result<Testnet, std::io::Error> {
+    #[cfg(test)]
+    fn new_without_signed_peers(count: usize) -> Result<Testnet, std::io::Error> {
+        let testnet = Testnet::new_inner(count, true, None)?;
+
+        for node in &testnet.nodes {
+            node.bootstrapped();
+        }
+
+        Ok(testnet)
+    }
+
+    #[cfg(test)]
+    fn new_with_bootstrap(count: usize, bootstrap: &[String]) -> Result<Testnet, std::io::Error> {
+        let testnet = Testnet::new_inner(count, false, Some(bootstrap.to_vec()))?;
+
+        for node in &testnet.nodes {
+            node.bootstrapped();
+        }
+
+        Ok(testnet)
+    }
+
+    fn new_inner(
+        count: usize,
+        disable_signed_peers: bool,
+        bootstrap: Option<Vec<String>>,
+    ) -> Result<Testnet, std::io::Error> {
         let mut nodes: Vec<Dht> = vec![];
-        let mut bootstrap = vec![];
+        let mut bootstrap = bootstrap.unwrap_or_default();
 
         for i in 0..count {
             if i == 0 {
-                let node = Dht::builder().server_mode().no_bootstrap().build()?;
+                let mut builder = Dht::builder();
+
+                builder.server_mode().no_bootstrap();
+
+                if disable_signed_peers {
+                    #[cfg(test)]
+                    builder.disable_signed_peers();
+                }
+
+                let node = builder.build()?;
 
                 let info = node.info();
                 let addr = info.local_addr();
@@ -664,7 +781,15 @@ impl Testnet {
 
                 nodes.push(node)
             } else {
-                let node = Dht::builder().server_mode().bootstrap(&bootstrap).build()?;
+                let mut builder = Dht::builder();
+
+                if disable_signed_peers {
+                    #[cfg(test)]
+                    builder.disable_signed_peers();
+                }
+
+                let node = builder.server_mode().bootstrap(&bootstrap).build()?;
+
                 nodes.push(node)
             }
         }
@@ -1095,5 +1220,106 @@ mod test {
             .unwrap();
 
         assert!(client.bootstrapped());
+    }
+
+    #[test]
+    fn announce_signed_peers_at_full_adoption() {
+        let testnet = Testnet::new(10).unwrap();
+
+        let a = Dht::builder()
+            .bootstrap(&testnet.bootstrap)
+            .build()
+            .unwrap();
+        let b = Dht::builder()
+            .bootstrap(&testnet.bootstrap)
+            .build()
+            .unwrap();
+
+        let info_hash = Id::random();
+
+        let signers = [0, 1, 2]
+            .iter()
+            .map(|_| {
+                let mut secret_key = [0; 32];
+                getrandom::fill(&mut secret_key).unwrap();
+                SigningKey::from_bytes(&secret_key)
+            })
+            .collect::<Vec<_>>();
+
+        let mut expected_keys = signers
+            .iter()
+            .map(|s| s.verifying_key().as_bytes().to_vec())
+            .collect::<Vec<_>>();
+        expected_keys.sort();
+
+        for signer in signers {
+            a.announce_signed_peer(info_hash, &signer)
+                .expect("failed to announce");
+        }
+
+        let peers = b.get_signed_peers(info_hash).next().expect("No peers");
+
+        let mut keys = peers.iter().map(|a| a.key().to_vec()).collect::<Vec<_>>();
+        keys.sort();
+
+        assert_eq!(keys, expected_keys);
+    }
+
+    #[test]
+    fn announce_signed_peers_at_low_adoption() {
+        let testnet_legacy = Testnet::new_without_signed_peers(10).unwrap();
+
+        let signers = [0, 1, 2]
+            .iter()
+            .map(|_| {
+                let mut secret_key = [0; 32];
+                getrandom::fill(&mut secret_key).unwrap();
+                SigningKey::from_bytes(&secret_key)
+            })
+            .collect::<Vec<_>>();
+
+        let mut expected_keys = signers
+            .iter()
+            .map(|s| s.verifying_key().as_bytes().to_vec())
+            .collect::<Vec<_>>();
+        expected_keys.sort();
+
+        let info_hash = Id::random();
+
+        // confirm that our code disables `signed_announce_peers` for older versions
+        {
+            let a = Dht::builder()
+                .bootstrap(&testnet_legacy.bootstrap)
+                .disable_signed_peers()
+                .build()
+                .unwrap();
+            assert!(a.announce_signed_peer(info_hash, &signers[0]).is_err());
+            assert_eq!(a.get_signed_peers(info_hash).next(), None)
+        }
+
+        {
+            // Without a separate table internally, this new bootstrapping node,
+            // will tell `a` and `b` that there are closer nodes than itself
+            // to the info_hash they request, while these "closer" nodes don't
+            // support these queries at all, thus, a separate table is necessary.
+            let testnet_new = Testnet::new_with_bootstrap(3, &testnet_legacy.bootstrap).unwrap();
+
+            let bootstrap = testnet_new.bootstrap;
+
+            let a = Dht::builder().bootstrap(&bootstrap).build().unwrap();
+            let b = Dht::builder().bootstrap(&bootstrap).build().unwrap();
+
+            for signer in &signers {
+                a.announce_signed_peer(info_hash, signer)
+                    .expect("failed to announce");
+            }
+
+            let peers = b.get_signed_peers(info_hash).next().expect("No peers");
+
+            let mut keys = peers.iter().map(|a| a.key().to_vec()).collect::<Vec<_>>();
+            keys.sort();
+
+            assert_eq!(keys, expected_keys);
+        }
     }
 }

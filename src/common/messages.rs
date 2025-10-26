@@ -57,6 +57,7 @@ pub enum RequestTypeSpecific {
     Ping,
     FindNode(FindNodeRequestArguments),
     GetPeers(GetPeersRequestArguments),
+    GetSignedPeers(GetPeersRequestArguments),
     GetValue(GetValueRequestArguments),
 
     Put(PutRequest),
@@ -71,6 +72,7 @@ pub struct PutRequest {
 #[derive(Debug, PartialEq, Clone)]
 pub enum PutRequestSpecific {
     AnnouncePeer(AnnouncePeerRequestArguments),
+    AnnounceSignedPeer(AnnounceSignedPeerRequestArguments),
     PutImmutable(PutImmutableRequestArguments),
     PutMutable(PutMutableRequestArguments),
 }
@@ -80,6 +82,10 @@ impl PutRequestSpecific {
         match self {
             PutRequestSpecific::AnnouncePeer(AnnouncePeerRequestArguments {
                 info_hash, ..
+            }) => info_hash,
+            PutRequestSpecific::AnnounceSignedPeer(AnnounceSignedPeerRequestArguments {
+                info_hash,
+                ..
             }) => info_hash,
             PutRequestSpecific::PutMutable(PutMutableRequestArguments { target, .. }) => target,
             PutRequestSpecific::PutImmutable(PutImmutableRequestArguments { target, .. }) => target,
@@ -92,6 +98,7 @@ pub enum ResponseSpecific {
     Ping(PingResponseArguments),
     FindNode(FindNodeResponseArguments),
     GetPeers(GetPeersResponseArguments),
+    GetSignedPeers(GetSignedPeersResponseArguments),
     GetImmutable(GetImmutableResponseArguments),
     GetMutable(GetMutableResponseArguments),
     NoValues(NoValuesResponseArguments),
@@ -150,6 +157,14 @@ pub struct GetPeersResponseArguments {
     pub nodes: Option<Box<[Node]>>,
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct GetSignedPeersResponseArguments {
+    pub responder_id: Id,
+    pub token: Box<[u8]>,
+    pub peers: Vec<([u8; 32], u64, [u8; 64])>,
+    pub nodes: Option<Box<[Node]>>,
+}
+
 // === Announce Peer ===
 
 #[derive(Debug, PartialEq, Clone)]
@@ -157,6 +172,14 @@ pub struct AnnouncePeerRequestArguments {
     pub info_hash: Id,
     pub port: u16,
     pub implied_port: Option<bool>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct AnnounceSignedPeerRequestArguments {
+    pub info_hash: Id,
+    pub t: u64,
+    pub k: [u8; 32],
+    pub sig: [u8; 64],
 }
 
 // === Get Immutable ===
@@ -246,6 +269,14 @@ impl Message {
                             },
                         }
                     }
+                    RequestTypeSpecific::GetSignedPeers(get_peers_args) => {
+                        internal::DHTRequestSpecific::GetSignedPeers {
+                            arguments: internal::DHTGetPeersRequestArguments {
+                                id: requester_id.into(),
+                                info_hash: get_peers_args.info_hash.into(),
+                            },
+                        }
+                    }
                     RequestTypeSpecific::GetValue(get_mutable_args) => {
                         internal::DHTRequestSpecific::GetValue {
                             arguments: internal::DHTGetValueRequestArguments {
@@ -272,6 +303,19 @@ impl Message {
                                     } else {
                                         Some(0)
                                     },
+                                },
+                            }
+                        }
+                        PutRequestSpecific::AnnounceSignedPeer(announce_signed_peer_args) => {
+                            internal::DHTRequestSpecific::AnnounceSignedPeer {
+                                arguments: internal::DHTAnnounceSignedPeerRequestArguments {
+                                    id: requester_id.into(),
+                                    token,
+
+                                    info_hash: announce_signed_peer_args.info_hash.into(),
+                                    t: announce_signed_peer_args.t as i64,
+                                    k: announce_signed_peer_args.k,
+                                    sig: announce_signed_peer_args.sig,
                                 },
                             }
                         }
@@ -334,6 +378,19 @@ impl Message {
                                     .as_ref()
                                     .map(|nodes| nodes4_to_bytes(nodes)),
                                 values: peers_to_bytes(&get_peers_args.values),
+                            },
+                        }
+                    }
+                    ResponseSpecific::GetSignedPeers(get_peers_args) => {
+                        internal::DHTResponseSpecific::GetSignedPeers {
+                            arguments: internal::DHTGetSignedPeersResponseArguments {
+                                id: get_peers_args.responder_id.into(),
+                                token: get_peers_args.token,
+                                nodes: get_peers_args
+                                    .nodes
+                                    .as_ref()
+                                    .map(|nodes| nodes4_to_bytes(nodes)),
+                                peers: signed_peers_to_bytes(&get_peers_args.peers),
                             },
                         }
                     }
@@ -435,6 +492,17 @@ impl Message {
                                 info_hash: Id::from_bytes(arguments.info_hash)?,
                             }),
                         },
+                        internal::DHTRequestSpecific::GetSignedPeers { arguments } => {
+                            RequestSpecific {
+                                requester_id: Id::from_bytes(arguments.id)?,
+                                request_type: RequestTypeSpecific::GetSignedPeers(
+                                    GetPeersRequestArguments {
+                                        info_hash: Id::from_bytes(arguments.info_hash)?,
+                                    },
+                                ),
+                            }
+                        }
+
                         internal::DHTRequestSpecific::GetValue { arguments } => RequestSpecific {
                             requester_id: Id::from_bytes(arguments.id)?,
 
@@ -456,6 +524,23 @@ impl Message {
                                                 .map(|implied_port| implied_port != 0),
                                             info_hash: arguments.info_hash.into(),
                                             port: arguments.port,
+                                        },
+                                    ),
+                                }),
+                            }
+                        }
+                        internal::DHTRequestSpecific::AnnounceSignedPeer { arguments } => {
+                            RequestSpecific {
+                                requester_id: Id::from_bytes(arguments.id)?,
+
+                                request_type: RequestTypeSpecific::Put(PutRequest {
+                                    token: arguments.token,
+                                    put_request_type: PutRequestSpecific::AnnounceSignedPeer(
+                                        AnnounceSignedPeerRequestArguments {
+                                            info_hash: Id::from_bytes(arguments.info_hash)?,
+                                            t: arguments.t as u64,
+                                            k: arguments.k,
+                                            sig: arguments.sig,
                                         },
                                     ),
                                 }),
@@ -526,6 +611,17 @@ impl Message {
                                     None => None,
                                 },
                                 values: bytes_to_peers(arguments.values)?,
+                            })
+                        }
+                        internal::DHTResponseSpecific::GetSignedPeers { arguments } => {
+                            ResponseSpecific::GetSignedPeers(GetSignedPeersResponseArguments {
+                                responder_id: Id::from_bytes(arguments.id)?,
+                                token: arguments.token,
+                                nodes: match arguments.nodes {
+                                    Some(nodes) => Some(bytes_to_nodes4(nodes)?),
+                                    None => None,
+                                },
+                                peers: bytes_to_signed_peers(arguments.peers)?,
                             })
                         }
                         internal::DHTResponseSpecific::NoValues { arguments } => {
@@ -615,6 +711,7 @@ impl Message {
                 ResponseSpecific::Ping(arguments) => arguments.responder_id,
                 ResponseSpecific::FindNode(arguments) => arguments.responder_id,
                 ResponseSpecific::GetPeers(arguments) => arguments.responder_id,
+                ResponseSpecific::GetSignedPeers(arguments) => arguments.responder_id,
                 ResponseSpecific::GetImmutable(arguments) => arguments.responder_id,
                 ResponseSpecific::GetMutable(arguments) => arguments.responder_id,
                 ResponseSpecific::NoValues(arguments) => arguments.responder_id,
@@ -635,6 +732,7 @@ impl Message {
                 ResponseSpecific::Ping(_) => None,
                 ResponseSpecific::FindNode(arguments) => Some(&arguments.nodes),
                 ResponseSpecific::GetPeers(arguments) => arguments.nodes.as_deref(),
+                ResponseSpecific::GetSignedPeers(arguments) => arguments.nodes.as_deref(),
                 ResponseSpecific::GetMutable(arguments) => arguments.nodes.as_deref(),
                 ResponseSpecific::GetImmutable(arguments) => arguments.nodes.as_deref(),
                 ResponseSpecific::NoValues(arguments) => arguments.nodes.as_deref(),
@@ -650,6 +748,9 @@ impl Message {
                 ResponseSpecific::Ping(_) => None,
                 ResponseSpecific::FindNode(_) => None,
                 ResponseSpecific::GetPeers(arguments) => {
+                    Some((arguments.responder_id, &arguments.token))
+                }
+                ResponseSpecific::GetSignedPeers(arguments) => {
                     Some((arguments.responder_id, &arguments.token))
                 }
                 ResponseSpecific::GetImmutable(arguments) => {
@@ -746,6 +847,50 @@ fn bytes_to_peers<T: AsRef<[serde_bytes::ByteBuf]>>(
     bytes.iter().map(bytes_to_sockaddr).collect()
 }
 
+#[allow(clippy::type_complexity)]
+fn bytes_to_signed_peers<T: AsRef<[serde_bytes::ByteBuf]>>(
+    bytes: T,
+) -> Result<Vec<([u8; 32], u64, [u8; 64])>, DecodeMessageError> {
+    let bytes = bytes.as_ref();
+
+    bytes.iter().map(bytes_to_signed_peer).collect()
+}
+
+fn bytes_to_signed_peer<T: AsRef<[u8]>>(
+    bytes: T,
+) -> Result<([u8; 32], u64, [u8; 64]), DecodeMessageError> {
+    let bytes = bytes.as_ref();
+
+    if !bytes.len().is_multiple_of(104) {
+        return Err(DecodeMessageError::InvalidSignedPeersEncodingLength);
+    }
+
+    let t: [u8; 8] = bytes[32..40].try_into().expect("infallible");
+
+    Ok((
+        bytes[0..32].try_into().expect("infallible"),
+        u64::from_be_bytes(t),
+        bytes[40..104].try_into().expect("infallible"),
+    ))
+}
+
+fn signed_peers_to_bytes(peers: &[([u8; 32], u64, [u8; 64])]) -> Vec<serde_bytes::ByteBuf> {
+    peers
+        .iter()
+        .map(|p| serde_bytes::ByteBuf::from(signed_peer_to_bytes(p)))
+        .collect()
+}
+
+fn signed_peer_to_bytes(peer: &([u8; 32], u64, [u8; 64])) -> [u8; 104] {
+    let mut bytes = [0; 104];
+
+    bytes[0..32].copy_from_slice(&peer.0);
+    bytes[32..40].copy_from_slice(&peer.1.to_be_bytes());
+    bytes[40..].copy_from_slice(&peer.2);
+
+    bytes
+}
+
 #[derive(thiserror::Error, Debug)]
 /// Mainline crate error enum.
 pub enum DecodeMessageError {
@@ -775,6 +920,9 @@ pub enum DecodeMessageError {
 
     #[error("Invalid transaction id size (expected [u8;2] or [u8;4])")]
     InvalidTransactionIdSize,
+
+    #[error("Wrong number of bytes for signed peers")]
+    InvalidSignedPeersEncodingLength,
 }
 
 #[cfg(test)]

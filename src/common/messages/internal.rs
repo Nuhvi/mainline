@@ -68,10 +68,22 @@ pub enum DHTRequestSpecific {
         arguments: DHTGetPeersRequestArguments,
     },
 
+    #[serde(rename = "get_signed_peers")]
+    GetSignedPeers {
+        #[serde(rename = "a")]
+        arguments: DHTGetPeersRequestArguments,
+    },
+
     #[serde(rename = "announce_peer")]
     AnnouncePeer {
         #[serde(rename = "a")]
         arguments: DHTAnnouncePeerRequestArguments,
+    },
+
+    #[serde(rename = "announce_signed_peer")]
+    AnnounceSignedPeer {
+        #[serde(rename = "a")]
+        arguments: DHTAnnounceSignedPeerRequestArguments,
     },
 
     #[serde(rename = "get")]
@@ -108,6 +120,11 @@ pub enum DHTResponseSpecific {
     GetPeers {
         #[serde(rename = "r")]
         arguments: DHTGetPeersResponseArguments,
+    },
+
+    GetSignedPeers {
+        #[serde(rename = "r")]
+        arguments: DHTGetSignedPeersResponseArguments,
     },
 
     NoValues {
@@ -207,6 +224,25 @@ pub struct DHTGetPeersResponseArguments {
     pub values: Vec<ByteBuf>,
 }
 
+// === Get Signed Peers ===
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct DHTGetSignedPeersResponseArguments {
+    #[serde(with = "serde_bytes")]
+    pub id: [u8; 20],
+
+    #[serde(with = "serde_bytes")]
+    pub token: Box<[u8]>,
+
+    #[serde(with = "serde_bytes")]
+    #[serde(default)]
+    pub nodes: Option<Box<[u8]>>,
+
+    // peers are not optional, because if they are missing this missing
+    // we can just treat this as DHTNoValuesResponseArguments
+    pub peers: Vec<ByteBuf>,
+}
+
 // === Announce Peer ===
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -224,6 +260,28 @@ pub struct DHTAnnouncePeerRequestArguments {
 
     #[serde(default)]
     pub implied_port: Option<u8>,
+}
+
+/// === Announce Signed Peer ===
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct DHTAnnounceSignedPeerRequestArguments {
+    #[serde(with = "serde_bytes")]
+    pub id: [u8; 20],
+
+    #[serde(with = "serde_bytes")]
+    pub info_hash: [u8; 20],
+
+    #[serde(with = "serde_bytes")]
+    pub token: Box<[u8]>,
+
+    #[serde(with = "serde_bytes")]
+    pub k: [u8; 32],
+
+    #[serde(with = "serde_bytes")]
+    pub sig: [u8; 64],
+
+    pub t: i64,
 }
 
 // === Get Value ===
