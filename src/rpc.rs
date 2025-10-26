@@ -14,7 +14,7 @@ use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
 use lru::LruCache;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 
 use iterative_query::IterativeQuery;
 use put_query::PutQuery;
@@ -91,16 +91,6 @@ pub struct Rpc {
     /// get query to finish, update the closest_nodes, then `query_all` these.
     put_queries: HashMap<Id, PutQuery>,
 
-    /// Sum of Dht size estimates from closest nodes from get queries.
-    dht_size_estimates_sum: f64,
-
-    /// Sum of Dht size estimates from closest _responding_ nodes from get queries.
-    responders_based_dht_size_estimates_sum: f64,
-    responders_based_dht_size_estimates_count: usize,
-
-    /// Sum of the number of subnets with 6 bits prefix in the closest nodes ipv4
-    subnets_sum: usize,
-
     server: Server,
 
     public_address: Option<SocketAddrV4>,
@@ -134,13 +124,6 @@ impl Rpc {
 
             last_table_refresh: Instant::now(),
             last_table_ping: Instant::now(),
-
-            dht_size_estimates_sum: 0.0,
-            responders_based_dht_size_estimates_count: 0,
-
-            // Don't store to too many nodes just because you are in a cold start.
-            responders_based_dht_size_estimates_sum: 1_000_000.0,
-            subnets_sum: 20,
 
             server: Server::new(config.server_settings),
 
@@ -195,13 +178,7 @@ impl Rpc {
     ///
     /// [Read more](https://github.com/nuhvi/mainline/blob/main/docs/dht_size_estimate.md)
     pub fn dht_size_estimate(&self) -> (usize, f64) {
-        let normal =
-            self.dht_size_estimates_sum as usize / self.cached_iterative_queries.len().max(1);
-
-        // See https://github.com/nuhvi/mainline/blob/main/docs/standard-deviation-vs-lookups.png
-        let std_dev = 0.281 * (self.cached_iterative_queries.len() as f64).powf(-0.529);
-
-        (normal, std_dev)
+        self.routing_table.dht_size_estimate()
     }
 
     /// Returns a thread safe and lightweight summary of this node's
@@ -252,8 +229,9 @@ impl Rpc {
         let table_size = self.routing_table.size();
         // TODO: log size of signed_peers_routing_table
 
-        let responders_based_dht_size_estimate = self.responders_based_dht_size_estimate();
-        let average_subnets = self.average_subnets();
+        let responders_based_dht_size_estimate =
+            self.routing_table.responders_based_dht_size_estimate();
+        let average_subnets = self.routing_table.average_subnets();
 
         for (id, query) in self.iterative_queries.iter_mut() {
             let is_done = query.tick(&mut self.socket);
@@ -277,6 +255,8 @@ impl Rpc {
                             .cloned()
                             .collect::<Box<[_]>>()
                     } else {
+                        // TODO: use the relevant routing table's stats
+
                         query
                             .responders()
                             .take_until_secure(responders_based_dht_size_estimate, average_subnets)
@@ -297,6 +277,17 @@ impl Rpc {
 
                 // Only for get queries, not find node.
                 if !matches!(query.request.request_type, RequestTypeSpecific::FindNode(_)) {
+                    // TODO: get the relevant routing table
+                    // maybe pass it as input to cache_iterative_query?
+                    let relevant_routing_table = &self.routing_table;
+
+                    // TODO: log the type of the query..
+                    debug!(
+                       size_estimate = ?relevant_routing_table.responders_based_dht_size_estimate(),
+                       subnets = ?relevant_routing_table.average_subnets(),
+                       "Storing nodes stats..",
+                    );
+
                     if let Some(put_query) = self.put_queries.get_mut(id) {
                         if !put_query.started() {
                             if let Err(error) = put_query.start(&mut self.socket, closest_nodes) {
@@ -494,11 +485,7 @@ impl Rpc {
         // Seed the query either with the closest nodes from the routing table, or the
         // bootstrapping nodes if the closest nodes are not enough.
 
-        let routing_table_closest = relevant_routing_table.closest_secure(
-            target,
-            self.responders_based_dht_size_estimate(),
-            self.average_subnets(),
-        );
+        let routing_table_closest = relevant_routing_table.closest_secure(target);
 
         // If we don't have enough or any closest nodes, call the bootstrapping nodes.
         if routing_table_closest.is_empty() || routing_table_closest.len() < self.bootstrap.len() {
@@ -518,6 +505,8 @@ impl Rpc {
             query.add_candidate(node)
         }
 
+        // If we have cached iterative query with the same hash,
+        // use its nodes as well..
         if let Some(CachedIterativeQuery {
             closest_responding_nodes,
             ..
@@ -775,7 +764,7 @@ impl Rpc {
                         seq, responder_id, ..
                     },
                 )) => {
-                    debug!(
+                    trace!(
                         target= ?query.target(),
                         salt= ?match query.request.request_type.clone() {
                             RequestTypeSpecific::GetValue(args) => args.salt,
@@ -792,7 +781,7 @@ impl Rpc {
                     responder_id,
                     ..
                 })) => {
-                    debug!(
+                    trace!(
                         target= ?query.target(),
                         salt= ?match query.request.request_type.clone() {
                             RequestTypeSpecific::GetValue(args) => args.salt,
@@ -938,7 +927,7 @@ impl Rpc {
 
         let dht_size_estimate = closest.dht_size_estimate();
         let responders_dht_size_estimate = responders.dht_size_estimate();
-        let subnets_count = closest.subnets_count();
+        let subnets_count = responders.subnets_count();
 
         let previous = self.cached_iterative_queries.put(
             query.target(),
@@ -957,21 +946,17 @@ impl Rpc {
 
         self.decrement_cached_iterative_query_stats(previous);
 
-        self.dht_size_estimates_sum += dht_size_estimate;
-        self.responders_based_dht_size_estimates_sum += responders_dht_size_estimate;
-        self.subnets_sum += subnets_count as usize;
-        self.responders_based_dht_size_estimates_count += 1;
+        // TODO: get the relevant routing table
+        let relevant_routing_table = &mut self.routing_table;
+
+        relevant_routing_table.increment_responders_stats(
+            dht_size_estimate,
+            responders_dht_size_estimate,
+            subnets_count,
+        );
     }
 
-    fn responders_based_dht_size_estimate(&self) -> usize {
-        self.responders_based_dht_size_estimates_sum as usize
-            / self.responders_based_dht_size_estimates_count.max(1)
-    }
-
-    fn average_subnets(&self) -> usize {
-        self.subnets_sum / self.cached_iterative_queries.len().max(1)
-    }
-
+    /// Decrement stats after an iterative query is popped
     fn decrement_cached_iterative_query_stats(&mut self, query: Option<CachedIterativeQuery>) {
         if let Some(CachedIterativeQuery {
             dht_size_estimate,
@@ -981,12 +966,18 @@ impl Rpc {
             ..
         }) = query
         {
-            self.dht_size_estimates_sum -= dht_size_estimate;
-            self.responders_based_dht_size_estimates_sum -= responders_dht_size_estimate;
-            self.subnets_sum -= subnets as usize;
+            // TODO: get the relevant routing table
+            let relevant_routing_table = &mut self.routing_table;
 
-            if !is_find_node {
-                self.responders_based_dht_size_estimates_count -= 1;
+            if is_find_node {
+                relevant_routing_table.decrement_dht_size_estimate(dht_size_estimate);
+            } else {
+                // self.responders_based_dht_size_estimates_count -= 1;
+                relevant_routing_table.decrement_responders_stats(
+                    dht_size_estimate,
+                    responders_dht_size_estimate,
+                    subnets,
+                );
             }
         };
     }

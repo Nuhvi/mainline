@@ -14,6 +14,28 @@ pub const MAX_BUCKET_SIZE_K: usize = 20;
 pub struct RoutingTable {
     id: Id,
     buckets: BTreeMap<u8, KBucket>,
+
+    // Routing table statistics based on all nodes responding to our BEP_0005
+    // basic queries; FIND_NODE and PING, regardless whether or not they support
+    // any storage rpc like announce_peer or put_mutable etc..
+    //
+    /// The number of queries we base the following stats on
+    dht_size_estimates_count: usize,
+    /// Sum of Dht size estimates from closest nodes from get queries.
+    dht_size_estimates_sum: f64,
+
+    // Routing table statistics based on _storage nodes_ that responds to this table's
+    // relevant storage requests like `announce_peer` or `put_mutable` or their `get_`
+    // equivalents. This is a more conservative estimate that helps with censorship resistance.
+    //
+    /// [Read more](https://github.com/nuhvi/mainline/blob/main/docs/dht_size_estimate.md)
+    responders_samples_count: usize,
+    /// Sum of Dht size estimates from closest _responding_ nodes from get queries.
+    responders_size_estimates_sum: f64,
+    /// Sum of the number of subnets with 6 bits prefix in the closest nodes ipv4
+    ///
+    /// [Read more](https://github.com/nuhvi/mainline/blob/main/docs/censorship_resistance.md)
+    responders_subnets_sum: usize,
 }
 
 impl RoutingTable {
@@ -21,7 +43,17 @@ impl RoutingTable {
     pub fn new(id: Id) -> Self {
         let buckets = BTreeMap::new();
 
-        RoutingTable { id, buckets }
+        RoutingTable {
+            id,
+            buckets,
+
+            dht_size_estimates_count: 0,
+            dht_size_estimates_sum: 0.0,
+
+            responders_samples_count: 0,
+            responders_size_estimates_sum: 0.0,
+            responders_subnets_sum: 0,
+        }
     }
 
     /// Returns the [Id] of this node, where the distance is measured from.
@@ -82,12 +114,7 @@ impl RoutingTable {
     }
 
     /// Secure version of [Self::closest] that tries to circumvent sybil attacks.
-    pub fn closest_secure(
-        &self,
-        target: Id,
-        dht_size_estimate: usize,
-        subnets: usize,
-    ) -> Vec<Node> {
+    pub(crate) fn closest_secure(&self, target: Id) -> Vec<Node> {
         let mut closest = ClosestNodes::new(target);
 
         for node in self.nodes() {
@@ -95,7 +122,10 @@ impl RoutingTable {
         }
 
         closest
-            .take_until_secure(dht_size_estimate, subnets)
+            .take_until_secure(
+                self.responders_based_dht_size_estimate(),
+                self.average_subnets(),
+            )
             .to_vec()
     }
 
@@ -145,6 +175,63 @@ impl RoutingTable {
             }
         }
         false
+    }
+
+    // === Stats ===
+
+    /// Returns:
+    ///  1. Normal Dht size estimate based on all closer `nodes` in query responses.
+    ///  2. Standard deviaiton as a function of the number of samples used in this estimate.
+    ///
+    /// [Read more](https://github.com/nuhvi/mainline/blob/main/docs/dht_size_estimate.md)
+    pub(crate) fn dht_size_estimate(&self) -> (usize, f64) {
+        let normal = self.dht_size_estimates_sum as usize / self.dht_size_estimates_count.max(1);
+
+        // See https://github.com/nuhvi/mainline/blob/main/docs/standard-deviation-vs-lookups.png
+        let std_dev = 0.281 * (self.dht_size_estimates_count as f64).powf(-0.529);
+
+        (normal, std_dev)
+    }
+
+    pub(crate) fn average_subnets(&self) -> usize {
+        self.responders_subnets_sum / self.responders_samples_count.max(1)
+    }
+
+    pub(crate) fn responders_based_dht_size_estimate(&self) -> usize {
+        self.responders_size_estimates_sum as usize / self.responders_samples_count.max(1)
+    }
+
+    pub(crate) fn increment_responders_stats(
+        &mut self,
+        dht_size_estimate: f64,
+        responders_dht_size_estimate: f64,
+        subnets_count: u8,
+    ) {
+        self.dht_size_estimates_count += 1;
+        self.dht_size_estimates_sum += dht_size_estimate;
+
+        self.responders_samples_count += 1;
+        self.responders_size_estimates_sum += responders_dht_size_estimate;
+        self.responders_subnets_sum += subnets_count as usize;
+    }
+
+    pub(crate) fn decrement_dht_size_estimate(&mut self, dht_size_estimate: f64) {
+        self.dht_size_estimates_count -= 1;
+        self.dht_size_estimates_sum -= dht_size_estimate;
+    }
+
+    pub(crate) fn decrement_responders_stats(
+        &mut self,
+        dht_size_estimate: f64,
+        responders_dht_size_estimate: f64,
+        subnets_count: u8,
+    ) {
+        self.dht_size_estimates_count -= 1;
+        self.dht_size_estimates_sum -= dht_size_estimate;
+
+        self.responders_samples_count -= 1;
+        self.responders_size_estimates_sum -= responders_dht_size_estimate;
+        self.responders_subnets_sum -= subnets_count as usize;
     }
 }
 

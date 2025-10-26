@@ -162,7 +162,7 @@ impl IterativeQuery {
     pub fn response(&mut self, from: SocketAddrV4, response: Response) {
         let target = self.target();
 
-        debug!(?target, ?response, ?from, "Query got response");
+        trace!(?target, ?response, ?from, "Query got response");
 
         self.responses.push(response.to_owned());
     }

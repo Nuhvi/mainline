@@ -45,7 +45,7 @@ impl PutQuery {
         };
 
         let target = self.target;
-        trace!(?target, "PutQuery start");
+        debug!(?target, closest_secure_nodes = ?closest_nodes.len(), "PutQuery start");
 
         if closest_nodes.is_empty() {
             Err(PutQueryError::NoClosestNodes)?;
@@ -85,7 +85,7 @@ impl PutQuery {
     }
 
     pub fn success(&mut self) {
-        debug!(target = ?self.target, "PutQuery got success response");
+        trace!(target = ?self.target, "PutQuery got success response");
         self.stored_at += 1
     }
 

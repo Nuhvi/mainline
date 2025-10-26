@@ -236,7 +236,9 @@ impl KrpcSocket {
                         self.poll_interval =
                             (self.poll_interval.mul_f32(1.1)).min(MAX_POLL_INTERVAL);
                         let _ = self.socket.set_read_timeout(Some(self.poll_interval));
-                        trace!("Increased poll_interval {:?}", self.poll_interval);
+
+                        // Too noisy, only uncomment when you suspect there is a performance issue..
+                        // trace!("Increased poll_interval {:?}", self.poll_interval);
                     }
                 }
                 _ => {
