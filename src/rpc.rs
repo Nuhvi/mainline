@@ -78,11 +78,6 @@ pub struct Rpc {
     /// Last time we pinged nodes in the routing table.
     last_table_ping: Instant,
     /// Closest responding nodes to specific target
-    ///
-    /// as well as the:
-    /// 1. dht size estimate based on closest claimed nodes,
-    /// 2. dht size estimate based on closest responding nodes.
-    /// 3. number of subnets with unique 6 bits prefix in ipv4
     cached_iterative_queries: LruCache<Id, CachedIterativeQuery>,
 
     // Active IterativeQueries
@@ -226,12 +221,8 @@ impl Rpc {
         }
 
         let self_id = *self.id();
-        let table_size = self.routing_table.size();
-        // TODO: log size of signed_peers_routing_table
-
-        let responders_based_dht_size_estimate =
-            self.routing_table.responders_based_dht_size_estimate();
-        let average_subnets = self.routing_table.average_subnets();
+        let basic_routing_table = &self.routing_table;
+        let signed_peers_routing_table = &self.routing_table;
 
         for (id, query) in self.iterative_queries.iter_mut() {
             let is_done = query.tick(&mut self.socket);
@@ -239,6 +230,8 @@ impl Rpc {
             if is_done {
                 let closest_nodes =
                     if let RequestTypeSpecific::FindNode(_) = query.request.request_type {
+                        let table_size = self.routing_table.size();
+
                         if *id == self_id {
                             if !self.bootstrap.is_empty() && table_size == 0 {
                                 error!("Could not bootstrap the routing table");
@@ -255,11 +248,18 @@ impl Rpc {
                             .cloned()
                             .collect::<Box<[_]>>()
                     } else {
-                        // TODO: use the relevant routing table's stats
+                        let relevant_routing_table = choose_relevant_routing_table(
+                            query.request.request_type.clone(),
+                            basic_routing_table,
+                            signed_peers_routing_table,
+                        );
 
                         query
                             .responders()
-                            .take_until_secure(responders_based_dht_size_estimate, average_subnets)
+                            .take_until_secure(
+                                relevant_routing_table.responders_based_dht_size_estimate(),
+                                relevant_routing_table.average_subnets(),
+                            )
                             .to_vec()
                             .into_boxed_slice()
                     };
@@ -273,19 +273,15 @@ impl Rpc {
         for (id, closest_nodes) in &done_get_queries {
             if let Some(query) = self.iterative_queries.remove(id) {
                 self.update_address_votes_from_iterative_query(&query);
-                self.cache_iterative_query(&query, closest_nodes);
+                let relevant_routing_table = self.cache_iterative_query(&query, closest_nodes);
 
                 // Only for get queries, not find node.
                 if !matches!(query.request.request_type, RequestTypeSpecific::FindNode(_)) {
-                    // TODO: get the relevant routing table
-                    // maybe pass it as input to cache_iterative_query?
-                    let relevant_routing_table = &self.routing_table;
-
-                    // TODO: log the type of the query..
                     debug!(
-                       size_estimate = ?relevant_routing_table.responders_based_dht_size_estimate(),
-                       subnets = ?relevant_routing_table.average_subnets(),
-                       "Storing nodes stats..",
+                        target = ?query.target(),
+                        responders_size_estimate = ?relevant_routing_table.responders_based_dht_size_estimate(),
+                        responders_subnets_count = ?relevant_routing_table.average_subnets(),
+                        "Storing nodes stats..",
                     );
 
                     if let Some(put_query) = self.put_queries.get_mut(id) {
@@ -556,14 +552,11 @@ impl Rpc {
         if self.server_mode() {
             let server = &mut self.server;
 
-            let relevant_routing_table = if matches!(
-                request_specific.request_type,
-                RequestTypeSpecific::GetSignedPeers(_)
-            ) {
-                &self.routing_table
-            } else {
-                &self.signed_peers_routing_table
-            };
+            let relevant_routing_table = choose_relevant_routing_table(
+                request_specific.request_type.clone(),
+                &self.routing_table,
+                &self.signed_peers_routing_table,
+            );
 
             match server.handle_request(relevant_routing_table, from, request_specific) {
                 Some(MessageType::Error(error)) => {
@@ -898,7 +891,7 @@ impl Rpc {
                         .public_address
                         .expect("self.public_address is not None")
             {
-                debug!(
+                trace!(
                     ?new_address,
                     "Query responses suggest a different public_address, trying to confirm.."
                 );
@@ -911,7 +904,11 @@ impl Rpc {
         }
     }
 
-    fn cache_iterative_query(&mut self, query: &IterativeQuery, closest_responding_nodes: &[Node]) {
+    fn cache_iterative_query<'a>(
+        &'a mut self,
+        query: &'a IterativeQuery,
+        closest_responding_nodes: &'a [Node],
+    ) -> &'a RoutingTable {
         if self.cached_iterative_queries.len() >= MAX_CACHED_ITERATIVE_QUERIES {
             let q = self.cached_iterative_queries.pop_lru();
             self.decrement_cached_iterative_query_stats(q.map(|q| q.1));
@@ -922,7 +919,7 @@ impl Rpc {
 
         if closest.nodes().is_empty() {
             // We are clearly offline.
-            return;
+            return &self.routing_table;
         }
 
         let dht_size_estimate = closest.dht_size_estimate();
@@ -937,23 +934,25 @@ impl Rpc {
                 responders_dht_size_estimate,
                 subnets: subnets_count,
 
-                is_find_node: matches!(
-                    query.request.request_type,
-                    RequestTypeSpecific::FindNode(_)
-                ),
+                request_type: query.request.request_type.clone(),
             },
         );
 
         self.decrement_cached_iterative_query_stats(previous);
 
-        // TODO: get the relevant routing table
-        let relevant_routing_table = &mut self.routing_table;
+        let relevant_routing_table = choose_relevant_routing_table_mut(
+            &query.request.request_type,
+            &mut self.routing_table,
+            &mut self.signed_peers_routing_table,
+        );
 
         relevant_routing_table.increment_responders_stats(
             dht_size_estimate,
             responders_dht_size_estimate,
             subnets_count,
         );
+
+        relevant_routing_table
     }
 
     /// Decrement stats after an iterative query is popped
@@ -962,24 +961,53 @@ impl Rpc {
             dht_size_estimate,
             responders_dht_size_estimate,
             subnets,
-            is_find_node,
+            request_type,
             ..
         }) = query
         {
             // TODO: get the relevant routing table
-            let relevant_routing_table = &mut self.routing_table;
 
-            if is_find_node {
-                relevant_routing_table.decrement_dht_size_estimate(dht_size_estimate);
-            } else {
-                // self.responders_based_dht_size_estimates_count -= 1;
-                relevant_routing_table.decrement_responders_stats(
-                    dht_size_estimate,
-                    responders_dht_size_estimate,
-                    subnets,
-                );
+            match request_type {
+                RequestTypeSpecific::FindNode(..) => {
+                    self.routing_table
+                        .decrement_dht_size_estimate(dht_size_estimate);
+                }
+                _ => {
+                    let relevant_routing_table = choose_relevant_routing_table_mut(
+                        &request_type,
+                        &mut self.routing_table,
+                        &mut self.signed_peers_routing_table,
+                    );
+
+                    relevant_routing_table.decrement_responders_stats(
+                        dht_size_estimate,
+                        responders_dht_size_estimate,
+                        subnets,
+                    );
+                }
             }
         };
+    }
+}
+
+fn choose_relevant_routing_table<'a>(
+    request_type: RequestTypeSpecific,
+    basic_routing_table: &'a RoutingTable,
+    signed_peers_routing_table: &'a RoutingTable,
+) -> &'a RoutingTable {
+    match request_type {
+        RequestTypeSpecific::GetSignedPeers(_) => signed_peers_routing_table,
+        _ => basic_routing_table,
+    }
+}
+fn choose_relevant_routing_table_mut<'a>(
+    request_type: &'a RequestTypeSpecific,
+    basic_routing_table: &'a mut RoutingTable,
+    signed_peers_routing_table: &'a mut RoutingTable,
+) -> &'a mut RoutingTable {
+    match request_type {
+        RequestTypeSpecific::GetSignedPeers(_) => signed_peers_routing_table,
+        _ => basic_routing_table,
     }
 }
 
@@ -989,9 +1017,7 @@ struct CachedIterativeQuery {
     responders_dht_size_estimate: f64,
     subnets: u8,
 
-    /// Keeping track of find_node queries, because they shouldn't
-    /// be counted in `responders_based_dht_size_estimates_count`
-    is_find_node: bool,
+    request_type: RequestTypeSpecific,
 }
 
 /// State change after a call to [Rpc::tick], including
