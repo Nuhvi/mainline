@@ -138,6 +138,8 @@ higher, should be added to the signed peers routing table.
 The first implementation supporting this BEP uses version ``[82, 83, 0, 6]``
 ("RS" version 06) and is available at https://github.com/nuhvi/mainline.
 
+A bootstrapping node supporting this proposal is running at ``relay.pkarr.org:6881``.
+
 Overlay Network Namespacing
 ----------------------------
 
