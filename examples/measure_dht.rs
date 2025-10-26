@@ -21,7 +21,8 @@ fn main() {
             (std_dev * 2.0) * 100.0
         );
 
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        // we don't need to pace ourselves anymore, as the krpc socket
+        // does that on its own now...
     }
 }
 
