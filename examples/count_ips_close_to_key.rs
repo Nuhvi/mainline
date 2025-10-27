@@ -37,14 +37,18 @@ use std::{
     net::Ipv4Addr,
     sync::mpsc::channel,
 };
-use tracing::Level;
 
 const K: usize = 20; // Not really k but we take the k closest nodes into account.
 const MAX_DISTANCE: u8 = 150; // Health check to not include outrageously distant nodes.
 const USE_RANDOM_BOOTSTRAP_NODES: bool = false;
 
 fn main() {
-    tracing_subscriber::fmt().with_max_level(Level::WARN).init();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
+        )
+        .init();
 
     let target = Id::random();
     let mut ip_hits: HashMap<Ipv4Addr, u16> = HashMap::new();

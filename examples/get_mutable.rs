@@ -1,7 +1,5 @@
 use ed25519_dalek::VerifyingKey;
 use std::convert::TryFrom;
-use tracing::Level;
-use tracing_subscriber;
 
 use std::time::Instant;
 
@@ -18,8 +16,10 @@ struct Cli {
 
 fn main() {
     tracing_subscriber::fmt()
-        // Switch to DEBUG to see incoming values and the IP of the responding nodes
-        .with_max_level(Level::INFO)
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
         .init();
 
     let cli = Cli::parse();

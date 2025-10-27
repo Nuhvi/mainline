@@ -49,7 +49,7 @@
 use dashmap::DashSet;
 use dht::{Dht, Id};
 use rayon::{prelude::*, ThreadPool, ThreadPoolBuilder};
-use tracing::{debug, info, Level};
+use tracing::{debug, info};
 
 /// Adjust as needed. Default will take about ~2 hours
 // Minimum number of overlapping nodes to stop sampling.
@@ -88,8 +88,12 @@ impl EstimateResult {
 }
 
 fn main() {
-    // Initialize the logger.
-    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
 
     println!("Estimating DHT size using Mark-Recapture with continuous sampling...");
     println!(

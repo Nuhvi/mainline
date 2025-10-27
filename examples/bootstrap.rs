@@ -1,11 +1,11 @@
 use dht::Dht;
 
-use tracing::Level;
-use tracing_subscriber;
-
 fn main() {
     tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
         .init();
 
     let client = Dht::server().unwrap();
