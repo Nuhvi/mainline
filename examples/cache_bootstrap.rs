@@ -20,25 +20,12 @@ fn main() {
 
     let mut builder = Dht::builder();
 
-    let examples_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples");
-    let nodes_file = examples_dir.join("bootstrapping_nodes");
-    if nodes_file.exists() {
-        let mut file =
-            fs::File::open(&nodes_file).expect("Failed to open bootstrapping nodes file");
-        let mut content = String::new();
-        file.read_to_string(&mut content)
-            .expect("Failed to read bootstrapping nodes file");
+    let cached_nodes = load();
 
-        let cached_nodes = content
-            .lines()
-            .map(|line| line.to_string())
-            .collect::<Vec<_>>();
-
-        // To confirm that these old nodes are still viable,
-        // try `builder.bootstrap(&cached_nodes)` instead,
-        // this way you don't rely on default bootstrap nodes.
-        builder.extra_bootstrap(&cached_nodes);
-    };
+    // To confirm that these old nodes are still viable,
+    // try `builder.bootstrap(&cached_nodes)` instead,
+    // this way you don't rely on default bootstrap nodes.
+    builder.extra_bootstrap(&cached_nodes);
 
     let client = builder.build().unwrap();
 
@@ -46,8 +33,36 @@ fn main() {
 
     let bootstrap = client.to_bootstrap();
 
+    save(bootstrap)
+}
+
+fn load() -> Vec<String> {
+    let nodes_file = nodes_file();
+    let mut cached_nodes = vec![];
+
+    if nodes_file.exists() {
+        let mut file =
+            fs::File::open(&nodes_file).expect("Failed to open bootstrapping nodes file");
+        let mut content = String::new();
+        file.read_to_string(&mut content)
+            .expect("Failed to read bootstrapping nodes file");
+
+        for line in content.lines() {
+            cached_nodes.push(line.to_string());
+        }
+    };
+
+    cached_nodes
+}
+
+fn save(bootstrap: Vec<String>) {
     let bootstrap_content = bootstrap.join("\n");
-    let mut file = fs::File::create(&nodes_file).expect("Failed to save bootstrapping nodes");
+    let mut file = fs::File::create(&nodes_file()).expect("Failed to save bootstrapping nodes");
     file.write(bootstrap_content.as_bytes())
         .expect("Failed to write bootstrapping nodes");
+}
+
+fn nodes_file() -> PathBuf {
+    let examples_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples");
+    examples_dir.join("bootstrapping_nodes")
 }
