@@ -7,6 +7,7 @@ All notable changes to mainline dht will be documented in this file.
 ### Added
 
 - Internal `request_timeout` estimation based on observed RTTs.
+- `announce_signed_peer` and `get_signed_peers` as described at [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst).
 
 ### Removed
 

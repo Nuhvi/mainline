@@ -30,6 +30,7 @@ Supported BEPs:
 - [x] [BEP_0042 DHT Security extension](https://www.bittorrent.org/beps/bep_0042.html)
 - [x] [BEP_0043 Read-only DHT Nodes](https://www.bittorrent.org/beps/bep_0043.html)
 - [x] [BEP_0044 Storing arbitrary data in the DHT](https://www.bittorrent.org/beps/bep_0044.html)
+- [x] [BEP_???? Announce and lookup signed peres](https://github.com/bittorrent/bittorrent.org/pull/174).
 
 This implementation also includes [measures against Vertical Sybil Attacks](./docs/sybil-resistance.md).
 
@@ -48,6 +49,7 @@ Supported BEPs:
 - [x] [BEP_0042 DHT Security extension](https://www.bittorrent.org/beps/bep_0042.html)
 - [x] [BEP_0043 Read-only DHT Nodes](https://www.bittorrent.org/beps/bep_0043.html)
 - [x] [BEP_0044 Storing arbitrary data in the DHT](https://www.bittorrent.org/beps/bep_0044.html)
+- [x] [BEP_???? Announce and lookup signed peres](https://github.com/bittorrent/bittorrent.org/pull/174).
 
 #### Rate limiting
 
