@@ -8,7 +8,7 @@ mod put_query;
 pub(crate) mod server;
 mod socket;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::{SocketAddr, SocketAddrV4, ToSocketAddrs};
 use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
@@ -167,6 +167,20 @@ impl Rpc {
         &self.routing_table
     }
 
+    /// Create a list of unique bootstrapping nodes from all our
+    /// routing table to use as `extra_bootsrtap` in next sessions.
+    pub fn to_bootstrap(&self) -> Vec<String> {
+        let mut set = HashSet::new();
+        for s in self.routing_table().to_bootstrap() {
+            set.insert(s);
+        }
+        for s in self.signed_peers_routing_table.to_bootstrap() {
+            set.insert(s);
+        }
+
+        set.iter().cloned().collect()
+    }
+
     /// Returns:
     ///  1. Normal Dht size estimate based on all closer `nodes` in query responses.
     ///  2. Standard deviaiton as a function of the number of samples used in this estimate.
@@ -197,7 +211,13 @@ impl Rpc {
             .recv_from()
             .and_then(|(message, from)| match message.message_type {
                 MessageType::Request(request_specific) => {
-                    self.handle_request(from, message.transaction_id, request_specific);
+                    self.handle_request(
+                        from,
+                        message.read_only,
+                        message.version,
+                        message.transaction_id,
+                        request_specific,
+                    );
 
                     None
                 }
@@ -475,20 +495,27 @@ impl Rpc {
 
         // We have multiple routing table now, so we should first figure out which one
         // is the appropriate for this query.
-
-        let relevant_routing_table = match &request {
-            GetRequestSpecific::GetSignedPeers(_) => &self.signed_peers_routing_table,
-            _ => &self.routing_table,
+        let routing_table_closest = match &request {
+            // We don't actually need to use closest secure, because we aren't storing anything
+            // to these nodes, but it is better ask further away than we need, just to add more
+            // randomness and to more likely defeat eclipsing attempts, but we pay the price in
+            // more messages, however that is ok when we rarely call FIND_NODE (once every 15 minutes)
+            GetRequestSpecific::FindNode(_) => {
+                let mut routing_table_closest = self.routing_table.closest_secure(target);
+                routing_table_closest
+                    .extend_from_slice(&self.signed_peers_routing_table.closest_secure(target));
+                routing_table_closest
+            }
+            GetRequestSpecific::GetSignedPeers(_) => {
+                self.signed_peers_routing_table.closest_secure(target)
+            }
+            _ => self.routing_table.closest_secure(target),
         };
 
         let mut query = IterativeQuery::new(*self.id(), target, request);
 
         // Seed the query either with the closest nodes from the routing table, or the
         // bootstrapping nodes if the closest nodes are not enough.
-
-        let routing_table_closest = relevant_routing_table.closest_secure(target);
-
-        // If we don't have enough or any closest nodes, call the bootstrapping nodes.
         if routing_table_closest.is_empty() || routing_table_closest.len() < self.bootstrap.len() {
             for bootstrapping_node in self.bootstrap.clone() {
                 query.visit(&mut self.socket, bootstrapping_node);
@@ -536,19 +563,38 @@ impl Rpc {
     fn handle_request(
         &mut self,
         from: SocketAddrV4,
+        request_from_read_only_node: bool,
+        version: Option<[u8; 4]>,
         transaction_id: u32,
         request_specific: RequestSpecific,
     ) {
-        // By default we only add nodes that responds to our requests.
+        // In client mode, we never add to our table any node contacting us
+        // without querying it first, to avoid eclipse attacks.
         //
-        // This is the only exception; the first node creating the DHT,
-        // without this exception, the bootstrapping node's routing table
-        // will never be populated.
-        if self.bootstrap.is_empty() {
+        // While bootstrapping though, we can't be that picky, we have two
+        // reasons to except that rule:
+        if self.server_mode() && !request_from_read_only_node {
             if let RequestTypeSpecific::FindNode(param) = &request_specific.request_type {
-                self.routing_table.add(Node::new(param.target, from));
-                self.signed_peers_routing_table
-                    .add(Node::new(param.target, from));
+                let node = Node::new(param.target, from);
+                let supports_signed_peers = supports_signed_peers(version);
+
+                // 1. first node creating the DHT;
+                //    without this exception, the bootstrapping node's routing table will never be populated.
+                if self.bootstrap.is_empty() {
+                    self.routing_table.add(node.clone());
+
+                    if supports_signed_peers {
+                        self.signed_peers_routing_table.add(node);
+                    }
+                }
+                // 2. Bootstrapping signed_peers_routing_table requires that we latch to any node
+                //    that claims to support it.
+                //    In `periodic_node_maintaenance` fake unresponsive nodes will be removed.
+                //    And either way we prioritize secure nodes, so making up nodes from same
+                //    machine won't have much effect.
+                else if supports_signed_peers {
+                    self.signed_peers_routing_table.add(node);
+                }
             }
         }
 
@@ -557,13 +603,12 @@ impl Rpc {
         if self.server_mode() {
             let server = &mut self.server;
 
-            let relevant_routing_table = choose_relevant_routing_table(
-                request_specific.request_type.clone(),
+            match server.handle_request(
                 &self.routing_table,
                 &self.signed_peers_routing_table,
-            );
-
-            match server.handle_request(relevant_routing_table, from, request_specific) {
+                from,
+                request_specific,
+            ) {
                 Some(MessageType::Error(error)) => {
                     self.error(from, transaction_id, error);
                 }
@@ -591,13 +636,10 @@ impl Rpc {
                         new_id
                     );
 
-                    self.get(
-                        GetRequestSpecific::FindNode(FindNodeRequestArguments { target: new_id }),
-                        None,
-                    );
+                    self.routing_table.reset_id(new_id);
+                    self.signed_peers_routing_table.reset_id(new_id);
 
-                    self.routing_table = RoutingTable::new(new_id);
-                    self.signed_peers_routing_table = RoutingTable::new(new_id);
+                    self.populate();
                 }
             }
         }

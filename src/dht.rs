@@ -177,9 +177,10 @@ impl Dht {
     /// Returns true if the bootstrapping was successful.
     pub fn bootstrapped(&self) -> bool {
         let info = self.info();
-        let nodes = self.find_node(*info.id());
+        self.find_node(*info.id());
 
-        !nodes.is_empty()
+        let info = self.info();
+        info.routing_table_size() > 0
     }
 
     // === Find nodes ===
@@ -591,7 +592,7 @@ fn run(config: Config, receiver: Receiver<ActorMessage>) {
                             senders.push(sender);
                         }
                         ActorMessage::ToBootstrap(sender) => {
-                            let _ = sender.send(rpc.routing_table().to_bootstrap());
+                            let _ = sender.send(rpc.to_bootstrap());
                         }
                     },
                     Err(TryRecvError::Disconnected) => {
@@ -762,36 +763,23 @@ impl Testnet {
         let mut bootstrap = bootstrap.unwrap_or_default();
 
         for i in 0..count {
+            let mut builder = Dht::builder();
+
+            if disable_signed_peers {
+                #[cfg(test)]
+                builder.disable_signed_peers();
+            }
+
+            let node = builder.server_mode().bootstrap(&bootstrap).build()?;
+
             if i == 0 {
-                let mut builder = Dht::builder();
-
-                builder.server_mode().no_bootstrap();
-
-                if disable_signed_peers {
-                    #[cfg(test)]
-                    builder.disable_signed_peers();
-                }
-
-                let node = builder.build()?;
-
                 let info = node.info();
                 let addr = info.local_addr();
 
                 bootstrap.push(format!("127.0.0.1:{}", addr.port()));
-
-                nodes.push(node)
-            } else {
-                let mut builder = Dht::builder();
-
-                if disable_signed_peers {
-                    #[cfg(test)]
-                    builder.disable_signed_peers();
-                }
-
-                let node = builder.server_mode().bootstrap(&bootstrap).build()?;
-
-                nodes.push(node)
             }
+
+            nodes.push(node);
         }
 
         let testnet = Self { bootstrap, nodes };

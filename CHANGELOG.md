@@ -2,6 +2,18 @@
 
 All notable changes to mainline dht will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- Respond to `FIND_NODE` with nodes supporting `signing_peers` first.
+- In `server_mode`, always add nodes from incoming requests to `signing_peers_routing_table` if they support it.
+- When querying `FIND_NODE` find closest nodes from all tables (include `signing_peers_routing_table`).
+
+### Added
+
+- `Info::routing_table_size()` and `Info::signed_peers_routing_table_size()`
+
 ## [6.0.0](https://github.com/Nuhvi/mainline/compare/v5.5.1...v6.0.0) - 2025-10-27
 
 ### Added
