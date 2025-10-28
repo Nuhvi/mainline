@@ -599,13 +599,12 @@ impl Rpc {
         if self.server_mode() {
             let server = &mut self.server;
 
-            let relevant_routing_table = choose_relevant_routing_table(
-                request_specific.request_type.clone(),
+            match server.handle_request(
                 &self.routing_table,
                 &self.signed_peers_routing_table,
-            );
-
-            match server.handle_request(relevant_routing_table, from, request_specific) {
+                from,
+                request_specific,
+            ) {
                 Some(MessageType::Error(error)) => {
                     self.error(from, transaction_id, error);
                 }
