@@ -1,7 +1,7 @@
 # Dht Size Estimattion
 
 This is a documentation for the Dht size estimation used in this Mainline Dht implementation,
-within the context of [Sybil Resistance](./sybil-resistance.md).
+within the context of [Sybil Resistance](https://github.com/Nuhvi/mainline/blob/main/docs/censorship-resistance.md#vertical-sybil-attacks).
 
 If you want to see a live estimation of the Dht size, you can run (in the root directory):
 

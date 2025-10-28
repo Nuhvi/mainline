@@ -32,7 +32,7 @@ Supported BEPs:
 - [x] [BEP_0044 Storing arbitrary data in the DHT](https://www.bittorrent.org/beps/bep_0044.html)
 - [x] [BEP_???? Announce and lookup signed peers](https://github.com/bittorrent/bittorrent.org/pull/174).
 
-This implementation also includes [measures against Vertical Sybil Attacks](./docs/sybil-resistance.md).
+This implementation also includes [measures against Vertical Sybil Attacks](https://github.com/Nuhvi/mainline/blob/main/docs/censorship-resistance.md#vertical-sybil-attacks).
 
 ### Server
 

@@ -51,7 +51,7 @@ then you would expect the example above to look like this instead:
 0      1      2      3      4      5      6      7      8      9      10     11     12     13     14     15
 ```
 
-As you can see, if we only store data at the closest `k=2` nodes, the data would be only stored within attacker nodes, thus successefully censored.
+As you can see, if we only store data at the closest `k=2` nodes, the data would be only stored within attacker nodes, thus successfully censored.
 
 ### Uniform Distribution
 
@@ -136,7 +136,7 @@ It is safe to say that much simpler modes of censorship are much more likely to 
 
 ## Conclusion
 
-While theoritically DHTs are not immune to Sybil nodes, and while it is impossible to stop attempts to inject nodes all over the DHT to snoop on traffic, it is not at all easy or practical to
+While theoretically DHTs are not immune to Sybil nodes, and while it is impossible to stop attempts to inject nodes all over the DHT to snoop on traffic, it is not at all easy or practical to
 disrupt the operation of a large DHT network.
 
 The security of a DHT thus boils down to the number of honest nodes, as long as we don't see a massive decline of the size of the DHT, Mainline will remain as unstopable as a network based on
