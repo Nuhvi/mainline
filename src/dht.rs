@@ -591,7 +591,7 @@ fn run(config: Config, receiver: Receiver<ActorMessage>) {
                             senders.push(sender);
                         }
                         ActorMessage::ToBootstrap(sender) => {
-                            let _ = sender.send(rpc.routing_table().to_bootstrap());
+                            let _ = sender.send(rpc.to_bootstrap());
                         }
                     },
                     Err(TryRecvError::Disconnected) => {

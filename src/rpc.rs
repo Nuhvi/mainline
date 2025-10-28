@@ -8,7 +8,7 @@ mod put_query;
 pub(crate) mod server;
 mod socket;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::{SocketAddr, SocketAddrV4, ToSocketAddrs};
 use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
@@ -71,7 +71,7 @@ pub struct Rpc {
     routing_table: RoutingTable,
     /// Closest nodes to this node that support the signed peers
     /// [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst) proposal.
-    pub(crate) signed_peers_routing_table: RoutingTable,
+    signed_peers_routing_table: RoutingTable,
 
     /// Last time we refreshed the routing table with a find_node query.
     last_table_refresh: Instant,
@@ -165,6 +165,20 @@ impl Rpc {
 
     pub fn routing_table(&self) -> &RoutingTable {
         &self.routing_table
+    }
+
+    /// Create a list of unique bootstrapping nodes from all our
+    /// routing table to use as `extra_bootsrtap` in next sessions.
+    pub fn to_bootstrap(&self) -> Vec<String> {
+        let mut set = HashSet::new();
+        for s in self.routing_table().to_bootstrap() {
+            set.insert(s);
+        }
+        for s in self.signed_peers_routing_table.to_bootstrap() {
+            set.insert(s);
+        }
+
+        set.iter().cloned().collect()
     }
 
     /// Returns:
