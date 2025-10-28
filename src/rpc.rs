@@ -563,23 +563,23 @@ impl Rpc {
     fn handle_request(
         &mut self,
         from: SocketAddrV4,
-        read_only: bool,
+        request_from_read_only_node: bool,
         version: Option<[u8; 4]>,
         transaction_id: u32,
         request_specific: RequestSpecific,
     ) {
-        if !read_only {
+        // In client mode, we never add to our table any node contacting us
+        // without querying it first, to avoid eclipse attacks.
+        //
+        // While bootstrapping though, we can't be that picky, we have two
+        // reasons to except that rule:
+        if self.server_mode() && !request_from_read_only_node {
             if let RequestTypeSpecific::FindNode(param) = &request_specific.request_type {
                 let node = Node::new(param.target, from);
                 let supports_signed_peers = supports_signed_peers(version);
 
-                // By default we only add nodes that responds to our requests.
-                //
-                // These are the exceptions:
-                //
                 // 1. first node creating the DHT;
-                //  without this exception, the bootstrapping node's routing table
-                //  will never be populated.
+                //    without this exception, the bootstrapping node's routing table will never be populated.
                 if self.bootstrap.is_empty() {
                     self.routing_table.add(node.clone());
 
@@ -587,8 +587,12 @@ impl Rpc {
                         self.signed_peers_routing_table.add(node);
                     }
                 }
-                // 2. first node creating the a new routing table;
-                else if self.signed_peers_routing_table.is_empty() && supports_signed_peers {
+                // 2. Bootstrapping signed_peers_routing_table requires that we latch to any node
+                //    that claims to support it.
+                //    In `periodic_node_maintaenance` fake unresponsive nodes will be removed.
+                //    And either way we prioritize secure nodes, so making up nodes from same
+                //    machine won't have much effect.
+                else if supports_signed_peers {
                     self.signed_peers_routing_table.add(node);
                 }
             }
