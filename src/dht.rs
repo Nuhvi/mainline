@@ -180,7 +180,7 @@ impl Dht {
         self.find_node(*info.id());
 
         let info = self.info();
-        info.routing_table_size > 0
+        info.routing_table_size() > 0
     }
 
     // === Find nodes ===

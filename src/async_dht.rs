@@ -62,7 +62,7 @@ impl AsyncDht {
         self.find_node(*info.id()).await;
 
         let info = self.info().await;
-        info.routing_table_size > 0
+        info.routing_table_size() > 0
     }
 
     // === Find nodes ===

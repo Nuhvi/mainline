@@ -14,7 +14,8 @@ pub struct Info {
     dht_size_estimate: (usize, f64),
     server_mode: bool,
 
-    pub(crate) routing_table_size: usize,
+    routing_table_size: usize,
+    singing_peers_routing_table_size: usize,
 }
 
 impl Info {
@@ -56,6 +57,16 @@ impl Info {
     pub fn dht_size_estimate(&self) -> (usize, f64) {
         self.dht_size_estimate
     }
+
+    /// Returns the size of the main routing table
+    pub fn routing_table_size(&self) -> usize {
+        self.routing_table_size
+    }
+
+    /// Returns the size of the routing table of nodes supporting signed peers BEP
+    pub fn singing_peers_routing_table_size(&self) -> usize {
+        self.singing_peers_routing_table_size
+    }
 }
 
 impl From<&Rpc> for Info {
@@ -69,6 +80,7 @@ impl From<&Rpc> for Info {
             server_mode: rpc.server_mode(),
 
             routing_table_size: rpc.routing_table.size(),
+            singing_peers_routing_table_size: rpc.signed_peers_routing_table.size(),
         }
     }
 }
