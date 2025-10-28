@@ -71,7 +71,7 @@ pub struct Rpc {
     routing_table: RoutingTable,
     /// Closest nodes to this node that support the signed peers
     /// [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst) proposal.
-    signed_peers_routing_table: RoutingTable,
+    pub(crate) signed_peers_routing_table: RoutingTable,
 
     /// Last time we refreshed the routing table with a find_node query.
     last_table_refresh: Instant,
@@ -197,7 +197,13 @@ impl Rpc {
             .recv_from()
             .and_then(|(message, from)| match message.message_type {
                 MessageType::Request(request_specific) => {
-                    self.handle_request(from, message.transaction_id, request_specific);
+                    self.handle_request(
+                        from,
+                        message.read_only,
+                        message.version,
+                        message.transaction_id,
+                        request_specific,
+                    );
 
                     None
                 }
@@ -536,19 +542,34 @@ impl Rpc {
     fn handle_request(
         &mut self,
         from: SocketAddrV4,
+        read_only: bool,
+        version: Option<[u8; 4]>,
         transaction_id: u32,
         request_specific: RequestSpecific,
     ) {
-        // By default we only add nodes that responds to our requests.
-        //
-        // This is the only exception; the first node creating the DHT,
-        // without this exception, the bootstrapping node's routing table
-        // will never be populated.
-        if self.bootstrap.is_empty() {
+        if !read_only {
             if let RequestTypeSpecific::FindNode(param) = &request_specific.request_type {
-                self.routing_table.add(Node::new(param.target, from));
-                self.signed_peers_routing_table
-                    .add(Node::new(param.target, from));
+                let node = Node::new(param.target, from);
+                let supports_signed_peers = supports_signed_peers(version);
+
+                // By default we only add nodes that responds to our requests.
+                //
+                // These are the exceptions:
+                //
+                // 1. first node creating the DHT;
+                //  without this exception, the bootstrapping node's routing table
+                //  will never be populated.
+                if self.bootstrap.is_empty() {
+                    self.routing_table.add(node.clone());
+
+                    if supports_signed_peers {
+                        self.signed_peers_routing_table.add(node);
+                    }
+                }
+                // 2. first node creating the a new routing table;
+                else if self.signed_peers_routing_table.is_empty() && supports_signed_peers {
+                    self.signed_peers_routing_table.add(node);
+                }
             }
         }
 
