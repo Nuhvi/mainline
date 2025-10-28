@@ -636,6 +636,10 @@ impl Rpc {
 
                     self.routing_table.reset_id(new_id);
                     self.signed_peers_routing_table.reset_id(new_id);
+                    if self.server_mode() {
+                        // Inform nodes in our table of our new id as soon as possible...
+                        self.populate();
+                    }
                 }
             }
         }
