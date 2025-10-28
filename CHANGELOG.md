@@ -2,7 +2,7 @@
 
 All notable changes to mainline dht will be documented in this file.
 
-## [Unreleased]
+## [6.1.0](https://github.com/Nuhvi/mainline/compare/v6.0.0...v6.1.0) - 2025-10-28
 
 ### Fixed
 
