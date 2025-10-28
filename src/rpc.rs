@@ -495,20 +495,23 @@ impl Rpc {
 
         // We have multiple routing table now, so we should first figure out which one
         // is the appropriate for this query.
-
-        let relevant_routing_table = match &request {
-            GetRequestSpecific::GetSignedPeers(_) => &self.signed_peers_routing_table,
-            _ => &self.routing_table,
+        let routing_table_closest = match &request {
+            GetRequestSpecific::FindNode(_) => {
+                let mut routing_table_closest = self.routing_table.closest_secure(target);
+                routing_table_closest
+                    .extend_from_slice(&self.signed_peers_routing_table.closest_secure(target));
+                routing_table_closest
+            }
+            GetRequestSpecific::GetSignedPeers(_) => {
+                self.signed_peers_routing_table.closest_secure(target)
+            }
+            _ => self.routing_table.closest_secure(target),
         };
 
         let mut query = IterativeQuery::new(*self.id(), target, request);
 
         // Seed the query either with the closest nodes from the routing table, or the
         // bootstrapping nodes if the closest nodes are not enough.
-
-        let routing_table_closest = relevant_routing_table.closest_secure(target);
-
-        // If we don't have enough or any closest nodes, call the bootstrapping nodes.
         if routing_table_closest.is_empty() || routing_table_closest.len() < self.bootstrap.len() {
             for bootstrapping_node in self.bootstrap.clone() {
                 query.visit(&mut self.socket, bootstrapping_node);
