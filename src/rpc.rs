@@ -496,6 +496,10 @@ impl Rpc {
         // We have multiple routing table now, so we should first figure out which one
         // is the appropriate for this query.
         let routing_table_closest = match &request {
+            // We don't actually need to use closest secure, because we aren't storing anything
+            // to these nodes, but it is better ask further away than we need, just to add more
+            // randomness and to more likely defeat eclipsing attempts, but we pay the price in
+            // more messages, however that is ok when we rarely call FIND_NODE (once every 15 minutes)
             GetRequestSpecific::FindNode(_) => {
                 let mut routing_table_closest = self.routing_table.closest_secure(target);
                 routing_table_closest
@@ -629,13 +633,10 @@ impl Rpc {
                         new_id
                     );
 
-                    self.get(
-                        GetRequestSpecific::FindNode(FindNodeRequestArguments { target: new_id }),
-                        None,
-                    );
-
                     self.routing_table.reset_id(new_id);
                     self.signed_peers_routing_table.reset_id(new_id);
+
+                    self.populate();
                 }
             }
         }
