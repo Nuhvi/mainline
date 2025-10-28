@@ -177,9 +177,10 @@ impl Dht {
     /// Returns true if the bootstrapping was successful.
     pub fn bootstrapped(&self) -> bool {
         let info = self.info();
-        let nodes = self.find_node(*info.id());
+        self.find_node(*info.id());
 
-        !nodes.is_empty()
+        let info = self.info();
+        info.routing_table_size > 0
     }
 
     // === Find nodes ===

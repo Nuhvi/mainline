@@ -59,9 +59,10 @@ impl AsyncDht {
     /// Returns true if the bootstrapping was successful.
     pub async fn bootstrapped(&self) -> bool {
         let info = self.info().await;
-        let nodes = self.find_node(*info.id()).await;
+        self.find_node(*info.id()).await;
 
-        !nodes.is_empty()
+        let info = self.info().await;
+        info.routing_table_size > 0
     }
 
     // === Find nodes ===

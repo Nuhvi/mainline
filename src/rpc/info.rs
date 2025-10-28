@@ -13,6 +13,8 @@ pub struct Info {
     firewalled: bool,
     dht_size_estimate: (usize, f64),
     server_mode: bool,
+
+    pub(crate) routing_table_size: usize,
 }
 
 impl Info {
@@ -65,6 +67,8 @@ impl From<&Rpc> for Info {
             public_address: rpc.public_address(),
             firewalled: rpc.firewalled(),
             server_mode: rpc.server_mode(),
+
+            routing_table_size: rpc.routing_table.size(),
         }
     }
 }
