@@ -634,8 +634,8 @@ impl Rpc {
                         None,
                     );
 
-                    self.routing_table = RoutingTable::new(new_id);
-                    self.signed_peers_routing_table = RoutingTable::new(new_id);
+                    self.routing_table.reset_id(new_id);
+                    self.signed_peers_routing_table.reset_id(new_id);
                 }
             }
         }

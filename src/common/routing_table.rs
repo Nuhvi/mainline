@@ -68,6 +68,16 @@ impl RoutingTable {
 
     // === Public Methods ===
 
+    pub(crate) fn reset_id(&mut self, id: Id) {
+        let old_nodes = self.to_owned_nodes();
+        self.buckets = Default::default();
+        self.id = id;
+
+        for node in old_nodes {
+            self.add(node);
+        }
+    }
+
     /// Attempts to add a node to this routing table, and return `true` if it did.
     pub fn add(&mut self, node: Node) -> bool {
         let distance = self.id.distance(node.id());
