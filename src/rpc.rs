@@ -1,43 +1,34 @@
 //! K-RPC implementation.
 
-mod closest_nodes;
 pub(crate) mod config;
 mod info;
-mod iterative_query;
-mod put_query;
-pub(crate) mod server;
-mod socket;
+pub(crate) mod socket;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::net::{SocketAddr, SocketAddrV4, ToSocketAddrs};
-use std::num::NonZeroUsize;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use lru::LruCache;
 use tracing::{debug, error, info, trace};
 
-use iterative_query::IterativeQuery;
-use put_query::PutQuery;
-
 use crate::common::{
-    validate_immutable, ErrorSpecific, FindNodeRequestArguments, GetImmutableResponseArguments,
+    messages::{GetPeersRequestArguments, PutMutableRequestArguments},
+    validate_immutable, FindNodeRequestArguments, GetImmutableResponseArguments,
     GetMutableResponseArguments, GetPeersResponseArguments, GetSignedPeersResponseArguments,
     GetValueRequestArguments, Id, Message, MessageType, MutableItem,
     NoMoreRecentValueResponseArguments, NoValuesResponseArguments, Node, PutRequestSpecific,
     RequestSpecific, RequestTypeSpecific, ResponseSpecific, RoutingTable, SignedAnnounce,
     MAX_BUCKET_SIZE_K,
 };
-use server::Server;
+use crate::core::iterative_query::GetRequestSpecific;
+use crate::core::{
+    iterative_query::IterativeQuery, put_query::PutQuery, supports_signed_peers, Core,
+    MAX_CACHED_ITERATIVE_QUERIES, PING_TABLE_INTERVAL, REFRESH_TABLE_INTERVAL,
+};
+use crate::core::{CachedIterativeQuery, ConcurrencyError, PutError};
 
-use self::messages::{GetPeersRequestArguments, PutMutableRequestArguments};
-use server::ServerSettings;
 use socket::KrpcSocket;
 
-pub use crate::common::messages;
-pub use closest_nodes::ClosestNodes;
 pub use info::Info;
-pub use iterative_query::GetRequestSpecific;
-pub use put_query::{ConcurrencyError, PutError, PutQueryError};
 
 pub const DEFAULT_BOOTSTRAP_NODES: [&str; 4] = [
     "router.bittorrent.com:6881",
@@ -46,50 +37,11 @@ pub const DEFAULT_BOOTSTRAP_NODES: [&str; 4] = [
     "relay.pkarr.org:6881",
 ];
 
-const REFRESH_TABLE_INTERVAL: Duration = Duration::from_secs(15 * 60);
-const PING_TABLE_INTERVAL: Duration = Duration::from_secs(5 * 60);
-
-const MAX_CACHED_ITERATIVE_QUERIES: usize = 1000;
-
-const VERSIONS_SUPPORTING_SIGNED_PEERS: &[[u8; 4]] = &[
-    // This node
-    socket::VERSION,
-    // Add more nodes as we learn about supporting clients
-    // b"LT.."
-];
-
 #[derive(Debug)]
 /// Internal Rpc called in the Dht thread loop, useful to create your own actor setup.
 pub struct Rpc {
-    // Options
-    bootstrap: Box<[SocketAddrV4]>,
-
     socket: KrpcSocket,
-
-    // Routing
-    /// Closest nodes to this node
-    routing_table: RoutingTable,
-    /// Closest nodes to this node that support the signed peers
-    /// [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst) proposal.
-    signed_peers_routing_table: RoutingTable,
-
-    /// Last time we refreshed the routing table with a find_node query.
-    last_table_refresh: Instant,
-    /// Last time we pinged nodes in the routing table.
-    last_table_ping: Instant,
-    /// Closest responding nodes to specific target
-    cached_iterative_queries: LruCache<Id, CachedIterativeQuery>,
-
-    // Active IterativeQueries
-    iterative_queries: HashMap<Id, IterativeQuery>,
-    /// Put queries are special, since they have to wait for a corresponding
-    /// get query to finish, update the closest_nodes, then `query_all` these.
-    put_queries: HashMap<Id, PutQuery>,
-
-    server: Server,
-
-    public_address: Option<SocketAddrV4>,
-    firewalled: bool,
+    core: Core,
 }
 
 impl Rpc {
@@ -102,28 +54,11 @@ impl Rpc {
         };
 
         let socket = KrpcSocket::new(&config)?;
+        let bootstrap = to_socket_address(&config.bootstrap);
 
         Ok(Rpc {
-            bootstrap: to_socket_address(&config.bootstrap).into(),
             socket,
-
-            routing_table: RoutingTable::new(id),
-            signed_peers_routing_table: RoutingTable::new(id),
-            iterative_queries: HashMap::new(),
-            put_queries: HashMap::new(),
-
-            cached_iterative_queries: LruCache::new(
-                NonZeroUsize::new(MAX_CACHED_ITERATIVE_QUERIES)
-                    .expect("MAX_CACHED_BUCKETS is NonZeroUsize"),
-            ),
-
-            last_table_refresh: Instant::now(),
-            last_table_ping: Instant::now(),
-
-            server: Server::new(config.server_settings),
-
-            public_address: None,
-            firewalled: true,
+            core: Core::new(id, bootstrap, config.server_mode, config.server_settings),
         })
     }
 
@@ -131,7 +66,7 @@ impl Rpc {
 
     /// Returns the node's Id
     pub fn id(&self) -> &Id {
-        self.routing_table.id()
+        self.core.routing_table.id()
     }
 
     /// Returns the address the server is listening to.
@@ -146,7 +81,7 @@ impl Rpc {
     /// (plus the local port), otherwise it will rely on consensus from
     /// responding nodes voting on our public IP and port.
     pub fn public_address(&self) -> Option<SocketAddrV4> {
-        self.public_address
+        self.core.public_address
     }
 
     /// Returns `true` if we can't confirm that [Self::public_address] is publicly addressable.
@@ -155,7 +90,7 @@ impl Rpc {
     /// but if [crate::DhtBuilder::server_mode] was set to true, then whether or not this node is firewalled
     /// won't matter.
     pub fn firewalled(&self) -> bool {
-        self.firewalled
+        self.core.firewalled
     }
 
     /// Returns whether or not this node is running in server mode.
@@ -164,7 +99,7 @@ impl Rpc {
     }
 
     pub fn routing_table(&self) -> &RoutingTable {
-        &self.routing_table
+        &self.core.routing_table
     }
 
     /// Create a list of unique bootstrapping nodes from all our
@@ -174,7 +109,7 @@ impl Rpc {
         for s in self.routing_table().to_bootstrap() {
             set.insert(s);
         }
-        for s in self.signed_peers_routing_table.to_bootstrap() {
+        for s in self.core.signed_peers_routing_table.to_bootstrap() {
             set.insert(s);
         }
 
@@ -187,7 +122,7 @@ impl Rpc {
     ///
     /// [Read more](https://github.com/nuhvi/mainline/blob/main/docs/dht_size_estimate.md)
     pub fn dht_size_estimate(&self) -> (usize, f64) {
-        self.routing_table.dht_size_estimate()
+        self.core.routing_table.dht_size_estimate()
     }
 
     /// Returns a thread safe and lightweight summary of this node's
@@ -209,40 +144,14 @@ impl Rpc {
         let new_query_response = self
             .socket
             .recv_from()
-            .and_then(|(message, from)| match message.message_type {
-                MessageType::Request(request_specific) => {
-                    let (response, should_repopulate_routing_tables) = self.handle_request(
-                        from,
-                        message.read_only,
-                        message.version,
-                        request_specific,
-                    );
+            .and_then(|(message, from)| self.handle_incoming_message(message, from));
 
-                    match response {
-                        Some(MessageType::Error(error)) => {
-                            self.error(from, message.transaction_id, error);
-                        }
-                        Some(MessageType::Response(response)) => {
-                            self.response(from, message.transaction_id, response);
-                        }
-                        _ => {}
-                    }
-
-                    if should_repopulate_routing_tables {
-                        self.populate();
-                    }
-
-                    None
-                }
-                _ => self.handle_response(from, message),
-            });
-
-        let mut done_get_queries = Vec::with_capacity(self.iterative_queries.len());
-        let mut done_put_queries = Vec::with_capacity(self.put_queries.len());
+        let mut done_get_queries = Vec::with_capacity(self.core.iterative_queries.len());
+        let mut done_put_queries = Vec::with_capacity(self.core.put_queries.len());
 
         // === Tick Queries ===
 
-        for (id, query) in self.put_queries.iter_mut() {
+        for (id, query) in self.core.put_queries.iter_mut() {
             match query.tick(&self.socket) {
                 Ok(done) => {
                     if done {
@@ -254,21 +163,21 @@ impl Rpc {
         }
 
         let self_id = *self.id();
-        let basic_routing_table = &self.routing_table;
-        let signed_peers_routing_table = &self.routing_table;
+        let basic_routing_table = &self.core.routing_table;
+        let signed_peers_routing_table = &self.core.routing_table;
 
-        for (id, query) in self.iterative_queries.iter_mut() {
+        for (id, query) in self.core.iterative_queries.iter_mut() {
             let is_done = query.tick(&mut self.socket);
 
             if is_done {
                 let closest_nodes = if let RequestTypeSpecific::FindNode(_) =
                     query.request.request_type
                 {
-                    let table_size = self.routing_table.size();
-                    let signed_peers_table_size = self.signed_peers_routing_table.size();
+                    let table_size = self.core.routing_table.size();
+                    let signed_peers_table_size = self.core.signed_peers_routing_table.size();
 
                     if *id == self_id {
-                        if !self.bootstrap.is_empty() && table_size == 0 {
+                        if !self.core.bootstrap.is_empty() && table_size == 0 {
                             error!("Could not bootstrap the routing table");
                         } else {
                             debug!(
@@ -309,7 +218,7 @@ impl Rpc {
         // === Cleanup done queries ===
 
         for (id, closest_nodes) in &done_get_queries {
-            if let Some(query) = self.iterative_queries.remove(id) {
+            if let Some(query) = self.core.iterative_queries.remove(id) {
                 self.update_address_votes_from_iterative_query(&query);
                 let relevant_routing_table = self.cache_iterative_query(&query, closest_nodes);
 
@@ -322,7 +231,7 @@ impl Rpc {
                         "Storing nodes stats..",
                     );
 
-                    if let Some(put_query) = self.put_queries.get_mut(id) {
+                    if let Some(put_query) = self.core.put_queries.get_mut(id) {
                         if !put_query.started() {
                             if let Err(error) = put_query.start(&mut self.socket, closest_nodes) {
                                 done_put_queries.push((*id, Some(error)))
@@ -334,7 +243,7 @@ impl Rpc {
         }
 
         for (id, _) in &done_put_queries {
-            self.put_queries.remove(id);
+            self.core.put_queries.remove(id);
         }
 
         RpcTickReport {
@@ -344,134 +253,43 @@ impl Rpc {
         }
     }
 
-    fn handle_request(
+    fn handle_incoming_message(
         &mut self,
+        message: Message,
         from: SocketAddrV4,
-        request_from_read_only_node: bool,
-        version: Option<[u8; 4]>,
-        request_specific: RequestSpecific,
-    ) -> (Option<MessageType>, bool) {
-        self.maybe_add_node_from_request(
-            from,
-            version,
-            request_from_read_only_node,
-            &request_specific,
-        );
+    ) -> Option<(Id, Response)> {
+        match message.message_type {
+            MessageType::Request(request_specific) => {
+                let (response, should_repopulate_routing_tables) = self.core.handle_request(
+                    from,
+                    message.read_only,
+                    message.version,
+                    request_specific,
+                );
 
-        let should_repopulate_routing_tables =
-            self.does_verify_our_new_public_address_with_self_ping(from, &request_specific);
-
-        let response = if self.server_mode() {
-            let server = &mut self.server;
-            let response = server.handle_request(
-                &self.routing_table,
-                &self.signed_peers_routing_table,
-                from,
-                request_specific,
-            );
-
-            match response {
-                Some(MessageType::Error(_)) | Some(MessageType::Response(_)) => response,
-                _ => None,
-            }
-        } else {
-            None
-        };
-
-        (response, should_repopulate_routing_tables)
-    }
-
-    /// In client mode, we never add to our table any node contacting us
-    /// without querying it first, to avoid eclipse attacks.
-    ///
-    /// While bootstrapping though, we can't be that picky, we have two
-    /// reasons to except that rule:
-    ///
-    /// 1. first node creating the DHT;
-    ///    without this exception, the bootstrapping node's routing table will never be populated.
-    /// 2. Bootstrapping signed_peers_routing_table requires that we latch to any node
-    ///    that claims to support it.
-    ///    In `periodic_node_maintaenance` fake unresponsive nodes will be removed.
-    ///    And either way we prioritize secure nodes, so making up nodes from same
-    //    machine won't have much effect.
-    fn maybe_add_node_from_request(
-        &mut self,
-        from: SocketAddrV4,
-        version: Option<[u8; 4]>,
-        request_from_read_only_node: bool,
-        request_specific: &RequestSpecific,
-    ) {
-        if self.server_mode() && !request_from_read_only_node {
-            if let RequestTypeSpecific::FindNode(ref param) = request_specific.request_type {
-                let node = Node::new(param.target, from);
-                let supports_signed_peers = supports_signed_peers(version);
-
-                if self.bootstrap.is_empty() {
-                    self.routing_table.add(node.clone());
-
-                    if supports_signed_peers {
-                        self.signed_peers_routing_table.add(node);
+                match response {
+                    Some(MessageType::Error(error)) => {
+                        self.socket.error(from, message.transaction_id, error)
                     }
-                } else if supports_signed_peers {
-                    self.signed_peers_routing_table.add(node);
+                    Some(MessageType::Response(response)) => {
+                        self.socket.response(from, message.transaction_id, response)
+                    }
+                    _ => {}
                 }
-            }
-        }
-    }
 
-    fn does_verify_our_new_public_address_with_self_ping(
-        &mut self,
-        from: SocketAddrV4,
-        request_specific: &RequestSpecific,
-    ) -> bool {
-        if let Some(our_address) = self.public_address {
-            let is_ping = matches!(request_specific.request_type, RequestTypeSpecific::Ping);
-
-            if from == our_address && is_ping {
-                self.firewalled = false;
-
-                let ipv4 = our_address.ip();
-
-                // Restarting our routing table with new secure Id if necessary.
-                if !self.id().is_valid_for_ip(*ipv4) {
-                    let new_id = Id::from_ipv4(*ipv4);
-
-                    info!(
-                        "Our current id {} is not valid for adrsess {}. Using new id {}",
-                        self.id(),
-                        our_address,
-                        new_id
-                    );
-
-                    self.routing_table.reset_id(new_id);
-                    self.signed_peers_routing_table.reset_id(new_id);
-
-                    return true;
+                if should_repopulate_routing_tables {
+                    self.populate();
                 }
-            }
-        }
 
-        false
+                None
+            }
+            _ => self.handle_response(from, message),
+        }
     }
 
     /// Send a request to the given address and return the transaction_id
     pub fn request(&mut self, address: SocketAddrV4, request: RequestSpecific) -> u32 {
         self.socket.request(address, request)
-    }
-
-    /// Send a response to the given address.
-    pub fn response(
-        &mut self,
-        address: SocketAddrV4,
-        transaction_id: u32,
-        response: ResponseSpecific,
-    ) {
-        self.socket.response(address, transaction_id, response)
-    }
-
-    /// Send an error to the given address.
-    pub fn error(&mut self, address: SocketAddrV4, transaction_id: u32, error: ErrorSpecific) {
-        self.socket.error(address, transaction_id, error)
     }
 
     /// Store a value in the closest nodes, optionally trigger a lookup query if
@@ -490,6 +308,7 @@ impl Rpc {
         }) = &request
         {
             if let Some(PutRequestSpecific::PutMutable(inflight_request)) = self
+                .core
                 .put_queries
                 .get(&target)
                 .map(|existing| &existing.request)
@@ -506,7 +325,7 @@ impl Rpc {
                         // The user is aware of the inflight query and whiches to overrides it.
                         //
                         // Remove the inflight request, and create a new one.
-                        self.put_queries.remove(&target);
+                        self.core.put_queries.remove(&target);
                     } else {
                         return Err(ConcurrencyError::CasFailed)?;
                     }
@@ -519,6 +338,7 @@ impl Rpc {
         let mut query = PutQuery::new(target, request.clone(), extra_nodes);
 
         if let Some(closest_nodes) = self
+            .core
             .cached_iterative_queries
             .get(&target)
             .map(|cached| cached.closest_responding_nodes.clone())
@@ -556,7 +376,7 @@ impl Rpc {
             self.get(get_request, None);
         };
 
-        self.put_queries.insert(target, query);
+        self.core.put_queries.insert(target, query);
 
         Ok(())
     }
@@ -591,7 +411,7 @@ impl Rpc {
         };
 
         let response_from_inflight_put_mutable_request =
-            self.put_queries.get(&target).and_then(|existing| {
+            self.core.put_queries.get(&target).and_then(|existing| {
                 if let PutRequestSpecific::PutMutable(request) = &existing.request {
                     Some(Response::Mutable(request.clone().into()))
                 } else {
@@ -600,7 +420,7 @@ impl Rpc {
             });
 
         // If query is still active, no need to create a new one.
-        if let Some(query) = self.iterative_queries.get(&target) {
+        if let Some(query) = self.core.iterative_queries.get(&target) {
             let mut responses = query.responses().to_vec();
 
             if let Some(response) = response_from_inflight_put_mutable_request {
@@ -610,7 +430,7 @@ impl Rpc {
             return Some(responses);
         }
 
-        let node_id = self.routing_table.id();
+        let node_id = self.core.routing_table.id();
 
         if target == *node_id {
             debug!(?node_id, "Bootstrapping the routing table");
@@ -624,23 +444,26 @@ impl Rpc {
             // randomness and to more likely defeat eclipsing attempts, but we pay the price in
             // more messages, however that is ok when we rarely call FIND_NODE (once every 15 minutes)
             GetRequestSpecific::FindNode(_) => {
-                let mut routing_table_closest = self.routing_table.closest_secure(target);
-                routing_table_closest
-                    .extend_from_slice(&self.signed_peers_routing_table.closest_secure(target));
+                let mut routing_table_closest = self.core.routing_table.closest_secure(target);
+                routing_table_closest.extend_from_slice(
+                    &self.core.signed_peers_routing_table.closest_secure(target),
+                );
                 routing_table_closest
             }
             GetRequestSpecific::GetSignedPeers(_) => {
-                self.signed_peers_routing_table.closest_secure(target)
+                self.core.signed_peers_routing_table.closest_secure(target)
             }
-            _ => self.routing_table.closest_secure(target),
+            _ => self.core.routing_table.closest_secure(target),
         };
 
         let mut query = IterativeQuery::new(*self.id(), target, request);
 
         // Seed the query either with the closest nodes from the routing table, or the
         // bootstrapping nodes if the closest nodes are not enough.
-        if routing_table_closest.is_empty() || routing_table_closest.len() < self.bootstrap.len() {
-            for bootstrapping_node in self.bootstrap.clone() {
+        if routing_table_closest.is_empty()
+            || routing_table_closest.len() < self.core.bootstrap.len()
+        {
+            for bootstrapping_node in self.core.bootstrap.clone() {
                 query.visit(&mut self.socket, bootstrapping_node);
             }
         }
@@ -661,7 +484,7 @@ impl Rpc {
         if let Some(CachedIterativeQuery {
             closest_responding_nodes,
             ..
-        }) = self.cached_iterative_queries.get(&target)
+        }) = self.core.cached_iterative_queries.get(&target)
         {
             for node in closest_responding_nodes {
                 query.add_candidate(node.clone())
@@ -671,7 +494,7 @@ impl Rpc {
         // After adding the nodes, we need to start the query.
         query.start(&mut self.socket);
 
-        self.iterative_queries.insert(target, query);
+        self.core.iterative_queries.insert(target, query);
 
         // If there is an inflight PutQuery for mutable item return its value
         if let Some(response) = response_from_inflight_put_mutable_request {
@@ -691,6 +514,7 @@ impl Rpc {
 
         // If the response looks like a Ping response, check StoreQueries for the transaction_id.
         if let Some(query) = self
+            .core
             .put_queries
             .values_mut()
             .find(|query| query.inflight(message.transaction_id))
@@ -713,6 +537,7 @@ impl Rpc {
 
         // Get corresponding query for message.transaction_id
         if let Some(query) = self
+            .core
             .iterative_queries
             .values_mut()
             .find(|query| query.inflight(message.transaction_id))
@@ -887,10 +712,12 @@ impl Rpc {
             // Add a node to our routing table on any expected incoming response.
 
             if let Some(id) = author_id {
-                self.routing_table.add(Node::new(id, from));
+                self.core.routing_table.add(Node::new(id, from));
 
                 if supports_signed_peers(message.version) {
-                    self.signed_peers_routing_table.add(Node::new(id, from));
+                    self.core
+                        .signed_peers_routing_table
+                        .add(Node::new(id, from));
                 }
             }
         }
@@ -900,13 +727,13 @@ impl Rpc {
 
     fn periodic_node_maintaenance(&mut self) {
         // Bootstrap if necessary
-        if self.routing_table.is_empty() {
+        if self.core.routing_table.is_empty() {
             self.populate();
         }
 
         // Every 15 minutes refresh the routing table.
-        if self.last_table_refresh.elapsed() > REFRESH_TABLE_INTERVAL {
-            self.last_table_refresh = Instant::now();
+        if self.core.last_table_refresh.elapsed() > REFRESH_TABLE_INTERVAL {
+            self.core.last_table_refresh = Instant::now();
 
             if !self.server_mode() && !self.firewalled() {
                 info!("Adaptive mode: have been running long enough (not firewalled), switching to server mode");
@@ -917,14 +744,14 @@ impl Rpc {
             self.populate();
         }
 
-        if self.last_table_ping.elapsed() > PING_TABLE_INTERVAL {
-            self.last_table_ping = Instant::now();
+        if self.core.last_table_ping.elapsed() > PING_TABLE_INTERVAL {
+            self.core.last_table_ping = Instant::now();
 
             let mut to_ping = vec![];
 
             for routing_table in [
-                &mut self.routing_table,
-                &mut self.signed_peers_routing_table,
+                &mut self.core.routing_table,
+                &mut self.core.signed_peers_routing_table,
             ] {
                 let mut to_remove = Vec::with_capacity(routing_table.size());
 
@@ -949,7 +776,7 @@ impl Rpc {
 
     /// Ping bootstrap nodes, add them to the routing table with closest query.
     fn populate(&mut self) {
-        if self.bootstrap.is_empty() {
+        if self.core.bootstrap.is_empty() {
             return;
         }
 
@@ -971,9 +798,10 @@ impl Rpc {
 
     fn update_address_votes_from_iterative_query(&mut self, query: &IterativeQuery) {
         if let Some(new_address) = query.best_address() {
-            if self.public_address.is_none()
+            if self.core.public_address.is_none()
                 || new_address
                     != self
+                        .core
                         .public_address
                         .expect("self.public_address is not None")
             {
@@ -982,11 +810,11 @@ impl Rpc {
                     "Query responses suggest a different public_address, trying to confirm.."
                 );
 
-                self.firewalled = true;
+                self.core.firewalled = true;
                 self.ping(new_address);
             }
 
-            self.public_address = Some(new_address)
+            self.core.public_address = Some(new_address)
         }
     }
 
@@ -995,8 +823,8 @@ impl Rpc {
         query: &'a IterativeQuery,
         closest_responding_nodes: &'a [Node],
     ) -> &'a RoutingTable {
-        if self.cached_iterative_queries.len() >= MAX_CACHED_ITERATIVE_QUERIES {
-            let q = self.cached_iterative_queries.pop_lru();
+        if self.core.cached_iterative_queries.len() >= MAX_CACHED_ITERATIVE_QUERIES {
+            let q = self.core.cached_iterative_queries.pop_lru();
             self.decrement_cached_iterative_query_stats(q.map(|q| q.1));
         }
 
@@ -1005,14 +833,14 @@ impl Rpc {
 
         if closest.nodes().is_empty() {
             // We are clearly offline.
-            return &self.routing_table;
+            return &self.core.routing_table;
         }
 
         let dht_size_estimate = closest.dht_size_estimate();
         let responders_dht_size_estimate = responders.dht_size_estimate();
         let subnets_count = responders.subnets_count();
 
-        let previous = self.cached_iterative_queries.put(
+        let previous = self.core.cached_iterative_queries.put(
             query.target(),
             CachedIterativeQuery {
                 closest_responding_nodes: closest_responding_nodes.into(),
@@ -1028,8 +856,8 @@ impl Rpc {
 
         let relevant_routing_table = choose_relevant_routing_table_mut(
             &query.request.request_type,
-            &mut self.routing_table,
-            &mut self.signed_peers_routing_table,
+            &mut self.core.routing_table,
+            &mut self.core.signed_peers_routing_table,
         );
 
         relevant_routing_table.increment_responders_stats(
@@ -1053,14 +881,15 @@ impl Rpc {
         {
             match request_type {
                 RequestTypeSpecific::FindNode(..) => {
-                    self.routing_table
+                    self.core
+                        .routing_table
                         .decrement_dht_size_estimate(dht_size_estimate);
                 }
                 _ => {
                     let relevant_routing_table = choose_relevant_routing_table_mut(
                         &request_type,
-                        &mut self.routing_table,
-                        &mut self.signed_peers_routing_table,
+                        &mut self.core.routing_table,
+                        &mut self.core.signed_peers_routing_table,
                     );
 
                     relevant_routing_table.decrement_responders_stats(
@@ -1093,15 +922,6 @@ fn choose_relevant_routing_table_mut<'a>(
         RequestTypeSpecific::GetSignedPeers(_) => signed_peers_routing_table,
         _ => basic_routing_table,
     }
-}
-
-struct CachedIterativeQuery {
-    closest_responding_nodes: Box<[Node]>,
-    dht_size_estimate: f64,
-    responders_dht_size_estimate: f64,
-    subnets: u8,
-
-    request_type: RequestTypeSpecific,
 }
 
 /// State change after a call to [Rpc::tick], including
@@ -1141,14 +961,4 @@ pub(crate) fn to_socket_address<T: ToSocketAddrs>(bootstrap: &[T]) -> Vec<Socket
         })
         .flatten()
         .collect()
-}
-
-fn supports_signed_peers(version: Option<[u8; 4]>) -> bool {
-    version
-        .map(|version| {
-            VERSIONS_SUPPORTING_SIGNED_PEERS
-                .iter()
-                .any(|v| version[0..2] == v[0..2] && version[2..] >= v[2..])
-        })
-        .unwrap_or_default()
 }

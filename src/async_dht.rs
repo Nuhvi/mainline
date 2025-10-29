@@ -16,8 +16,9 @@ use crate::{
         MutableItem, Node, PutImmutableRequestArguments, PutMutableRequestArguments,
         PutRequestSpecific, SignedAnnounce,
     },
+    core::{iterative_query::GetRequestSpecific, PutError, PutQueryError},
     dht::{ActorMessage, Dht, PutMutableError, ResponseSender},
-    rpc::{GetRequestSpecific, Info, PutError, PutQueryError},
+    rpc::Info,
 };
 
 impl Dht {
@@ -452,7 +453,7 @@ mod test {
     use ed25519_dalek::SigningKey;
     use futures::StreamExt;
 
-    use crate::{dht::Testnet, rpc::ConcurrencyError};
+    use crate::{core::ConcurrencyError, dht::Testnet};
 
     use super::*;
 

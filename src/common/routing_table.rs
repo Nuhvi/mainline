@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 use std::slice::Iter;
 
+use crate::common::ClosestNodes;
 use crate::common::{Id, Node};
-use crate::rpc::ClosestNodes;
 
 /// K = the default maximum size of a k-bucket.
 pub const MAX_BUCKET_SIZE_K: usize = 20;

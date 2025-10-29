@@ -79,8 +79,8 @@ impl From<&Rpc> for Info {
             firewalled: rpc.firewalled(),
             server_mode: rpc.server_mode(),
 
-            routing_table_size: rpc.routing_table.size(),
-            singing_peers_routing_table_size: rpc.signed_peers_routing_table.size(),
+            routing_table_size: rpc.core.routing_table.size(),
+            singing_peers_routing_table_size: rpc.core.signed_peers_routing_table.size(),
         }
     }
 }

@@ -7,10 +7,10 @@ use crate::{
     Node,
 };
 
-use super::socket::KrpcSocket;
+use crate::rpc::socket::KrpcSocket;
 
 #[derive(Debug)]
-/// Once an [super::IterativeQuery] is done, or if a previous cached one was a vailable,
+/// Once an [super::IterativeQuery] is done, or if a previous cached one was a available,
 /// we can store data at the closest nodes using this PutQuery, that keeps track of
 /// acknowledging nodes, and or errors.
 pub struct PutQuery {
@@ -216,7 +216,7 @@ pub enum PutQueryError {
     #[error("Failed to find any nodes close to store value at")]
     NoClosestNodes,
 
-    /// Either Put Query faild to store at any nodes, and most nodes responded
+    /// Either Put Query failed to store at any nodes, and most nodes responded
     /// with a non `301` nor `302` errors.
     ///
     /// Either way; contains the most common error response.
@@ -249,7 +249,7 @@ pub enum ConcurrencyError {
     #[error("MutableItem::seq is not the most recent, try reading most recent item before writing again.")]
     NotMostRecent,
 
-    /// The `CAS` condition does not match the `seq` of the most recent knonw signed item.
+    /// The `CAS` condition does not match the `seq` of the most recent known signed item.
     #[error("CAS check failed, try reading most recent item before writing again.")]
     CasFailed,
 }

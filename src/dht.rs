@@ -18,7 +18,8 @@ use crate::{
         MutableItem, PutImmutableRequestArguments, PutMutableRequestArguments, PutRequestSpecific,
         SignedAnnounce,
     },
-    rpc::{ConcurrencyError, GetRequestSpecific, Info, PutError, PutQueryError, Response, Rpc},
+    core::{iterative_query::GetRequestSpecific, ConcurrencyError, PutError, PutQueryError},
+    rpc::{Info, Response, Rpc},
     Node, ServerSettings,
 };
 
@@ -818,7 +819,7 @@ mod test {
 
     use ed25519_dalek::SigningKey;
 
-    use crate::rpc::ConcurrencyError;
+    use crate::core::ConcurrencyError;
 
     use super::*;
 

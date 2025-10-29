@@ -6,8 +6,9 @@ use std::net::SocketAddrV4;
 
 use tracing::{debug, trace};
 
-use super::{socket::KrpcSocket, ClosestNodes};
 use crate::common::{FindNodeRequestArguments, GetPeersRequestArguments, GetValueRequestArguments};
+use crate::rpc::socket::KrpcSocket;
+use crate::ClosestNodes;
 use crate::{
     common::{Id, Node, RequestSpecific, RequestTypeSpecific, MAX_BUCKET_SIZE_K},
     rpc::Response,

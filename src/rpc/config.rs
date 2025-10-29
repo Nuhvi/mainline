@@ -2,7 +2,7 @@ use std::net::Ipv4Addr;
 
 use crate::rpc::DEFAULT_BOOTSTRAP_NODES;
 
-use super::ServerSettings;
+use crate::ServerSettings;
 
 #[derive(Debug, Clone)]
 /// Dht Configurations
