@@ -22,9 +22,10 @@ use crate::common::{
 use crate::core::iterative_query::GetRequestSpecific;
 use crate::core::{
     iterative_query::IterativeQuery, put_query::PutQuery, supports_signed_peers, Core,
-    MAX_CACHED_ITERATIVE_QUERIES, PING_TABLE_INTERVAL, REFRESH_TABLE_INTERVAL,
 };
-use crate::core::{CachedIterativeQuery, ConcurrencyError, PutError};
+use crate::core::{
+    CachedIterativeQuery, ConcurrencyError, PutError, PING_TABLE_INTERVAL, REFRESH_TABLE_INTERVAL,
+};
 
 use socket::KrpcSocket;
 
@@ -140,7 +141,7 @@ impl Rpc {
         // === Periodic node maintaenance ===
         self.periodic_node_maintaenance();
 
-        // Handle new incoming message
+        // === Handle new incoming message ===
         let new_query_response = self
             .socket
             .recv_from()
@@ -217,33 +218,30 @@ impl Rpc {
 
         // === Cleanup done queries ===
 
-        for (id, closest_nodes) in &done_get_queries {
-            if let Some(query) = self.core.iterative_queries.remove(id) {
-                self.update_address_votes_from_iterative_query(&query);
-                let relevant_routing_table = self.cache_iterative_query(&query, closest_nodes);
+        let (should_start_put_queries, should_ping_alleged_new_address) = self
+            .core
+            .cleanup_done_queries(&done_get_queries, &done_put_queries);
 
-                // Only for get queries, not find node.
-                if !matches!(query.request.request_type, RequestTypeSpecific::FindNode(_)) {
-                    debug!(
-                        target = ?query.target(),
-                        responders_size_estimate = ?relevant_routing_table.responders_based_dht_size_estimate(),
-                        responders_subnets_count = ?relevant_routing_table.average_subnets(),
-                        "Storing nodes stats..",
-                    );
-
-                    if let Some(put_query) = self.core.put_queries.get_mut(id) {
-                        if !put_query.started() {
-                            if let Err(error) = put_query.start(&mut self.socket, closest_nodes) {
-                                done_put_queries.push((*id, Some(error)))
-                            }
-                        }
-                    }
-                }
-            };
+        if let Some(address) = should_ping_alleged_new_address {
+            self.ping(address);
         }
 
-        for (id, _) in &done_put_queries {
-            self.core.put_queries.remove(id);
+        for id in should_start_put_queries {
+            // TODO: ???
+            let put_query = self
+                .core
+                .put_queries
+                .get_mut(&id)
+                .expect("put query shouldn't be deleted before done..");
+
+            let (_, closest_nodes) = done_get_queries
+                .iter()
+                .find(|(this_id, _)| this_id == &id)
+                .expect("done_get_queries");
+
+            if let Err(error) = put_query.start(&mut self.socket, closest_nodes) {
+                done_put_queries.push((id, Some(error)))
+            }
         }
 
         RpcTickReport {
@@ -285,11 +283,6 @@ impl Rpc {
             }
             _ => self.handle_response(from, message),
         }
-    }
-
-    /// Send a request to the given address and return the transaction_id
-    pub fn request(&mut self, address: SocketAddrV4, request: RequestSpecific) -> u32 {
-        self.socket.request(address, request)
     }
 
     /// Store a value in the closest nodes, optionally trigger a lookup query if
@@ -795,112 +788,6 @@ impl Rpc {
             },
         );
     }
-
-    fn update_address_votes_from_iterative_query(&mut self, query: &IterativeQuery) {
-        if let Some(new_address) = query.best_address() {
-            if self.core.public_address.is_none()
-                || new_address
-                    != self
-                        .core
-                        .public_address
-                        .expect("self.public_address is not None")
-            {
-                trace!(
-                    ?new_address,
-                    "Query responses suggest a different public_address, trying to confirm.."
-                );
-
-                self.core.firewalled = true;
-                self.ping(new_address);
-            }
-
-            self.core.public_address = Some(new_address)
-        }
-    }
-
-    fn cache_iterative_query<'a>(
-        &'a mut self,
-        query: &'a IterativeQuery,
-        closest_responding_nodes: &'a [Node],
-    ) -> &'a RoutingTable {
-        if self.core.cached_iterative_queries.len() >= MAX_CACHED_ITERATIVE_QUERIES {
-            let q = self.core.cached_iterative_queries.pop_lru();
-            self.decrement_cached_iterative_query_stats(q.map(|q| q.1));
-        }
-
-        let closest = query.closest();
-        let responders = query.responders();
-
-        if closest.nodes().is_empty() {
-            // We are clearly offline.
-            return &self.core.routing_table;
-        }
-
-        let dht_size_estimate = closest.dht_size_estimate();
-        let responders_dht_size_estimate = responders.dht_size_estimate();
-        let subnets_count = responders.subnets_count();
-
-        let previous = self.core.cached_iterative_queries.put(
-            query.target(),
-            CachedIterativeQuery {
-                closest_responding_nodes: closest_responding_nodes.into(),
-                dht_size_estimate,
-                responders_dht_size_estimate,
-                subnets: subnets_count,
-
-                request_type: query.request.request_type.clone(),
-            },
-        );
-
-        self.decrement_cached_iterative_query_stats(previous);
-
-        let relevant_routing_table = choose_relevant_routing_table_mut(
-            &query.request.request_type,
-            &mut self.core.routing_table,
-            &mut self.core.signed_peers_routing_table,
-        );
-
-        relevant_routing_table.increment_responders_stats(
-            dht_size_estimate,
-            responders_dht_size_estimate,
-            subnets_count,
-        );
-
-        relevant_routing_table
-    }
-
-    /// Decrement stats after an iterative query is popped
-    fn decrement_cached_iterative_query_stats(&mut self, query: Option<CachedIterativeQuery>) {
-        if let Some(CachedIterativeQuery {
-            dht_size_estimate,
-            responders_dht_size_estimate,
-            subnets,
-            request_type,
-            ..
-        }) = query
-        {
-            match request_type {
-                RequestTypeSpecific::FindNode(..) => {
-                    self.core
-                        .routing_table
-                        .decrement_dht_size_estimate(dht_size_estimate);
-                }
-                _ => {
-                    let relevant_routing_table = choose_relevant_routing_table_mut(
-                        &request_type,
-                        &mut self.core.routing_table,
-                        &mut self.core.signed_peers_routing_table,
-                    );
-
-                    relevant_routing_table.decrement_responders_stats(
-                        dht_size_estimate,
-                        responders_dht_size_estimate,
-                        subnets,
-                    );
-                }
-            }
-        };
-    }
 }
 
 fn choose_relevant_routing_table<'a>(
@@ -908,16 +795,6 @@ fn choose_relevant_routing_table<'a>(
     basic_routing_table: &'a RoutingTable,
     signed_peers_routing_table: &'a RoutingTable,
 ) -> &'a RoutingTable {
-    match request_type {
-        RequestTypeSpecific::GetSignedPeers(_) => signed_peers_routing_table,
-        _ => basic_routing_table,
-    }
-}
-fn choose_relevant_routing_table_mut<'a>(
-    request_type: &'a RequestTypeSpecific,
-    basic_routing_table: &'a mut RoutingTable,
-    signed_peers_routing_table: &'a mut RoutingTable,
-) -> &'a mut RoutingTable {
     match request_type {
         RequestTypeSpecific::GetSignedPeers(_) => signed_peers_routing_table,
         _ => basic_routing_table,
