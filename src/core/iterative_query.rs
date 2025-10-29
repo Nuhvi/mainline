@@ -7,12 +7,10 @@ use std::net::SocketAddrV4;
 use tracing::{debug, trace};
 
 use crate::common::{FindNodeRequestArguments, GetPeersRequestArguments, GetValueRequestArguments};
+use crate::common::{Id, Node, RequestSpecific, RequestTypeSpecific, MAX_BUCKET_SIZE_K};
+use crate::core::handle_response::Response;
 use crate::rpc::socket::KrpcSocket;
 use crate::ClosestNodes;
-use crate::{
-    common::{Id, Node, RequestSpecific, RequestTypeSpecific, MAX_BUCKET_SIZE_K},
-    rpc::Response,
-};
 
 /// An iterative process of concurrently sending a request to the closest known nodes to
 /// the target, updating the routing table with closer nodes discovered in the responses, and
