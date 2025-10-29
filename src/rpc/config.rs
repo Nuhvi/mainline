@@ -14,7 +14,7 @@ use crate::ServerSettings;
 pub struct Config {
     /// Bootstrap nodes
     ///
-    /// Defaults to [super::DEFAULT_BOOTSTRAP_NODES]
+    /// Defaults to [DEFAULT_BOOTSTRAP_NODES]
     pub bootstrap: Vec<String>,
     /// Explicit port to listen on.
     ///
