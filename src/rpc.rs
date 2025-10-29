@@ -6,7 +6,7 @@ pub(crate) mod socket;
 
 use std::collections::HashSet;
 use std::net::{SocketAddr, SocketAddrV4, ToSocketAddrs};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tracing::{debug, error, info, trace};
 
@@ -23,26 +23,25 @@ use crate::core::iterative_query::GetRequestSpecific;
 use crate::core::{
     iterative_query::IterativeQuery, put_query::PutQuery, supports_signed_peers, Core,
 };
-use crate::core::{
-    CachedIterativeQuery, ConcurrencyError, PutError, PING_TABLE_INTERVAL, REFRESH_TABLE_INTERVAL,
-};
+use crate::core::{CachedIterativeQuery, ConcurrencyError, PutError};
 
 use socket::KrpcSocket;
 
 pub use info::Info;
 
-pub const DEFAULT_BOOTSTRAP_NODES: [&str; 4] = [
-    "router.bittorrent.com:6881",
-    "dht.transmissionbt.com:6881",
-    "dht.libtorrent.org:25401",
-    "relay.pkarr.org:6881",
-];
+pub(crate) const REFRESH_TABLE_INTERVAL: Duration = Duration::from_secs(15 * 60);
+pub(crate) const PING_TABLE_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Debug)]
 /// Internal Rpc called in the Dht thread loop, useful to create your own actor setup.
 pub struct Rpc {
     socket: KrpcSocket,
     core: Core,
+
+    /// Last time we refreshed the routing table with a find_node query.
+    pub(crate) last_table_refresh: Instant,
+    /// Last time we pinged nodes in the routing table.
+    pub(crate) last_table_ping: Instant,
 }
 
 impl Rpc {
@@ -60,6 +59,8 @@ impl Rpc {
         Ok(Rpc {
             socket,
             core: Core::new(id, bootstrap, config.server_mode, config.server_settings),
+            last_table_refresh: Instant::now(),
+            last_table_ping: Instant::now(),
         })
     }
 
@@ -227,7 +228,6 @@ impl Rpc {
         }
 
         for id in should_start_put_queries {
-            // TODO: ???
             let put_query = self
                 .core
                 .put_queries
@@ -725,8 +725,8 @@ impl Rpc {
         }
 
         // Every 15 minutes refresh the routing table.
-        if self.core.last_table_refresh.elapsed() > REFRESH_TABLE_INTERVAL {
-            self.core.last_table_refresh = Instant::now();
+        if self.last_table_refresh.elapsed() > REFRESH_TABLE_INTERVAL {
+            self.last_table_refresh = Instant::now();
 
             if !self.server_mode() && !self.firewalled() {
                 info!("Adaptive mode: have been running long enough (not firewalled), switching to server mode");
@@ -737,8 +737,8 @@ impl Rpc {
             self.populate();
         }
 
-        if self.core.last_table_ping.elapsed() > PING_TABLE_INTERVAL {
-            self.core.last_table_ping = Instant::now();
+        if self.last_table_ping.elapsed() > PING_TABLE_INTERVAL {
+            self.last_table_ping = Instant::now();
 
             let mut to_ping = vec![];
 

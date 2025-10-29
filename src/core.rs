@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::net::SocketAddrV4;
 use std::num::NonZeroUsize;
-use std::time::{Duration, Instant};
 
 use lru::LruCache;
 use tracing::{debug, info, trace};
@@ -19,9 +18,6 @@ use server::Server;
 use server::ServerSettings;
 
 pub use put_query::{ConcurrencyError, PutError, PutQueryError};
-
-pub(crate) const REFRESH_TABLE_INTERVAL: Duration = Duration::from_secs(15 * 60);
-pub(crate) const PING_TABLE_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 pub(crate) const MAX_CACHED_ITERATIVE_QUERIES: usize = 1000;
 
@@ -46,10 +42,6 @@ pub struct Core {
     /// Closest nodes to this node that support the signed peers
     /// [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst) proposal.
     pub(crate) signed_peers_routing_table: RoutingTable,
-    /// Last time we refreshed the routing table with a find_node query.
-    pub(crate) last_table_refresh: Instant,
-    /// Last time we pinged nodes in the routing table.
-    pub(crate) last_table_ping: Instant,
 
     /// Closest responding nodes to specific target
     pub(crate) cached_iterative_queries: LruCache<Id, CachedIterativeQuery>,
@@ -82,8 +74,6 @@ impl Core {
                 NonZeroUsize::new(MAX_CACHED_ITERATIVE_QUERIES)
                     .expect("MAX_CACHED_BUCKETS is NonZeroUsize"),
             ),
-            last_table_refresh: Instant::now(),
-            last_table_ping: Instant::now(),
             server: Server::new(server_settings),
             public_address: None,
             firewalled: true,

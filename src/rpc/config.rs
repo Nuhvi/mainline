@@ -1,6 +1,11 @@
 use std::net::Ipv4Addr;
 
-use crate::rpc::DEFAULT_BOOTSTRAP_NODES;
+pub const DEFAULT_BOOTSTRAP_NODES: [&str; 4] = [
+    "router.bittorrent.com:6881",
+    "dht.transmissionbt.com:6881",
+    "dht.libtorrent.org:25401",
+    "relay.pkarr.org:6881",
+];
 
 use crate::ServerSettings;
 

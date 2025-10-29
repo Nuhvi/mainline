@@ -8,6 +8,7 @@
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
 
 mod common;
+/// Functional core testable separately from I/O
 mod core;
 mod dht;
 mod rpc;

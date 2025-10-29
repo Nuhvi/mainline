@@ -114,11 +114,6 @@ impl PutQuery {
 
     /// Check if the query is done, and if so send the query target to the receiver if any.
     pub fn tick(&mut self, socket: &KrpcSocket) -> Result<bool, PutError> {
-        // Didn't start yet.
-        if self.inflight_requests.is_empty() {
-            return Ok(false);
-        }
-
         // And all queries got responses or timedout
         if self.is_done(socket) {
             let target = self.target;
@@ -157,14 +152,21 @@ impl PutQuery {
         Ok(false)
     }
 
-    fn is_done(&self, socket: &KrpcSocket) -> bool {
+    /// Query started and finished
+    pub fn is_done(&self, socket: &KrpcSocket) -> bool {
+        // Didn't start yet.
+        if self.inflight_requests.is_empty() {
+            return false;
+        }
+
         !self
             .inflight_requests
             .iter()
             .any(|tid| socket.inflight(tid))
     }
 
-    fn majority_nodes_rejected_put_mutable(&self) -> Option<ConcurrencyError> {
+    /// Return most common error if any
+    pub fn majority_nodes_rejected_put_mutable(&self) -> Option<ConcurrencyError> {
         let half = ((self.inflight_requests.len() / 2) + 1) as u8;
 
         if matches!(self.request, PutRequestSpecific::PutMutable(_)) {
