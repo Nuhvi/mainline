@@ -580,7 +580,7 @@ fn run(config: Config, receiver: Receiver<ActorMessage>) {
                             };
                         }
                         ActorMessage::Get(request, sender) => {
-                            let target = *request.target();
+                            let target = request.target();
 
                             if let Some(responses) = rpc.get(request, None) {
                                 for response in responses {

@@ -389,14 +389,7 @@ impl Rpc {
         request: GetRequestSpecific,
         extra_nodes: Option<&[SocketAddrV4]>,
     ) -> Option<Vec<Response>> {
-        let target = match request {
-            GetRequestSpecific::FindNode(FindNodeRequestArguments { target }) => target,
-            GetRequestSpecific::GetPeers(GetPeersRequestArguments { info_hash, .. }) => info_hash,
-            GetRequestSpecific::GetSignedPeers(GetPeersRequestArguments { info_hash, .. }) => {
-                info_hash
-            }
-            GetRequestSpecific::GetValue(GetValueRequestArguments { target, .. }) => target,
-        };
+        let target = request.target();
 
         let response_from_inflight_put_mutable_request =
             self.core.put_queries.get(&target).and_then(|existing| {

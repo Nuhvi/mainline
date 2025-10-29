@@ -35,12 +35,12 @@ pub enum GetRequestSpecific {
 }
 
 impl GetRequestSpecific {
-    pub fn target(&self) -> &Id {
+    pub fn target(&self) -> Id {
         match self {
-            GetRequestSpecific::FindNode(args) => &args.target,
-            GetRequestSpecific::GetPeers(args) => &args.info_hash,
-            GetRequestSpecific::GetSignedPeers(args) => &args.info_hash,
-            GetRequestSpecific::GetValue(args) => &args.target,
+            GetRequestSpecific::FindNode(args) => args.target,
+            GetRequestSpecific::GetPeers(args) => args.info_hash,
+            GetRequestSpecific::GetSignedPeers(args) => args.info_hash,
+            GetRequestSpecific::GetValue(args) => args.target,
         }
     }
 }
