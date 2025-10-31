@@ -6,14 +6,13 @@ pub(crate) mod socket;
 
 use std::collections::HashSet;
 use std::net::{SocketAddr, SocketAddrV4, ToSocketAddrs};
-use std::time::Instant;
 
 use tracing::{debug, info};
 
 use crate::common::{
     messages::{GetPeersRequestArguments, PutMutableRequestArguments},
     FindNodeRequestArguments, GetValueRequestArguments, Id, Message, MessageType, Node,
-    PutRequestSpecific, RequestSpecific, RequestTypeSpecific, RoutingTable,
+    PutRequestSpecific, RequestSpecific, RequestTypeSpecific,
 };
 use crate::core::iterative_query::GetRequestSpecific;
 use crate::core::{iterative_query::IterativeQuery, put_query::PutQuery, Core};
@@ -27,7 +26,7 @@ pub use info::Info;
 #[derive(Debug)]
 /// Internal Rpc called in the Dht thread loop, useful to create your own actor setup.
 pub struct Rpc {
-    socket: KrpcSocket,
+    pub(crate) socket: KrpcSocket,
     core: Core,
 }
 
@@ -56,44 +55,11 @@ impl Rpc {
         self.core.routing_table.id()
     }
 
-    /// Returns the address the server is listening to.
-    #[inline]
-    pub fn local_addr(&self) -> SocketAddrV4 {
-        self.socket.local_addr()
-    }
-
-    /// Returns the best guess for this node's Public address.
-    ///
-    /// If [crate::DhtBuilder::public_ip] was set, this is what will be returned
-    /// (plus the local port), otherwise it will rely on consensus from
-    /// responding nodes voting on our public IP and port.
-    pub fn public_address(&self) -> Option<SocketAddrV4> {
-        self.core.public_address
-    }
-
-    /// Returns `true` if we can't confirm that [Self::public_address] is publicly addressable.
-    ///
-    /// If this node is firewalled, it won't switch to server mode if it is in adaptive mode,
-    /// but if [crate::DhtBuilder::server_mode] was set to true, then whether or not this node is firewalled
-    /// won't matter.
-    pub fn firewalled(&self) -> bool {
-        self.core.firewalled
-    }
-
-    /// Returns whether or not this node is running in server mode.
-    pub fn server_mode(&self) -> bool {
-        self.socket.server_mode
-    }
-
-    pub fn routing_table(&self) -> &RoutingTable {
-        &self.core.routing_table
-    }
-
     /// Create a list of unique bootstrapping nodes from all our
     /// routing table to use as `extra_bootsrtap` in next sessions.
     pub fn to_bootstrap(&self) -> Vec<String> {
         let mut set = HashSet::new();
-        for s in self.routing_table().to_bootstrap() {
+        for s in self.core.routing_table.to_bootstrap() {
             set.insert(s);
         }
         for s in self.core.signed_peers_routing_table.to_bootstrap() {
@@ -101,15 +67,6 @@ impl Rpc {
         }
 
         set.iter().cloned().collect()
-    }
-
-    /// Returns:
-    ///  1. Normal Dht size estimate based on all closer `nodes` in query responses.
-    ///  2. Standard deviaiton as a function of the number of samples used in this estimate.
-    ///
-    /// [Read more](https://github.com/nuhvi/mainline/blob/main/docs/dht_size_estimate.md)
-    pub fn dht_size_estimate(&self) -> (usize, f64) {
-        self.core.routing_table.dht_size_estimate()
     }
 
     /// Returns a thread safe and lightweight summary of this node's
@@ -165,11 +122,10 @@ impl Rpc {
         // Every 15 minutes refresh the routing table.
         if self.core.should_refresh_table() {
             self.core.update_last_table_refresh();
-            if !self.server_mode() && !self.firewalled() {
+            if !self.core.server_mode && !self.core.firewalled {
                 info!("Adaptive mode: have been running long enough (not firewalled), switching to server mode");
 
-                self.socket.server_mode = true;
-                self.core.server_mode = true;
+                self.set_server_mode(true);
             }
             self.populate();
         }
@@ -181,6 +137,11 @@ impl Rpc {
                 self.ping(address);
             }
         }
+    }
+
+    fn set_server_mode(&mut self, mode: bool) {
+        self.socket.server_mode = mode;
+        self.core.server_mode = mode;
     }
 
     fn handle_incoming_message(

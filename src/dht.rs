@@ -550,7 +550,7 @@ impl<T> Iterator for GetIterator<T> {
 fn run(config: Config, receiver: Receiver<ActorMessage>) {
     match Rpc::new(config) {
         Ok(mut rpc) => {
-            let address = rpc.local_addr();
+            let address = rpc.socket.local_addr();
             info!(?address, "Mainline DHT listening");
 
             let mut put_senders = HashMap::new();

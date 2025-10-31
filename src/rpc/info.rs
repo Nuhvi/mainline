@@ -73,12 +73,11 @@ impl From<&Rpc> for Info {
     fn from(rpc: &Rpc) -> Self {
         Self {
             id: *rpc.id(),
-            local_addr: rpc.local_addr(),
-            dht_size_estimate: rpc.dht_size_estimate(),
-            public_address: rpc.public_address(),
-            firewalled: rpc.firewalled(),
-            server_mode: rpc.server_mode(),
-
+            public_address: rpc.core.public_address,
+            firewalled: rpc.core.firewalled,
+            server_mode: rpc.core.server_mode,
+            local_addr: rpc.socket.local_addr(),
+            dht_size_estimate: rpc.core.routing_table.dht_size_estimate(),
             routing_table_size: rpc.core.routing_table.size(),
             singing_peers_routing_table_size: rpc.core.signed_peers_routing_table.size(),
         }

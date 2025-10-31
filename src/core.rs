@@ -38,7 +38,8 @@ pub(crate) const VERSIONS_SUPPORTING_SIGNED_PEERS: &[[u8; 4]] = &[
 ];
 
 #[derive(Debug)]
-/// Side effect free Core
+/// Side effect free Core, containing all the state and methods necessary
+/// for comprehensive and deterministic testing.
 pub struct Core {
     // Options
     pub(crate) bootstrap: Box<[SocketAddrV4]>,
