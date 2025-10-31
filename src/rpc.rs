@@ -39,7 +39,21 @@ impl Rpc {
         };
 
         let socket = KrpcSocket::new(&config)?;
-        let bootstrap = to_socket_address(&config.bootstrap);
+        let bootstrap = config
+            .bootstrap
+            .iter()
+            .flat_map(|s| {
+                s.to_socket_addrs().map(|addrs| {
+                    addrs
+                        .filter_map(|addr| match addr {
+                            SocketAddr::V4(addr_v4) => Some(addr_v4),
+                            _ => None,
+                        })
+                        .collect::<Box<[_]>>()
+                })
+            })
+            .flatten()
+            .collect();
 
         Ok(Rpc {
             socket,
@@ -112,131 +126,8 @@ impl Rpc {
         }
     }
 
-    fn periodic_node_maintaenance(&mut self) {
-        // Bootstrap if necessary
-        if self.core.routing_table.is_empty() {
-            self.populate();
-        }
-
-        // Every 15 minutes refresh the routing table.
-        if self.core.should_refresh_table() {
-            self.core.update_last_table_refresh();
-            if !self.core.server_mode && !self.core.firewalled {
-                info!("Adaptive mode: have been running long enough (not firewalled), switching to server mode");
-
-                self.set_server_mode(true);
-            }
-            self.populate();
-        }
-
-        if self.core.should_ping_table() {
-            self.core.update_last_table_ping();
-            let to_ping = self.core.check_nodes_to_ping_and_remove_stale_nodes();
-            for address in to_ping {
-                self.ping(address);
-            }
-        }
-    }
-
-    fn set_server_mode(&mut self, mode: bool) {
-        self.socket.server_mode = mode;
-        self.core.server_mode = mode;
-    }
-
-    fn handle_incoming_message(
-        &mut self,
-        message: Message,
-        from: SocketAddrV4,
-    ) -> Option<(Id, Response)> {
-        match message.message_type {
-            MessageType::Request(request_specific) => {
-                let (response, should_repopulate_routing_tables) = self.core.handle_request(
-                    from,
-                    message.read_only,
-                    message.version,
-                    request_specific,
-                );
-
-                match response {
-                    Some(MessageType::Error(error)) => {
-                        self.socket.error(from, message.transaction_id, error)
-                    }
-                    Some(MessageType::Response(response)) => {
-                        self.socket.response(from, message.transaction_id, response)
-                    }
-                    _ => {}
-                }
-
-                if should_repopulate_routing_tables {
-                    self.populate();
-                }
-
-                None
-            }
-            _ => self.core.handle_response(from, message),
-        }
-    }
-
-    fn check_done_put_queries(&self) -> Vec<(Id, Option<PutError>)> {
-        self.core
-            .put_queries
-            .iter()
-            .filter_map(|(id, query)| match query.check(&self.socket) {
-                Ok(done) => {
-                    if done {
-                        Some((*id, None))
-                    } else {
-                        None
-                    }
-                }
-                Err(error) => Some((*id, Some(error))),
-            })
-            .collect()
-    }
-
-    fn check_done_iterative_queries(&self) -> Vec<(Id, Box<[Node]>)> {
-        self.core
-            .iterative_queries
-            .iter()
-            .filter_map(|(id, query)| {
-                let is_done = query.is_done(&self.socket);
-                if is_done {
-                    Some((
-                        *id,
-                        self.core.closest_nodes_from_done_iterative_query(query),
-                    ))
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-
-    fn start_put_queries(
-        &mut self,
-        done_iterative_queries: &[(Id, Box<[Node]>)],
-        done_put_queries: &mut Vec<(Id, Option<PutError>)>,
-    ) {
-        for (id, _) in done_iterative_queries {
-            if let Some(put_query) = self.core.put_queries.get_mut(id) {
-                if let Err(error) = put_query.start(
-                    &mut self.socket,
-                    done_iterative_queries
-                        .iter()
-                        .find(|(this_id, _)| this_id == id)
-                        .map(|(_, closest_nodes)| closest_nodes)
-                        .expect("done_iterative_queries"),
-                ) {
-                    done_put_queries.push((*id, Some(error)))
-                }
-            }
-        }
-    }
-
     /// Store a value in the closest nodes, optionally trigger a lookup query if
     /// the cached closest_nodes aren't fresh enough.
-    ///
-    /// - `request`: the put request.
     pub fn put(
         &mut self,
         request: PutRequestSpecific,
@@ -369,6 +260,129 @@ impl Rpc {
         None
     }
 
+    // === Private Methods ===
+
+    fn periodic_node_maintaenance(&mut self) {
+        // Bootstrap if necessary
+        if self.core.routing_table.is_empty() {
+            self.populate();
+        }
+
+        // Every 15 minutes refresh the routing table.
+        if self.core.should_refresh_table() {
+            self.core.update_last_table_refresh();
+            if !self.core.server_mode && !self.core.firewalled {
+                info!("Adaptive mode: have been running long enough (not firewalled), switching to server mode");
+
+                self.set_server_mode(true);
+            }
+            self.populate();
+        }
+
+        if self.core.should_ping_table() {
+            self.core.update_last_table_ping();
+            let to_ping = self.core.check_nodes_to_ping_and_remove_stale_nodes();
+            for address in to_ping {
+                self.ping(address);
+            }
+        }
+    }
+
+    fn set_server_mode(&mut self, mode: bool) {
+        self.socket.server_mode = mode;
+        self.core.server_mode = mode;
+    }
+
+    fn handle_incoming_message(
+        &mut self,
+        message: Message,
+        from: SocketAddrV4,
+    ) -> Option<(Id, Response)> {
+        match message.message_type {
+            MessageType::Request(request_specific) => {
+                let (response, should_repopulate_routing_tables) = self.core.handle_request(
+                    from,
+                    message.read_only,
+                    message.version,
+                    request_specific,
+                );
+
+                match response {
+                    Some(MessageType::Error(error)) => {
+                        self.socket.error(from, message.transaction_id, error)
+                    }
+                    Some(MessageType::Response(response)) => {
+                        self.socket.response(from, message.transaction_id, response)
+                    }
+                    _ => {}
+                }
+
+                if should_repopulate_routing_tables {
+                    self.populate();
+                }
+
+                None
+            }
+            _ => self.core.handle_response(from, message),
+        }
+    }
+
+    fn check_done_put_queries(&self) -> Vec<(Id, Option<PutError>)> {
+        self.core
+            .put_queries
+            .iter()
+            .filter_map(|(id, query)| match query.check(&self.socket) {
+                Ok(done) => {
+                    if done {
+                        Some((*id, None))
+                    } else {
+                        None
+                    }
+                }
+                Err(error) => Some((*id, Some(error))),
+            })
+            .collect()
+    }
+
+    fn check_done_iterative_queries(&self) -> Vec<(Id, Box<[Node]>)> {
+        self.core
+            .iterative_queries
+            .iter()
+            .filter_map(|(id, query)| {
+                let is_done = query.is_done(&self.socket);
+                if is_done {
+                    Some((
+                        *id,
+                        self.core.closest_nodes_from_done_iterative_query(query),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    fn start_put_queries(
+        &mut self,
+        done_iterative_queries: &[(Id, Box<[Node]>)],
+        done_put_queries: &mut Vec<(Id, Option<PutError>)>,
+    ) {
+        for (id, _) in done_iterative_queries {
+            if let Some(put_query) = self.core.put_queries.get_mut(id) {
+                if let Err(error) = put_query.start(
+                    &mut self.socket,
+                    done_iterative_queries
+                        .iter()
+                        .find(|(this_id, _)| this_id == id)
+                        .map(|(_, closest_nodes)| closest_nodes)
+                        .expect("done_iterative_queries"),
+                ) {
+                    done_put_queries.push((*id, Some(error)))
+                }
+            }
+        }
+    }
+
     /// Ping bootstrap nodes, add them to the routing table with closest query.
     fn populate(&mut self) {
         if self.core.bootstrap.is_empty() {
@@ -404,21 +418,4 @@ pub struct RpcTickReport {
     pub done_put_queries: Vec<(Id, Option<PutError>)>,
     /// Received GET query response.
     pub new_query_response: Option<(Id, Response)>,
-}
-
-pub(crate) fn to_socket_address<T: ToSocketAddrs>(bootstrap: &[T]) -> Vec<SocketAddrV4> {
-    bootstrap
-        .iter()
-        .flat_map(|s| {
-            s.to_socket_addrs().map(|addrs| {
-                addrs
-                    .filter_map(|addr| match addr {
-                        SocketAddr::V4(addr_v4) => Some(addr_v4),
-                        _ => None,
-                    })
-                    .collect::<Box<[_]>>()
-            })
-        })
-        .flatten()
-        .collect()
 }
