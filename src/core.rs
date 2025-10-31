@@ -10,27 +10,30 @@ use tracing::{debug, trace};
 use iterative_query::IterativeQuery;
 use put_query::PutQuery;
 
-use crate::common::{Id, Node, RequestTypeSpecific, RoutingTable, MAX_BUCKET_SIZE_K};
+use crate::common::{
+    Id, Node, PutMutableRequestArguments, RequestTypeSpecific, RoutingTable, MAX_BUCKET_SIZE_K,
+};
+use crate::PutRequestSpecific;
 
-pub(crate) mod handle_request;
-pub(crate) mod handle_response;
-pub(crate) mod iterative_query;
-pub(crate) mod put_query;
-pub(crate) mod server;
+pub mod handle_request;
+pub mod handle_response;
+pub mod iterative_query;
+pub mod put_query;
+pub mod server;
 
 use server::Server;
 use server::ServerSettings;
 
 pub use put_query::{ConcurrencyError, PutError, PutQueryError};
 
-pub(crate) const REFRESH_TABLE_INTERVAL: Duration = Duration::from_secs(15 * 60);
-pub(crate) const PING_TABLE_INTERVAL: Duration = Duration::from_secs(5 * 60);
+pub const REFRESH_TABLE_INTERVAL: Duration = Duration::from_secs(15 * 60);
+pub const PING_TABLE_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
-pub(crate) const MAX_CACHED_ITERATIVE_QUERIES: usize = 1000;
+pub const MAX_CACHED_ITERATIVE_QUERIES: usize = 1000;
 
-pub(crate) const VERSION: [u8; 4] = [82, 83, 0, 6]; // "RS" version 06
-                                                    //
-pub(crate) const VERSIONS_SUPPORTING_SIGNED_PEERS: &[[u8; 4]] = &[
+pub const VERSION: [u8; 4] = [82, 83, 0, 6]; // "RS" version 06
+                                             //
+pub const VERSIONS_SUPPORTING_SIGNED_PEERS: &[[u8; 4]] = &[
     // This node
     VERSION,
     // Add more nodes as we learn about supporting clients
@@ -42,33 +45,33 @@ pub(crate) const VERSIONS_SUPPORTING_SIGNED_PEERS: &[[u8; 4]] = &[
 /// for comprehensive and deterministic testing.
 pub struct Core {
     // Options
-    pub(crate) bootstrap: Box<[SocketAddrV4]>,
+    pub bootstrap: Box<[SocketAddrV4]>,
 
     // Routing
     /// Closest nodes to this node
-    pub(crate) routing_table: RoutingTable,
+    pub routing_table: RoutingTable,
     /// Closest nodes to this node that support the signed peers
     /// [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst) proposal.
-    pub(crate) signed_peers_routing_table: RoutingTable,
+    pub signed_peers_routing_table: RoutingTable,
 
     /// Closest responding nodes to specific target
-    pub(crate) cached_iterative_queries: LruCache<Id, CachedIterativeQuery>,
+    pub cached_iterative_queries: LruCache<Id, CachedIterativeQuery>,
     /// Active IterativeQueries
-    pub(crate) iterative_queries: HashMap<Id, IterativeQuery>,
+    pub iterative_queries: HashMap<Id, IterativeQuery>,
     /// Put queries are special, since they have to wait for a corresponding
     /// get query to finish, update the closest_nodes, then `query_all` these.
-    pub(crate) put_queries: HashMap<Id, PutQuery>,
+    pub put_queries: HashMap<Id, PutQuery>,
 
     // Time
     /// Last time we refreshed the routing table with a find_node query.
-    pub(crate) last_table_refresh: Instant,
+    pub last_table_refresh: Instant,
     /// Last time we pinged nodes in the routing table.
-    pub(crate) last_table_ping: Instant,
+    pub last_table_ping: Instant,
 
-    pub(crate) server: Server,
-    pub(crate) public_address: Option<SocketAddrV4>,
-    pub(crate) firewalled: bool,
-    pub(crate) server_mode: bool,
+    pub server: Server,
+    pub public_address: Option<SocketAddrV4>,
+    pub firewalled: bool,
+    pub server_mode: bool,
 }
 
 impl Core {
@@ -127,10 +130,7 @@ impl Core {
     }
 
     /// Check if the query is either successfully done, in which case return the closest nodes.
-    pub(crate) fn closest_nodes_from_done_iterative_query(
-        &self,
-        query: &IterativeQuery,
-    ) -> Box<[Node]> {
+    pub fn closest_nodes_from_done_iterative_query(&self, query: &IterativeQuery) -> Box<[Node]> {
         let self_id = self.id();
         let table_size = self.routing_table.size();
 
@@ -178,7 +178,7 @@ impl Core {
     /// Remove done [IterativeQuery]s, return the [Id]s of [PutQuery] ready to start,
     /// and if done queries contained votes for new public address, return the address
     /// to be pinged.
-    pub(crate) fn cleanup_done_queries(
+    pub fn cleanup_done_queries(
         &mut self,
         done_get_queries: &[(Id, Box<[Node]>)],
         done_put_queries: &[(Id, Option<PutError>)],
@@ -224,6 +224,48 @@ impl Core {
         }
 
         to_ping
+    }
+
+    pub fn check_concurrency_errors(
+        &mut self,
+        request: &PutRequestSpecific,
+    ) -> Result<(), ConcurrencyError> {
+        if let PutRequestSpecific::PutMutable(PutMutableRequestArguments {
+            sig,
+            cas,
+            seq,
+            target,
+            ..
+        }) = request
+        {
+            if let Some(PutRequestSpecific::PutMutable(inflight_request)) = self
+                .put_queries
+                .get(target)
+                .map(|existing| &existing.request)
+            {
+                debug!(?inflight_request, ?request, "Possible conflict risk");
+
+                if *sig == inflight_request.sig {
+                    // Noop, the inflight query is sufficient.
+                    return Ok(());
+                } else if *seq < inflight_request.seq {
+                    return Err(ConcurrencyError::NotMostRecent)?;
+                } else if let Some(cas) = cas {
+                    if *cas == inflight_request.seq {
+                        // The user is aware of the inflight query and whiches to overrides it.
+                        //
+                        // Remove the inflight request, and create a new one.
+                        self.put_queries.remove(target);
+                    } else {
+                        return Err(ConcurrencyError::CasFailed)?;
+                    }
+                } else {
+                    return Err(ConcurrencyError::ConflictRisk)?;
+                };
+            };
+        }
+
+        Ok(())
     }
 
     fn update_address_votes_from_iterative_query(
@@ -362,7 +404,7 @@ fn choose_relevant_routing_table<'a>(
     }
 }
 
-pub(crate) fn supports_signed_peers(version: Option<[u8; 4]>) -> bool {
+fn supports_signed_peers(version: Option<[u8; 4]>) -> bool {
     version
         .map(|version| {
             VERSIONS_SUPPORTING_SIGNED_PEERS
@@ -373,10 +415,10 @@ pub(crate) fn supports_signed_peers(version: Option<[u8; 4]>) -> bool {
 }
 
 pub(crate) struct CachedIterativeQuery {
-    pub(crate) closest_responding_nodes: Box<[Node]>,
-    pub(crate) dht_size_estimate: f64,
-    pub(crate) responders_dht_size_estimate: f64,
-    pub(crate) subnets: u8,
+    closest_responding_nodes: Box<[Node]>,
+    dht_size_estimate: f64,
+    responders_dht_size_estimate: f64,
+    subnets: u8,
 
-    pub(crate) request_type: RequestTypeSpecific,
+    request_type: RequestTypeSpecific,
 }

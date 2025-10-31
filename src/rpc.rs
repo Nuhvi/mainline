@@ -10,12 +10,12 @@ use std::net::{SocketAddr, SocketAddrV4, ToSocketAddrs};
 use tracing::{debug, info};
 
 use crate::common::{
-    messages::PutMutableRequestArguments, FindNodeRequestArguments, Id, Message, MessageType, Node,
-    PutRequestSpecific, RequestSpecific, RequestTypeSpecific,
+    FindNodeRequestArguments, Id, Message, MessageType, Node, PutRequestSpecific, RequestSpecific,
+    RequestTypeSpecific,
 };
 use crate::core::iterative_query::GetRequestSpecific;
+use crate::core::PutError;
 use crate::core::{iterative_query::IterativeQuery, put_query::PutQuery, Core};
-use crate::core::{ConcurrencyError, PutError};
 
 use socket::KrpcSocket;
 
@@ -242,42 +242,11 @@ impl Rpc {
         request: PutRequestSpecific,
         extra_nodes: Option<Box<[Node]>>,
     ) -> Result<(), PutError> {
+        self.core.check_concurrency_errors(&request)?;
+
+        let mut query = PutQuery::new(request.clone(), extra_nodes);
+
         let target = request.target();
-
-        if let PutRequestSpecific::PutMutable(PutMutableRequestArguments {
-            sig, cas, seq, ..
-        }) = &request
-        {
-            if let Some(PutRequestSpecific::PutMutable(inflight_request)) = self
-                .core
-                .put_queries
-                .get(target)
-                .map(|existing| &existing.request)
-            {
-                debug!(?inflight_request, ?request, "Possible conflict risk");
-
-                if *sig == inflight_request.sig {
-                    // Noop, the inflight query is sufficient.
-                    return Ok(());
-                } else if *seq < inflight_request.seq {
-                    return Err(ConcurrencyError::NotMostRecent)?;
-                } else if let Some(cas) = cas {
-                    if *cas == inflight_request.seq {
-                        // The user is aware of the inflight query and whiches to overrides it.
-                        //
-                        // Remove the inflight request, and create a new one.
-                        self.core.put_queries.remove(target);
-                    } else {
-                        return Err(ConcurrencyError::CasFailed)?;
-                    }
-                } else {
-                    return Err(ConcurrencyError::ConflictRisk)?;
-                };
-            };
-        }
-
-        let mut query = PutQuery::new(*target, request.clone(), extra_nodes);
-
         if let Some(closest_nodes) = self.core.get_cached_closest_nodes(target) {
             query.start(&mut self.socket, &closest_nodes)?
         } else {

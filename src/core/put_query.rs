@@ -24,9 +24,9 @@ pub struct PutQuery {
 }
 
 impl PutQuery {
-    pub fn new(target: Id, request: PutRequestSpecific, extra_nodes: Option<Box<[Node]>>) -> Self {
+    pub fn new(request: PutRequestSpecific, extra_nodes: Option<Box<[Node]>>) -> Self {
         Self {
-            target,
+            target: *request.target(),
             stored_at: 0,
             inflight_requests: Vec::new(),
             request,
