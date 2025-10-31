@@ -16,7 +16,7 @@ use crate::common::{
 };
 use crate::core::iterative_query::GetRequestSpecific;
 use crate::core::{iterative_query::IterativeQuery, put_query::PutQuery, Core};
-use crate::core::{CachedIterativeQuery, ConcurrencyError, PutError};
+use crate::core::{ConcurrencyError, PutError};
 
 use socket::KrpcSocket;
 
@@ -243,7 +243,7 @@ impl Rpc {
         request: PutRequestSpecific,
         extra_nodes: Option<Box<[Node]>>,
     ) -> Result<(), PutError> {
-        let target = *request.target();
+        let target = request.target();
 
         if let PutRequestSpecific::PutMutable(PutMutableRequestArguments {
             sig, cas, seq, ..
@@ -252,7 +252,7 @@ impl Rpc {
             if let Some(PutRequestSpecific::PutMutable(inflight_request)) = self
                 .core
                 .put_queries
-                .get(&target)
+                .get(target)
                 .map(|existing| &existing.request)
             {
                 debug!(?inflight_request, ?request, "Possible conflict risk");
@@ -267,7 +267,7 @@ impl Rpc {
                         // The user is aware of the inflight query and whiches to overrides it.
                         //
                         // Remove the inflight request, and create a new one.
-                        self.core.put_queries.remove(&target);
+                        self.core.put_queries.remove(target);
                     } else {
                         return Err(ConcurrencyError::CasFailed)?;
                     }
@@ -277,40 +277,32 @@ impl Rpc {
             };
         }
 
-        let mut query = PutQuery::new(target, request.clone(), extra_nodes);
+        let mut query = PutQuery::new(*target, request.clone(), extra_nodes);
 
-        if let Some(closest_nodes) = self
-            .core
-            .cached_iterative_queries
-            .get(&target)
-            .map(|cached| cached.closest_responding_nodes.clone())
-            .filter(|closest_nodes| {
-                !closest_nodes.is_empty() && closest_nodes.iter().any(|n| n.valid_token())
-            })
-        {
+        if let Some(closest_nodes) = self.core.get_cached_closest_nodes(target) {
             query.start(&mut self.socket, &closest_nodes)?
         } else {
             let get_request = match request {
                 PutRequestSpecific::PutImmutable(_) => {
                     GetRequestSpecific::GetValue(GetValueRequestArguments {
-                        target,
+                        target: *target,
                         seq: None,
                         salt: None,
                     })
                 }
-                PutRequestSpecific::PutMutable(args) => {
+                PutRequestSpecific::PutMutable(ref args) => {
                     GetRequestSpecific::GetValue(GetValueRequestArguments {
-                        target,
+                        target: *target,
                         seq: None,
-                        salt: args.salt,
+                        salt: args.salt.clone(),
                     })
                 }
                 PutRequestSpecific::AnnouncePeer(_) => {
-                    GetRequestSpecific::GetPeers(GetPeersRequestArguments { info_hash: target })
+                    GetRequestSpecific::GetPeers(GetPeersRequestArguments { info_hash: *target })
                 }
                 PutRequestSpecific::AnnounceSignedPeer(_) => {
                     GetRequestSpecific::GetSignedPeers(GetPeersRequestArguments {
-                        info_hash: target,
+                        info_hash: *target,
                     })
                 }
             };
@@ -318,7 +310,7 @@ impl Rpc {
             self.get(get_request, None);
         };
 
-        self.core.put_queries.insert(target, query);
+        self.core.put_queries.insert(*target, query);
 
         Ok(())
     }
@@ -414,13 +406,8 @@ impl Rpc {
             query.add_candidate(node)
         }
 
-        // If we have cached iterative query with the same hash,
-        // use its nodes as well..
-        if let Some(CachedIterativeQuery {
-            closest_responding_nodes,
-            ..
-        }) = self.core.cached_iterative_queries.get(&target)
-        {
+        // If we have cached iterative query with the same hash, use its nodes as well..
+        if let Some(closest_responding_nodes) = self.core.get_cached_closest_nodes(&target) {
             for node in closest_responding_nodes {
                 query.add_candidate(node.clone())
             }

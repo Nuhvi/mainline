@@ -117,6 +117,15 @@ impl Core {
         self.last_table_refresh = Instant::now();
     }
 
+    pub fn get_cached_closest_nodes(&mut self, target: &Id) -> Option<Box<[Node]>> {
+        self.cached_iterative_queries
+            .get(target)
+            .map(|cached| cached.closest_responding_nodes.clone())
+            .filter(|closest_nodes| {
+                !closest_nodes.is_empty() && closest_nodes.iter().any(|n| n.valid_token())
+            })
+    }
+
     /// Check if the query is either successfully done, in which case return the closest nodes.
     pub(crate) fn closest_nodes_from_done_iterative_query(
         &self,
