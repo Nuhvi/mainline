@@ -6,7 +6,7 @@ pub(crate) mod socket;
 
 use std::collections::HashSet;
 use std::net::{SocketAddr, SocketAddrV4, ToSocketAddrs};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use tracing::{debug, info};
 
@@ -24,19 +24,11 @@ use socket::KrpcSocket;
 pub use crate::core::handle_response::Response;
 pub use info::Info;
 
-pub(crate) const REFRESH_TABLE_INTERVAL: Duration = Duration::from_secs(15 * 60);
-pub(crate) const PING_TABLE_INTERVAL: Duration = Duration::from_secs(5 * 60);
-
 #[derive(Debug)]
 /// Internal Rpc called in the Dht thread loop, useful to create your own actor setup.
 pub struct Rpc {
     socket: KrpcSocket,
     core: Core,
-
-    /// Last time we refreshed the routing table with a find_node query.
-    pub(crate) last_table_refresh: Instant,
-    /// Last time we pinged nodes in the routing table.
-    pub(crate) last_table_ping: Instant,
 }
 
 impl Rpc {
@@ -54,8 +46,6 @@ impl Rpc {
         Ok(Rpc {
             socket,
             core: Core::new(id, bootstrap, config.server_mode, config.server_settings),
-            last_table_refresh: Instant::now(),
-            last_table_ping: Instant::now(),
         })
     }
 
@@ -163,6 +153,33 @@ impl Rpc {
             done_get_queries: done_iterative_queries,
             done_put_queries,
             new_query_response,
+        }
+    }
+
+    fn periodic_node_maintaenance(&mut self) {
+        // Bootstrap if necessary
+        if self.core.routing_table.is_empty() {
+            self.populate();
+        }
+
+        // Every 15 minutes refresh the routing table.
+        if self.core.should_refresh_table() {
+            self.core.update_last_table_refresh();
+            if !self.server_mode() && !self.firewalled() {
+                info!("Adaptive mode: have been running long enough (not firewalled), switching to server mode");
+
+                self.socket.server_mode = true;
+                self.core.server_mode = true;
+            }
+            self.populate();
+        }
+
+        if self.core.should_ping_table() {
+            self.core.update_last_table_ping();
+            let to_ping = self.core.check_nodes_to_ping_and_remove_stale_nodes();
+            for address in to_ping {
+                self.ping(address);
+            }
         }
     }
 
@@ -459,57 +476,6 @@ impl Rpc {
         }
 
         None
-    }
-
-    // === Private Methods ===
-
-    fn periodic_node_maintaenance(&mut self) {
-        // Bootstrap if necessary
-        if self.core.routing_table.is_empty() {
-            self.populate();
-        }
-
-        // Every 15 minutes refresh the routing table.
-        if self.last_table_refresh.elapsed() > REFRESH_TABLE_INTERVAL {
-            self.last_table_refresh = Instant::now();
-
-            if !self.server_mode() && !self.firewalled() {
-                info!("Adaptive mode: have been running long enough (not firewalled), switching to server mode");
-
-                self.socket.server_mode = true;
-            }
-
-            self.populate();
-        }
-
-        if self.last_table_ping.elapsed() > PING_TABLE_INTERVAL {
-            self.last_table_ping = Instant::now();
-
-            let mut to_ping = vec![];
-
-            for routing_table in [
-                &mut self.core.routing_table,
-                &mut self.core.signed_peers_routing_table,
-            ] {
-                let mut to_remove = Vec::with_capacity(routing_table.size());
-
-                for node in routing_table.nodes() {
-                    if node.is_stale() {
-                        to_remove.push(*node.id())
-                    } else if node.should_ping() {
-                        to_ping.push(node.address())
-                    }
-                }
-
-                for id in to_remove {
-                    routing_table.remove(&id);
-                }
-            }
-
-            for address in to_ping {
-                self.ping(address);
-            }
-        }
     }
 
     /// Ping bootstrap nodes, add them to the routing table with closest query.

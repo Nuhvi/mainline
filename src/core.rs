@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddrV4;
 use std::num::NonZeroUsize;
+use std::time::{Duration, Instant};
 
 use lru::LruCache;
 use tracing::error;
@@ -22,10 +23,13 @@ use server::ServerSettings;
 
 pub use put_query::{ConcurrencyError, PutError, PutQueryError};
 
+pub(crate) const REFRESH_TABLE_INTERVAL: Duration = Duration::from_secs(15 * 60);
+pub(crate) const PING_TABLE_INTERVAL: Duration = Duration::from_secs(5 * 60);
+
 pub(crate) const MAX_CACHED_ITERATIVE_QUERIES: usize = 1000;
 
 pub(crate) const VERSION: [u8; 4] = [82, 83, 0, 6]; // "RS" version 06
-
+                                                    //
 pub(crate) const VERSIONS_SUPPORTING_SIGNED_PEERS: &[[u8; 4]] = &[
     // This node
     VERSION,
@@ -54,6 +58,12 @@ pub struct Core {
     /// get query to finish, update the closest_nodes, then `query_all` these.
     pub(crate) put_queries: HashMap<Id, PutQuery>,
 
+    // Time
+    /// Last time we refreshed the routing table with a find_node query.
+    pub(crate) last_table_refresh: Instant,
+    /// Last time we pinged nodes in the routing table.
+    pub(crate) last_table_ping: Instant,
+
     pub(crate) server: Server,
     pub(crate) public_address: Option<SocketAddrV4>,
     pub(crate) firewalled: bool,
@@ -77,6 +87,8 @@ impl Core {
                 NonZeroUsize::new(MAX_CACHED_ITERATIVE_QUERIES)
                     .expect("MAX_CACHED_BUCKETS is NonZeroUsize"),
             ),
+            last_table_refresh: Instant::now(),
+            last_table_ping: Instant::now(),
             server: Server::new(server_settings),
             public_address: None,
             firewalled: true,
@@ -86,6 +98,22 @@ impl Core {
 
     fn id(&self) -> &Id {
         self.routing_table.id()
+    }
+
+    pub fn should_ping_table(&self) -> bool {
+        self.last_table_ping.elapsed() > PING_TABLE_INTERVAL
+    }
+
+    pub fn update_last_table_ping(&mut self) {
+        self.last_table_ping = Instant::now();
+    }
+
+    pub fn should_refresh_table(&self) -> bool {
+        self.last_table_refresh.elapsed() > REFRESH_TABLE_INTERVAL
+    }
+
+    pub fn update_last_table_refresh(&mut self) {
+        self.last_table_refresh = Instant::now();
     }
 
     /// Check if the query is either successfully done, in which case return the closest nodes.
@@ -161,6 +189,31 @@ impl Core {
         }
 
         should_ping_alleged_new_address
+    }
+
+    pub fn check_nodes_to_ping_and_remove_stale_nodes(&mut self) -> Vec<SocketAddrV4> {
+        let mut to_ping = vec![];
+
+        for routing_table in [
+            &mut self.routing_table,
+            &mut self.signed_peers_routing_table,
+        ] {
+            let mut to_remove = Vec::with_capacity(routing_table.size());
+
+            for node in routing_table.nodes() {
+                if node.is_stale() {
+                    to_remove.push(*node.id())
+                } else if node.should_ping() {
+                    to_ping.push(node.address())
+                }
+            }
+
+            for id in to_remove {
+                routing_table.remove(&id);
+            }
+        }
+
+        to_ping
     }
 
     fn update_address_votes_from_iterative_query(
