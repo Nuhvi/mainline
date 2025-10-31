@@ -28,7 +28,7 @@ pub use info::Info;
 
 #[derive(Debug)]
 /// Internal Rpc called in the Dht thread loop, useful to create your own actor setup.
-pub struct Rpc {
+pub struct Actor {
     pub(crate) socket: KrpcSocket,
     core: Core,
 
@@ -36,8 +36,8 @@ pub struct Rpc {
     get_senders: HashMap<Id, Vec<ResponseSender>>,
 }
 
-impl Rpc {
-    /// Create a new Rpc
+impl Actor {
+    /// Create a new actor
     pub fn new(config: config::Config) -> Result<Self, std::io::Error> {
         let id = if let Some(ip) = config.public_ip {
             Id::from_ip(ip.into())
@@ -65,7 +65,7 @@ impl Rpc {
         let address = socket.local_addr();
         info!(?address, "Mainline DHT started");
 
-        Ok(Rpc {
+        Ok(Actor {
             socket,
             core: Core::new(id, bootstrap, config.server_mode, config.server_settings),
 
@@ -195,7 +195,7 @@ impl Rpc {
     /// Send a message to closer and closer nodes until we can't find any more nodes.
     ///
     /// Queries take few seconds to fully traverse the network, once it is done, it will be removed from
-    /// self.iterative_queries. But until then, calling [Rpc::get] multiple times, will just return the list
+    /// self.iterative_queries. But until then, calling [actor::get] multiple times, will just return the list
     /// of responses seen so far.
     ///
     /// Effectively, we are caching responses and backing off the network for the duration it takes
@@ -392,8 +392,8 @@ impl Rpc {
 }
 
 pub fn run(config: Config, receiver: Receiver<ActorMessage>) {
-    match Rpc::new(config) {
-        Ok(mut rpc) => {
+    match Actor::new(config) {
+        Ok(mut actor) => {
             loop {
                 match receiver.try_recv() {
                     Ok(actor_message) => match actor_message {
@@ -401,14 +401,14 @@ pub fn run(config: Config, receiver: Receiver<ActorMessage>) {
                             let _ = sender.send(Ok(()));
                         }
                         ActorMessage::Info(sender) => {
-                            let _ = sender.send(rpc.info());
+                            let _ = sender.send(actor.info());
                         }
                         ActorMessage::Put(request, sender, extra_nodes) => {
                             let target = *request.target();
 
-                            match rpc.put(request, extra_nodes) {
+                            match actor.put(request, extra_nodes) {
                                 Ok(()) => {
-                                    let senders = rpc.put_senders.entry(target).or_insert(vec![]);
+                                    let senders = actor.put_senders.entry(target).or_insert(vec![]);
 
                                     senders.push(sender);
                                 }
@@ -420,17 +420,17 @@ pub fn run(config: Config, receiver: Receiver<ActorMessage>) {
                         ActorMessage::Get(request, sender) => {
                             let target = request.target();
 
-                            let responses = rpc.get(request, None);
+                            let responses = actor.get(request, None);
                             for response in responses {
                                 send(&sender, response);
                             }
 
-                            let senders = rpc.get_senders.entry(target).or_insert(vec![]);
+                            let senders = actor.get_senders.entry(target).or_insert(vec![]);
 
                             senders.push(sender);
                         }
                         ActorMessage::ToBootstrap(sender) => {
-                            let _ = sender.send(rpc.to_bootstrap());
+                            let _ = sender.send(actor.to_bootstrap());
                         }
                     },
                     Err(TryRecvError::Disconnected) => {
@@ -443,7 +443,7 @@ pub fn run(config: Config, receiver: Receiver<ActorMessage>) {
                     }
                 }
 
-                rpc.tick();
+                actor.tick();
             }
         }
         Err(err) => {

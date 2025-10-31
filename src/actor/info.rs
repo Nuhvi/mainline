@@ -2,7 +2,7 @@ use std::net::SocketAddrV4;
 
 use crate::Id;
 
-use super::Rpc;
+use super::Actor;
 
 /// Information and statistics about this mainline node.
 #[derive(Debug, Clone)]
@@ -69,17 +69,17 @@ impl Info {
     }
 }
 
-impl From<&Rpc> for Info {
-    fn from(rpc: &Rpc) -> Self {
+impl From<&Actor> for Info {
+    fn from(actor: &Actor) -> Self {
         Self {
-            id: *rpc.id(),
-            public_address: rpc.core.public_address,
-            firewalled: rpc.core.firewalled,
-            server_mode: rpc.core.server_mode,
-            local_addr: rpc.socket.local_addr(),
-            dht_size_estimate: rpc.core.routing_table.dht_size_estimate(),
-            routing_table_size: rpc.core.routing_table.size(),
-            singing_peers_routing_table_size: rpc.core.signed_peers_routing_table.size(),
+            id: *actor.id(),
+            public_address: actor.core.public_address,
+            firewalled: actor.core.firewalled,
+            server_mode: actor.core.server_mode,
+            local_addr: actor.socket.local_addr(),
+            dht_size_estimate: actor.core.routing_table.dht_size_estimate(),
+            routing_table_size: actor.core.routing_table.size(),
+            singing_peers_routing_table_size: actor.core.signed_peers_routing_table.size(),
         }
     }
 }
