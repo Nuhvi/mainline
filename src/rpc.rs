@@ -221,12 +221,14 @@ impl Rpc {
 
         for (id, _) in &done_iterative_queries {
             if let Some(put_query) = self.core.put_queries.get_mut(id) {
-                let (_, closest_nodes) = done_iterative_queries
-                    .iter()
-                    .find(|(this_id, _)| this_id == id)
-                    .expect("done_iterative_queries");
-
-                if let Err(error) = put_query.start(&mut self.socket, closest_nodes) {
+                if let Err(error) = put_query.start(
+                    &mut self.socket,
+                    done_iterative_queries
+                        .iter()
+                        .find(|(this_id, _)| this_id == id)
+                        .map(|(_, closest_nodes)| closest_nodes)
+                        .expect("done_iterative_queries"),
+                ) {
                     done_put_queries.push((*id, Some(error)))
                 }
             }

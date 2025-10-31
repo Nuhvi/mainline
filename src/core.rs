@@ -99,19 +99,10 @@ impl Core {
 
         for (id, closest_nodes) in done_get_queries {
             if let Some(query) = self.iterative_queries.remove(id) {
+                self.cache_iterative_query(&query, closest_nodes);
+
                 should_ping_alleged_new_address =
                     self.update_address_votes_from_iterative_query(&query);
-                let relevant_routing_table = self.cache_iterative_query(&query, closest_nodes);
-
-                // Only for get queries, not find node.
-                if !matches!(query.request.request_type, RequestTypeSpecific::FindNode(_)) {
-                    debug!(
-                        target = ?query.target(),
-                        responders_size_estimate = ?relevant_routing_table.responders_based_dht_size_estimate(),
-                        responders_subnets_count = ?relevant_routing_table.average_subnets(),
-                        "Storing nodes stats..",
-                    );
-                }
             };
         }
 
@@ -148,11 +139,7 @@ impl Core {
         None
     }
 
-    fn cache_iterative_query<'a>(
-        &'a mut self,
-        query: &'a IterativeQuery,
-        closest_responding_nodes: &'a [Node],
-    ) -> &'a RoutingTable {
+    fn cache_iterative_query(&mut self, query: &IterativeQuery, closest_responding_nodes: &[Node]) {
         if self.cached_iterative_queries.len() >= MAX_CACHED_ITERATIVE_QUERIES {
             let q = self.cached_iterative_queries.pop_lru();
             self.decrement_cached_iterative_query_stats(q.map(|q| q.1));
@@ -163,7 +150,7 @@ impl Core {
 
         if closest.nodes().is_empty() {
             // We are clearly offline.
-            return &self.routing_table;
+            return;
         }
 
         let dht_size_estimate = closest.dht_size_estimate();
@@ -196,7 +183,15 @@ impl Core {
             subnets_count,
         );
 
-        relevant_routing_table
+        // Only for get queries, not find node.
+        if !matches!(query.request.request_type, RequestTypeSpecific::FindNode(_)) {
+            debug!(
+                target = ?query.target(),
+                responders_size_estimate = ?relevant_routing_table.responders_based_dht_size_estimate(),
+                responders_subnets_count = ?relevant_routing_table.average_subnets(),
+                "Storing nodes stats..",
+            );
+        }
     }
 
     /// Decrement stats after an iterative query is popped
