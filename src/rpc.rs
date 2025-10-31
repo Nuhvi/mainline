@@ -134,76 +134,27 @@ impl Rpc {
     /// maintain the routing table, and everything else that needs
     /// to happen at every tick.
     pub fn tick(&mut self) -> RpcTickReport {
-        // === Periodic node maintaenance ===
         self.periodic_node_maintaenance();
 
-        // === Handle new incoming message ===
         let new_query_response = self
             .socket
             .recv_from()
             .and_then(|(message, from)| self.handle_incoming_message(message, from));
 
-        // === Check Put Queries ===
-        let mut done_put_queries = self
-            .core
-            .put_queries
-            .iter()
-            .filter_map(|(id, query)| match query.check(&self.socket) {
-                Ok(done) => {
-                    if done {
-                        Some((*id, None))
-                    } else {
-                        None
-                    }
-                }
-                Err(error) => Some((*id, Some(error))),
-            })
-            .collect::<Vec<_>>();
+        let mut done_put_queries = self.check_done_put_queries();
 
-        // === Tick Get Queries ===
         for (_, query) in self.core.iterative_queries.iter_mut() {
             query.visit_closest(&mut self.socket);
         }
 
-        let done_iterative_queries = self
-            .core
-            .iterative_queries
-            .iter()
-            .filter_map(|(id, query)| {
-                let is_done = query.is_done(&self.socket);
-                if is_done {
-                    Some((
-                        *id,
-                        self.core.closest_nodes_from_done_iterative_query(query),
-                    ))
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
+        let done_iterative_queries = self.check_done_iterative_queries();
 
-        // === Start Put Queries after their corresponding Get Queries are done ===
-        for (id, _) in &done_iterative_queries {
-            if let Some(put_query) = self.core.put_queries.get_mut(id) {
-                if let Err(error) = put_query.start(
-                    &mut self.socket,
-                    done_iterative_queries
-                        .iter()
-                        .find(|(this_id, _)| this_id == id)
-                        .map(|(_, closest_nodes)| closest_nodes)
-                        .expect("done_iterative_queries"),
-                ) {
-                    done_put_queries.push((*id, Some(error)))
-                }
-            }
-        }
+        self.start_put_queries(&done_iterative_queries, &mut done_put_queries);
 
-        // === Cleanup done queries ===
         let should_ping_alleged_new_address = self
             .core
             .cleanup_done_queries(&done_iterative_queries, &done_put_queries);
 
-        // === Ping our new address if necessary ===
         if let Some(address) = should_ping_alleged_new_address {
             self.ping(address);
         }
@@ -246,6 +197,62 @@ impl Rpc {
                 None
             }
             _ => self.core.handle_response(from, message),
+        }
+    }
+
+    fn check_done_put_queries(&self) -> Vec<(Id, Option<PutError>)> {
+        self.core
+            .put_queries
+            .iter()
+            .filter_map(|(id, query)| match query.check(&self.socket) {
+                Ok(done) => {
+                    if done {
+                        Some((*id, None))
+                    } else {
+                        None
+                    }
+                }
+                Err(error) => Some((*id, Some(error))),
+            })
+            .collect()
+    }
+
+    fn check_done_iterative_queries(&self) -> Vec<(Id, Box<[Node]>)> {
+        self.core
+            .iterative_queries
+            .iter()
+            .filter_map(|(id, query)| {
+                let is_done = query.is_done(&self.socket);
+                if is_done {
+                    Some((
+                        *id,
+                        self.core.closest_nodes_from_done_iterative_query(query),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    fn start_put_queries(
+        &mut self,
+        done_iterative_queries: &[(Id, Box<[Node]>)],
+        done_put_queries: &mut Vec<(Id, Option<PutError>)>,
+    ) {
+        for (id, _) in done_iterative_queries {
+            if let Some(put_query) = self.core.put_queries.get_mut(id) {
+                if let Err(error) = put_query.start(
+                    &mut self.socket,
+                    done_iterative_queries
+                        .iter()
+                        .find(|(this_id, _)| this_id == id)
+                        .map(|(_, closest_nodes)| closest_nodes)
+                        .expect("done_iterative_queries"),
+                ) {
+                    done_put_queries.push((*id, Some(error)))
+                }
+            }
         }
     }
 
