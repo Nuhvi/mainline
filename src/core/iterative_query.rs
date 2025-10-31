@@ -168,29 +168,7 @@ impl IterativeQuery {
 
     /// Query closest nodes for this query's target and message.
     ///
-    /// Returns true if it is done.
-    pub fn tick(&mut self, socket: &mut KrpcSocket) -> bool {
-        // Visit closest nodes
-        self.visit_closest(socket);
-
-        // If no more inflight_requests are inflight in the socket (not timed out),
-        // then the query is done.
-        let done = !self
-            .inflight_requests
-            .iter()
-            .any(|&tid| socket.inflight(&tid));
-
-        if done {
-            debug!(id=?self.target(), closest = ?self.closest.len(), visited = ?self.visited.len(), responders = ?self.responders.len(), "Done query");
-        };
-
-        done
-    }
-
-    // === Private Methods ===
-
-    /// Visit the closest candidates and remove them as candidates
-    fn visit_closest(&mut self, socket: &mut KrpcSocket) {
+    pub fn visit_closest(&mut self, socket: &mut KrpcSocket) {
         let to_visit = self
             .closest
             .nodes()
@@ -203,5 +181,21 @@ impl IterativeQuery {
         for address in to_visit {
             self.visit(socket, address);
         }
+    }
+
+    /// Returns true if it is done.
+    pub fn is_done(&self, socket: &KrpcSocket) -> bool {
+        // If no more inflight_requests are inflight in the socket (not timed out),
+        // then the query is done.
+        let done = !self
+            .inflight_requests
+            .iter()
+            .any(|&tid| socket.inflight(&tid));
+
+        if done {
+            debug!(id=?self.target(), closest = ?self.closest.len(), visited = ?self.visited.len(), responders = ?self.responders.len(), "Done query");
+        };
+
+        done
     }
 }

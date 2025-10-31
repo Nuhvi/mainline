@@ -3,12 +3,13 @@ use std::net::SocketAddrV4;
 use std::num::NonZeroUsize;
 
 use lru::LruCache;
+use tracing::error;
 use tracing::{debug, trace};
 
 use iterative_query::IterativeQuery;
 use put_query::PutQuery;
 
-use crate::common::{Id, Node, RequestTypeSpecific, RoutingTable};
+use crate::common::{Id, Node, RequestTypeSpecific, RoutingTable, MAX_BUCKET_SIZE_K};
 
 pub(crate) mod handle_request;
 pub(crate) mod handle_response;
@@ -85,6 +86,55 @@ impl Core {
 
     fn id(&self) -> &Id {
         self.routing_table.id()
+    }
+
+    /// Check if the query is either successfully done, in which case return the closest nodes.
+    pub(crate) fn closest_nodes_from_done_iterative_query(
+        &self,
+        query: &IterativeQuery,
+    ) -> Box<[Node]> {
+        let self_id = self.id();
+        let table_size = self.routing_table.size();
+
+        let closest_nodes = if let RequestTypeSpecific::FindNode(_) = query.request.request_type {
+            if query.target() == *self_id {
+                if !self.bootstrap.is_empty() && table_size == 0 {
+                    error!("Could not bootstrap the routing table");
+                } else {
+                    debug!(
+                        ?self_id,
+                        table_size,
+                        signed_peers_table_size = self.signed_peers_routing_table.size(),
+                        "Populated the routing table"
+                    );
+                }
+            };
+
+            query
+                .closest()
+                .nodes()
+                .iter()
+                .take(MAX_BUCKET_SIZE_K)
+                .cloned()
+                .collect::<Box<[_]>>()
+        } else {
+            let relevant_routing_table = choose_relevant_routing_table(
+                query.request.request_type.clone(),
+                &self.routing_table,
+                &self.signed_peers_routing_table,
+            );
+
+            query
+                .responders()
+                .take_until_secure(
+                    relevant_routing_table.responders_based_dht_size_estimate(),
+                    relevant_routing_table.average_subnets(),
+                )
+                .to_vec()
+                .into_boxed_slice()
+        };
+
+        closest_nodes
     }
 
     /// Remove done [IterativeQuery]s, return the [Id]s of [PutQuery] ready to start,
@@ -232,6 +282,17 @@ fn choose_relevant_routing_table_mut<'a>(
     basic_routing_table: &'a mut RoutingTable,
     signed_peers_routing_table: &'a mut RoutingTable,
 ) -> &'a mut RoutingTable {
+    match request_type {
+        RequestTypeSpecific::GetSignedPeers(_) => signed_peers_routing_table,
+        _ => basic_routing_table,
+    }
+}
+
+fn choose_relevant_routing_table<'a>(
+    request_type: RequestTypeSpecific,
+    basic_routing_table: &'a RoutingTable,
+    signed_peers_routing_table: &'a RoutingTable,
+) -> &'a RoutingTable {
     match request_type {
         RequestTypeSpecific::GetSignedPeers(_) => signed_peers_routing_table,
         _ => basic_routing_table,

@@ -112,7 +112,7 @@ impl PutQuery {
         }
     }
 
-    /// Check if the query is done, and if so send the query target to the receiver if any.
+    /// Check if the query is either successfully done, or terminated with an error.
     pub fn check(&self, socket: &KrpcSocket) -> Result<bool, PutError> {
         // And all queries got responses or timedout
         if self.is_done(socket) {
@@ -153,7 +153,7 @@ impl PutQuery {
     }
 
     /// Query started and finished
-    pub fn is_done(&self, socket: &KrpcSocket) -> bool {
+    fn is_done(&self, socket: &KrpcSocket) -> bool {
         // Didn't start yet.
         if self.inflight_requests.is_empty() {
             return false;
@@ -166,7 +166,7 @@ impl PutQuery {
     }
 
     /// Return most common error if any
-    pub fn majority_nodes_rejected_put_mutable(&self) -> Option<ConcurrencyError> {
+    fn majority_nodes_rejected_put_mutable(&self) -> Option<ConcurrencyError> {
         let half = ((self.inflight_requests.len() / 2) + 1) as u8;
 
         if matches!(self.request, PutRequestSpecific::PutMutable(_)) {

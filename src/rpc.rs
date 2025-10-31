@@ -8,12 +8,12 @@ use std::collections::HashSet;
 use std::net::{SocketAddr, SocketAddrV4, ToSocketAddrs};
 use std::time::{Duration, Instant};
 
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 use crate::common::{
     messages::{GetPeersRequestArguments, PutMutableRequestArguments},
     FindNodeRequestArguments, GetValueRequestArguments, Id, Message, MessageType, Node,
-    PutRequestSpecific, RequestSpecific, RequestTypeSpecific, RoutingTable, MAX_BUCKET_SIZE_K,
+    PutRequestSpecific, RequestSpecific, RequestTypeSpecific, RoutingTable,
 };
 use crate::core::iterative_query::GetRequestSpecific;
 use crate::core::{iterative_query::IterativeQuery, put_query::PutQuery, Core};
@@ -144,7 +144,6 @@ impl Rpc {
             .and_then(|(message, from)| self.handle_incoming_message(message, from));
 
         // === Check Put Queries ===
-
         let mut done_put_queries = self
             .core
             .put_queries
@@ -162,63 +161,28 @@ impl Rpc {
             .collect::<Vec<_>>();
 
         // === Tick Get Queries ===
-
-        let self_id = *self.id();
-
-        let mut done_iterative_queries = Vec::with_capacity(self.core.iterative_queries.len());
-
-        for (id, query) in self.core.iterative_queries.iter_mut() {
-            let is_done = query.tick(&mut self.socket);
-
-            if is_done {
-                let closest_nodes =
-                    if let RequestTypeSpecific::FindNode(_) = query.request.request_type {
-                        let table_size = self.core.routing_table.size();
-
-                        if *id == self_id {
-                            if !self.core.bootstrap.is_empty() && table_size == 0 {
-                                error!("Could not bootstrap the routing table");
-                            } else {
-                                debug!(
-                                    ?self_id,
-                                    table_size,
-                                    signed_peers_table_size =
-                                        self.core.signed_peers_routing_table.size(),
-                                    "Populated the routing table"
-                                );
-                            }
-                        };
-
-                        query
-                            .closest()
-                            .nodes()
-                            .iter()
-                            .take(MAX_BUCKET_SIZE_K)
-                            .cloned()
-                            .collect::<Box<[_]>>()
-                    } else {
-                        let relevant_routing_table = choose_relevant_routing_table(
-                            query.request.request_type.clone(),
-                            &self.core.routing_table,
-                            &self.core.signed_peers_routing_table,
-                        );
-
-                        query
-                            .responders()
-                            .take_until_secure(
-                                relevant_routing_table.responders_based_dht_size_estimate(),
-                                relevant_routing_table.average_subnets(),
-                            )
-                            .to_vec()
-                            .into_boxed_slice()
-                    };
-
-                done_iterative_queries.push((*id, closest_nodes));
-            };
+        for (_, query) in self.core.iterative_queries.iter_mut() {
+            query.visit_closest(&mut self.socket);
         }
 
-        // === Start Put Queries after their corresponding Get Queries are done ===
+        let done_iterative_queries = self
+            .core
+            .iterative_queries
+            .iter()
+            .filter_map(|(id, query)| {
+                let is_done = query.is_done(&self.socket);
+                if is_done {
+                    Some((
+                        *id,
+                        self.core.closest_nodes_from_done_iterative_query(query),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
 
+        // === Start Put Queries after their corresponding Get Queries are done ===
         for (id, _) in &done_iterative_queries {
             if let Some(put_query) = self.core.put_queries.get_mut(id) {
                 if let Err(error) = put_query.start(
@@ -235,11 +199,11 @@ impl Rpc {
         }
 
         // === Cleanup done queries ===
-
         let should_ping_alleged_new_address = self
             .core
             .cleanup_done_queries(&done_iterative_queries, &done_put_queries);
 
+        // === Ping our new address if necessary ===
         if let Some(address) = should_ping_alleged_new_address {
             self.ping(address);
         }
@@ -561,17 +525,6 @@ impl Rpc {
                 request_type: RequestTypeSpecific::Ping,
             },
         );
-    }
-}
-
-fn choose_relevant_routing_table<'a>(
-    request_type: RequestTypeSpecific,
-    basic_routing_table: &'a RoutingTable,
-    signed_peers_routing_table: &'a RoutingTable,
-) -> &'a RoutingTable {
-    match request_type {
-        RequestTypeSpecific::GetSignedPeers(_) => signed_peers_routing_table,
-        _ => basic_routing_table,
     }
 }
 
