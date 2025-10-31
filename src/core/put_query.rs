@@ -113,7 +113,7 @@ impl PutQuery {
     }
 
     /// Check if the query is done, and if so send the query target to the receiver if any.
-    pub fn tick(&mut self, socket: &KrpcSocket) -> Result<bool, PutError> {
+    pub fn check(&self, socket: &KrpcSocket) -> Result<bool, PutError> {
         // And all queries got responses or timedout
         if self.is_done(socket) {
             let target = self.target;

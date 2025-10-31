@@ -148,8 +148,10 @@ impl Rpc {
 
         // === Tick Queries ===
 
-        for (id, query) in self.core.put_queries.iter_mut() {
-            match query.tick(&self.socket) {
+        // === Check Put Queries ===
+
+        for (id, query) in self.core.put_queries.iter() {
+            match query.check(&self.socket) {
                 Ok(done) => {
                     if done {
                         done_put_queries.push((*id, None));
