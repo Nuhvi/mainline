@@ -143,25 +143,29 @@ impl Rpc {
             .recv_from()
             .and_then(|(message, from)| self.handle_incoming_message(message, from));
 
-        let mut done_get_queries = Vec::with_capacity(self.core.iterative_queries.len());
-        let mut done_put_queries = Vec::with_capacity(self.core.put_queries.len());
-
-        // === Tick Queries ===
-
         // === Check Put Queries ===
 
-        for (id, query) in self.core.put_queries.iter() {
-            match query.check(&self.socket) {
+        let mut done_put_queries = self
+            .core
+            .put_queries
+            .iter()
+            .filter_map(|(id, query)| match query.check(&self.socket) {
                 Ok(done) => {
                     if done {
-                        done_put_queries.push((*id, None));
+                        Some((*id, None))
+                    } else {
+                        None
                     }
                 }
-                Err(error) => done_put_queries.push((*id, Some(error))),
-            };
-        }
+                Err(error) => Some((*id, Some(error))),
+            })
+            .collect::<Vec<_>>();
+
+        // === Tick Get Queries ===
 
         let self_id = *self.id();
+
+        let mut done_get_queries = Vec::with_capacity(self.core.iterative_queries.len());
 
         for (id, query) in self.core.iterative_queries.iter_mut() {
             let is_done = query.tick(&mut self.socket);
