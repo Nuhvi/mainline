@@ -160,53 +160,52 @@ impl Rpc {
         }
 
         let self_id = *self.id();
-        let basic_routing_table = &self.core.routing_table;
-        let signed_peers_routing_table = &self.core.routing_table;
 
         for (id, query) in self.core.iterative_queries.iter_mut() {
             let is_done = query.tick(&mut self.socket);
 
             if is_done {
-                let closest_nodes = if let RequestTypeSpecific::FindNode(_) =
-                    query.request.request_type
-                {
-                    let table_size = self.core.routing_table.size();
-                    let signed_peers_table_size = self.core.signed_peers_routing_table.size();
+                let closest_nodes =
+                    if let RequestTypeSpecific::FindNode(_) = query.request.request_type {
+                        let table_size = self.core.routing_table.size();
 
-                    if *id == self_id {
-                        if !self.core.bootstrap.is_empty() && table_size == 0 {
-                            error!("Could not bootstrap the routing table");
-                        } else {
-                            debug!(
-                                ?self_id,
-                                table_size, signed_peers_table_size, "Populated the routing table"
-                            );
-                        }
+                        if *id == self_id {
+                            if !self.core.bootstrap.is_empty() && table_size == 0 {
+                                error!("Could not bootstrap the routing table");
+                            } else {
+                                debug!(
+                                    ?self_id,
+                                    table_size,
+                                    signed_peers_table_size =
+                                        self.core.signed_peers_routing_table.size(),
+                                    "Populated the routing table"
+                                );
+                            }
+                        };
+
+                        query
+                            .closest()
+                            .nodes()
+                            .iter()
+                            .take(MAX_BUCKET_SIZE_K)
+                            .cloned()
+                            .collect::<Box<[_]>>()
+                    } else {
+                        let relevant_routing_table = choose_relevant_routing_table(
+                            query.request.request_type.clone(),
+                            &self.core.routing_table,
+                            &self.core.signed_peers_routing_table,
+                        );
+
+                        query
+                            .responders()
+                            .take_until_secure(
+                                relevant_routing_table.responders_based_dht_size_estimate(),
+                                relevant_routing_table.average_subnets(),
+                            )
+                            .to_vec()
+                            .into_boxed_slice()
                     };
-
-                    query
-                        .closest()
-                        .nodes()
-                        .iter()
-                        .take(MAX_BUCKET_SIZE_K)
-                        .cloned()
-                        .collect::<Box<[_]>>()
-                } else {
-                    let relevant_routing_table = choose_relevant_routing_table(
-                        query.request.request_type.clone(),
-                        basic_routing_table,
-                        signed_peers_routing_table,
-                    );
-
-                    query
-                        .responders()
-                        .take_until_secure(
-                            relevant_routing_table.responders_based_dht_size_estimate(),
-                            relevant_routing_table.average_subnets(),
-                        )
-                        .to_vec()
-                        .into_boxed_slice()
-                };
 
                 done_get_queries.push((*id, closest_nodes));
             };
