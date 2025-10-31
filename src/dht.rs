@@ -1,15 +1,12 @@
 //! Dht node.
 
 use std::{
-    collections::HashMap,
     net::{Ipv4Addr, SocketAddrV4},
     thread,
 };
 
 use ed25519_dalek::SigningKey;
-use flume::{Receiver, Sender, TryRecvError};
-
-use tracing::info;
+use flume::Sender;
 
 use crate::{
     common::{
@@ -18,10 +15,8 @@ use crate::{
         MutableItem, PutImmutableRequestArguments, PutMutableRequestArguments, PutRequestSpecific,
         SignedAnnounce,
     },
-    core::{
-        iterative_query::GetRequestSpecific, ConcurrencyError, PutError, PutQueryError, Response,
-    },
-    rpc::{Info, Rpc},
+    core::{iterative_query::GetRequestSpecific, ConcurrencyError, PutError, PutQueryError},
+    rpc::{ActorMessage, Info, ResponseSender},
     Node, ServerSettings,
 };
 
@@ -119,7 +114,7 @@ impl Dht {
 
         thread::Builder::new()
             .name("Mainline Dht actor thread".to_string())
-            .spawn(move || run(config, receiver))?;
+            .spawn(move || crate::rpc::run(config, receiver))?;
 
         let (tx, rx) = flume::bounded(1);
 
@@ -549,151 +544,6 @@ impl<T> Iterator for GetIterator<T> {
     }
 }
 
-fn run(config: Config, receiver: Receiver<ActorMessage>) {
-    match Rpc::new(config) {
-        Ok(mut rpc) => {
-            let address = rpc.socket.local_addr();
-            info!(?address, "Mainline DHT listening");
-
-            let mut put_senders = HashMap::new();
-            let mut get_senders = HashMap::new();
-
-            loop {
-                match receiver.try_recv() {
-                    Ok(actor_message) => match actor_message {
-                        ActorMessage::Check(sender) => {
-                            let _ = sender.send(Ok(()));
-                        }
-                        ActorMessage::Info(sender) => {
-                            let _ = sender.send(rpc.info());
-                        }
-                        ActorMessage::Put(request, sender, extra_nodes) => {
-                            let target = *request.target();
-
-                            match rpc.put(request, extra_nodes) {
-                                Ok(()) => {
-                                    let senders = put_senders.entry(target).or_insert(vec![]);
-
-                                    senders.push(sender);
-                                }
-                                Err(error) => {
-                                    let _ = sender.send(Err(error));
-                                }
-                            };
-                        }
-                        ActorMessage::Get(request, sender) => {
-                            let target = request.target();
-
-                            let responses = rpc.get(request, None);
-                            for response in responses {
-                                send(&sender, response);
-                            }
-
-                            let senders = get_senders.entry(target).or_insert(vec![]);
-
-                            senders.push(sender);
-                        }
-                        ActorMessage::ToBootstrap(sender) => {
-                            let _ = sender.send(rpc.to_bootstrap());
-                        }
-                    },
-                    Err(TryRecvError::Disconnected) => {
-                        // Node was dropped, kill this thread.
-                        tracing::debug!("dht::Dht's actor thread was shutdown after Drop.");
-                        break;
-                    }
-                    Err(TryRecvError::Empty) => {
-                        // No op
-                    }
-                }
-
-                let report = rpc.tick();
-
-                // Response for an ongoing GET query
-                if let Some((target, response)) = report.new_query_response {
-                    if let Some(senders) = get_senders.get(&target) {
-                        for sender in senders {
-                            send(sender, response.clone());
-                        }
-                    }
-                }
-
-                // Cleanup done GET queries
-                for (id, closest_nodes) in report.done_get_queries {
-                    if let Some(senders) = get_senders.remove(&id) {
-                        for sender in senders {
-                            // return closest_nodes to whoever was asking
-                            if let ResponseSender::ClosestNodes(sender) = sender {
-                                let _ = sender.send(closest_nodes.clone());
-                            }
-                        }
-                    }
-                }
-
-                // Cleanup done PUT query and send a resulting error if any.
-                for (id, error) in report.done_put_queries {
-                    if let Some(senders) = put_senders.remove(&id) {
-                        let result = if let Some(error) = error {
-                            Err(error)
-                        } else {
-                            Ok(id)
-                        };
-
-                        for sender in senders {
-                            let _ = sender.send(result.clone());
-                        }
-                    }
-                }
-            }
-        }
-        Err(err) => {
-            if let Ok(ActorMessage::Check(sender)) = receiver.try_recv() {
-                let _ = sender.send(Err(err));
-            }
-        }
-    };
-}
-
-fn send(sender: &ResponseSender, response: Response) {
-    match (sender, response) {
-        (ResponseSender::Peers(s), Response::Peers(r)) => {
-            let _ = s.send(r);
-        }
-        (ResponseSender::SignedPeers(s), Response::SignedPeers(r)) => {
-            let _ = s.send(r);
-        }
-        (ResponseSender::Mutable(s), Response::Mutable(r)) => {
-            let _ = s.send(r);
-        }
-        (ResponseSender::Immutable(s), Response::Immutable(r)) => {
-            let _ = s.send(r);
-        }
-        _ => {}
-    }
-}
-
-#[derive(Debug)]
-pub(crate) enum ActorMessage {
-    Info(Sender<Info>),
-    Put(
-        PutRequestSpecific,
-        Sender<Result<Id, PutError>>,
-        Option<Box<[Node]>>,
-    ),
-    Get(GetRequestSpecific, ResponseSender),
-    Check(Sender<Result<(), std::io::Error>>),
-    ToBootstrap(Sender<Vec<String>>),
-}
-
-#[derive(Debug, Clone)]
-pub enum ResponseSender {
-    ClosestNodes(Sender<Box<[Node]>>),
-    Peers(Sender<Vec<SocketAddrV4>>),
-    SignedPeers(Sender<Vec<SignedAnnounce>>),
-    Mutable(Sender<MutableItem>),
-    Immutable(Sender<Box<[u8]>>),
-}
-
 /// Create a testnet of Dht nodes to run tests against instead of the real mainline network.
 #[derive(Debug)]
 pub struct Testnet {
@@ -820,7 +670,7 @@ mod test {
 
     use ed25519_dalek::SigningKey;
 
-    use crate::core::ConcurrencyError;
+    use crate::{core::ConcurrencyError, rpc::ActorMessage};
 
     use super::*;
 

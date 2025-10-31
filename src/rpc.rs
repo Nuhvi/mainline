@@ -4,11 +4,16 @@ pub(crate) mod config;
 mod info;
 pub(crate) mod socket;
 
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::net::{SocketAddr, SocketAddrV4, ToSocketAddrs};
 
+use flume::Sender;
+use flume::{Receiver, TryRecvError};
+
 use tracing::{debug, info};
 
+use crate::common::SignedAnnounce;
 use crate::common::{
     FindNodeRequestArguments, Id, Message, MessageType, Node, PutRequestSpecific, RequestSpecific,
     RequestTypeSpecific,
@@ -16,6 +21,8 @@ use crate::common::{
 use crate::core::{
     iterative_query::GetRequestSpecific, put_query::PutQuery, Core, PutError, Response,
 };
+use crate::rpc::config::Config;
+use crate::MutableItem;
 
 use socket::KrpcSocket;
 
@@ -26,6 +33,9 @@ pub use info::Info;
 pub struct Rpc {
     pub(crate) socket: KrpcSocket,
     core: Core,
+
+    put_senders: HashMap<Id, Vec<Sender<Result<Id, PutError>>>>,
+    get_senders: HashMap<Id, Vec<ResponseSender>>,
 }
 
 impl Rpc {
@@ -54,9 +64,15 @@ impl Rpc {
             .flatten()
             .collect();
 
+        let address = socket.local_addr();
+        info!(?address, "Mainline DHT started");
+
         Ok(Rpc {
             socket,
             core: Core::new(id, bootstrap, config.server_mode, config.server_settings),
+
+            put_senders: HashMap::new(),
+            get_senders: HashMap::new(),
         })
     }
 
@@ -92,13 +108,22 @@ impl Rpc {
     /// Advance the inflight queries, receive incoming requests,
     /// maintain the routing table, and everything else that needs
     /// to happen at every tick.
-    pub fn tick(&mut self) -> RpcTickReport {
+    pub fn tick(&mut self) {
         self.periodic_node_maintaenance();
 
         let new_query_response = self
             .socket
             .recv_from()
             .and_then(|(message, from)| self.handle_incoming_message(message, from));
+
+        // Response for an ongoing GET query
+        if let Some((target, response)) = new_query_response {
+            if let Some(senders) = self.get_senders.get(&target) {
+                for sender in senders {
+                    send(sender, response.clone());
+                }
+            }
+        }
 
         let mut done_put_queries = self.check_done_put_queries();
 
@@ -118,10 +143,31 @@ impl Rpc {
             self.ping(address);
         }
 
-        RpcTickReport {
-            done_get_queries: done_iterative_queries,
-            done_put_queries,
-            new_query_response,
+        // Cleanup done iterative queries
+        for (id, closest_nodes) in done_iterative_queries {
+            if let Some(senders) = self.get_senders.remove(&id) {
+                for sender in senders {
+                    // return closest_nodes to whoever was asking
+                    if let ResponseSender::ClosestNodes(sender) = sender {
+                        let _ = sender.send(closest_nodes.clone());
+                    }
+                }
+            }
+        }
+
+        // Cleanup done PUT query and send a resulting error if any.
+        for (id, error) in done_put_queries {
+            if let Some(senders) = self.put_senders.remove(&id) {
+                let result = if let Some(error) = error {
+                    Err(error)
+                } else {
+                    Ok(id)
+                };
+
+                for sender in senders {
+                    let _ = sender.send(result.clone());
+                }
+            }
         }
     }
 
@@ -349,16 +395,105 @@ impl Rpc {
     }
 }
 
-/// State change after a call to [Rpc::tick], including
-/// done PUT, GET, and FIND_NODE queries, as well as any
-/// incoming value response for any GET query.
+pub fn run(config: Config, receiver: Receiver<ActorMessage>) {
+    match Rpc::new(config) {
+        Ok(mut rpc) => {
+            loop {
+                match receiver.try_recv() {
+                    Ok(actor_message) => match actor_message {
+                        ActorMessage::Check(sender) => {
+                            let _ = sender.send(Ok(()));
+                        }
+                        ActorMessage::Info(sender) => {
+                            let _ = sender.send(rpc.info());
+                        }
+                        ActorMessage::Put(request, sender, extra_nodes) => {
+                            let target = *request.target();
+
+                            match rpc.put(request, extra_nodes) {
+                                Ok(()) => {
+                                    let senders = rpc.put_senders.entry(target).or_insert(vec![]);
+
+                                    senders.push(sender);
+                                }
+                                Err(error) => {
+                                    let _ = sender.send(Err(error));
+                                }
+                            };
+                        }
+                        ActorMessage::Get(request, sender) => {
+                            let target = request.target();
+
+                            let responses = rpc.get(request, None);
+                            for response in responses {
+                                send(&sender, response);
+                            }
+
+                            let senders = rpc.get_senders.entry(target).or_insert(vec![]);
+
+                            senders.push(sender);
+                        }
+                        ActorMessage::ToBootstrap(sender) => {
+                            let _ = sender.send(rpc.to_bootstrap());
+                        }
+                    },
+                    Err(TryRecvError::Disconnected) => {
+                        // Node was dropped, kill this thread.
+                        tracing::debug!("dht::Dht's actor thread was shutdown after Drop.");
+                        break;
+                    }
+                    Err(TryRecvError::Empty) => {
+                        // No op
+                    }
+                }
+
+                rpc.tick();
+            }
+        }
+        Err(err) => {
+            if let Ok(ActorMessage::Check(sender)) = receiver.try_recv() {
+                let _ = sender.send(Err(err));
+            }
+        }
+    };
+}
+
+fn send(sender: &ResponseSender, response: Response) {
+    match (sender, response) {
+        (ResponseSender::Peers(s), Response::Peers(r)) => {
+            let _ = s.send(r);
+        }
+        (ResponseSender::SignedPeers(s), Response::SignedPeers(r)) => {
+            let _ = s.send(r);
+        }
+        (ResponseSender::Mutable(s), Response::Mutable(r)) => {
+            let _ = s.send(r);
+        }
+        (ResponseSender::Immutable(s), Response::Immutable(r)) => {
+            let _ = s.send(r);
+        }
+        _ => {}
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum ActorMessage {
+    Info(Sender<Info>),
+    Put(
+        PutRequestSpecific,
+        Sender<Result<Id, PutError>>,
+        Option<Box<[Node]>>,
+    ),
+    Get(GetRequestSpecific, ResponseSender),
+    Check(Sender<Result<(), std::io::Error>>),
+    ToBootstrap(Sender<Vec<String>>),
+}
+
 #[derive(Debug, Clone)]
-pub struct RpcTickReport {
-    /// All the [Id]s of the done [Rpc::get] queries.
-    pub done_get_queries: Vec<(Id, Box<[Node]>)>,
-    /// All the [Id]s of the done [Rpc::put] queries,
-    /// and optional [PutError] if the query failed.
-    pub done_put_queries: Vec<(Id, Option<PutError>)>,
-    /// Received GET query response.
-    pub new_query_response: Option<(Id, Response)>,
+pub enum ResponseSender {
+    ClosestNodes(Sender<Box<[Node]>>),
+    Peers(Sender<Vec<SocketAddrV4>>),
+    SignedPeers(Sender<Vec<SignedAnnounce>>),
+    Mutable(Sender<MutableItem>),
+    Immutable(Sender<Box<[u8]>>),
 }

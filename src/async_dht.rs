@@ -17,8 +17,8 @@ use crate::{
         PutRequestSpecific, SignedAnnounce,
     },
     core::{iterative_query::GetRequestSpecific, PutError, PutQueryError},
-    dht::{ActorMessage, Dht, PutMutableError, ResponseSender},
-    rpc::Info,
+    dht::{Dht, PutMutableError},
+    rpc::{ActorMessage, Info, ResponseSender},
 };
 
 impl Dht {
