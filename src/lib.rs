@@ -14,10 +14,6 @@ mod common;
 mod core;
 mod dht;
 
-// Public modules
-#[cfg(feature = "async")]
-pub mod async_dht;
-
 pub use common::{
     messages::{MessageType, PutRequestSpecific, RequestSpecific},
     ClosestNodes, Id, MutableItem, Node, RoutingTable,
