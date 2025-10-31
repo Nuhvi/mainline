@@ -212,11 +212,6 @@ impl Actor {
     ) -> Vec<Response> {
         let target = request.target();
 
-        let node_id = self.id();
-        if target == *node_id {
-            debug!(?node_id, "Bootstrapping the routing table");
-        }
-
         let mut responses = vec![];
 
         if let Some(response_from_outgoing_request) = self.core.check_outgoing_put_request(&target)
@@ -235,6 +230,11 @@ impl Actor {
 
         if let Some((mut query, to_visit)) = self.core.create_iterative_query(request, extra_nodes)
         {
+            let node_id = self.id();
+            if target == *node_id {
+                debug!(?node_id, "Bootstrapping the routing table");
+            }
+
             for address in to_visit {
                 query.visit(&mut self.socket, address);
             }
