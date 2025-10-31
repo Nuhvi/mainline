@@ -165,7 +165,7 @@ impl Rpc {
 
         let self_id = *self.id();
 
-        let mut done_get_queries = Vec::with_capacity(self.core.iterative_queries.len());
+        let mut done_iterative_queries = Vec::with_capacity(self.core.iterative_queries.len());
 
         for (id, query) in self.core.iterative_queries.iter_mut() {
             let is_done = query.tick(&mut self.socket);
@@ -213,39 +213,37 @@ impl Rpc {
                             .into_boxed_slice()
                     };
 
-                done_get_queries.push((*id, closest_nodes));
+                done_iterative_queries.push((*id, closest_nodes));
             };
+        }
+
+        // === Start Put Queries after their corresponding Get Queries are done ===
+
+        for (id, _) in &done_iterative_queries {
+            if let Some(put_query) = self.core.put_queries.get_mut(id) {
+                let (_, closest_nodes) = done_iterative_queries
+                    .iter()
+                    .find(|(this_id, _)| this_id == id)
+                    .expect("done_iterative_queries");
+
+                if let Err(error) = put_query.start(&mut self.socket, closest_nodes) {
+                    done_put_queries.push((*id, Some(error)))
+                }
+            }
         }
 
         // === Cleanup done queries ===
 
-        let (should_start_put_queries, should_ping_alleged_new_address) = self
+        let should_ping_alleged_new_address = self
             .core
-            .cleanup_done_queries(&done_get_queries, &done_put_queries);
+            .cleanup_done_queries(&done_iterative_queries, &done_put_queries);
 
         if let Some(address) = should_ping_alleged_new_address {
             self.ping(address);
         }
 
-        for id in should_start_put_queries {
-            let put_query = self
-                .core
-                .put_queries
-                .get_mut(&id)
-                .expect("put query shouldn't be deleted before done..");
-
-            let (_, closest_nodes) = done_get_queries
-                .iter()
-                .find(|(this_id, _)| this_id == &id)
-                .expect("done_get_queries");
-
-            if let Err(error) = put_query.start(&mut self.socket, closest_nodes) {
-                done_put_queries.push((id, Some(error)))
-            }
-        }
-
         RpcTickReport {
-            done_get_queries,
+            done_get_queries: done_iterative_queries,
             done_put_queries,
             new_query_response,
         }

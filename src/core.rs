@@ -94,8 +94,7 @@ impl Core {
         &mut self,
         done_get_queries: &[(Id, Box<[Node]>)],
         done_put_queries: &[(Id, Option<PutError>)],
-    ) -> (Vec<Id>, Option<SocketAddrV4>) {
-        let mut should_start_put_queries = Vec::with_capacity(done_get_queries.len());
+    ) -> Option<SocketAddrV4> {
         let mut should_ping_alleged_new_address = None;
 
         for (id, closest_nodes) in done_get_queries {
@@ -112,12 +111,6 @@ impl Core {
                         responders_subnets_count = ?relevant_routing_table.average_subnets(),
                         "Storing nodes stats..",
                     );
-
-                    if let Some(put_query) = self.put_queries.get_mut(id) {
-                        if !put_query.started() {
-                            should_start_put_queries.push(*id);
-                        }
-                    }
                 }
             };
         }
@@ -126,7 +119,7 @@ impl Core {
             self.put_queries.remove(id);
         }
 
-        (should_start_put_queries, should_ping_alleged_new_address)
+        should_ping_alleged_new_address
     }
 
     fn update_address_votes_from_iterative_query(
