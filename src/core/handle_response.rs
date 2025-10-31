@@ -9,7 +9,7 @@ use crate::{
         NoMoreRecentValueResponseArguments, NoValuesResponseArguments, RequestTypeSpecific,
         ResponseSpecific, SignedAnnounce,
     },
-    core::supports_signed_peers,
+    core::{supports_signed_peers, Response},
     MessageType, MutableItem, Node,
 };
 
@@ -234,12 +234,4 @@ impl Core {
 
         None
     }
-}
-
-#[derive(Debug, Clone)]
-pub enum Response {
-    Peers(Vec<SocketAddrV4>),
-    SignedPeers(Vec<SignedAnnounce>),
-    Immutable(Box<[u8]>),
-    Mutable(MutableItem),
 }

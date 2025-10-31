@@ -8,7 +8,7 @@ use tracing::{debug, trace};
 
 use crate::common::{FindNodeRequestArguments, GetPeersRequestArguments, GetValueRequestArguments};
 use crate::common::{Id, Node, RequestSpecific, RequestTypeSpecific, MAX_BUCKET_SIZE_K};
-use crate::core::handle_response::Response;
+use crate::core::Response;
 use crate::rpc::socket::KrpcSocket;
 use crate::ClosestNodes;
 use crate::PutRequestSpecific;
@@ -142,11 +142,6 @@ impl IterativeQuery {
 
     // === Public Methods ===
 
-    /// Force start query traversal by visiting closest nodes.
-    pub fn start(&mut self, socket: &mut KrpcSocket) {
-        self.visit_closest(socket);
-    }
-
     /// Add a candidate node to query on next tick if it is among the closest nodes.
     pub fn add_candidate(&mut self, node: Node) {
         // ready for a ipv6 routing table?
@@ -166,16 +161,6 @@ impl IterativeQuery {
     pub fn visit(&mut self, socket: &mut KrpcSocket, address: SocketAddrV4) {
         let tid = socket.request(address, self.request.clone());
         self.inflight_requests.push(tid);
-
-        let tid = socket.request(
-            address,
-            RequestSpecific {
-                requester_id: Id::random(),
-                request_type: RequestTypeSpecific::Ping,
-            },
-        );
-        self.inflight_requests.push(tid);
-
         self.visited.insert(address);
     }
 
@@ -198,21 +183,22 @@ impl IterativeQuery {
         self.responses.push(response.to_owned());
     }
 
-    /// Query closest nodes for this query's target and message.
-    ///
     pub fn visit_closest(&mut self, socket: &mut KrpcSocket) {
-        let to_visit = self
-            .closest
+        let to_visit = self.closest_candidates();
+
+        for address in to_visit {
+            self.visit(socket, address);
+        }
+    }
+
+    pub fn closest_candidates(&self) -> Vec<SocketAddrV4> {
+        self.closest
             .nodes()
             .iter()
             .take(MAX_BUCKET_SIZE_K)
             .filter(|node| !self.visited.contains(&node.address()))
             .map(|node| node.address())
-            .collect::<Vec<_>>();
-
-        for address in to_visit {
-            self.visit(socket, address);
-        }
+            .collect()
     }
 
     /// Returns true if it is done.

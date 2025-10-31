@@ -11,9 +11,11 @@ use iterative_query::IterativeQuery;
 use put_query::PutQuery;
 
 use crate::common::{
-    Id, Node, PutMutableRequestArguments, RequestTypeSpecific, RoutingTable, MAX_BUCKET_SIZE_K,
+    Id, Node, PutMutableRequestArguments, RequestTypeSpecific, RoutingTable, SignedAnnounce,
+    MAX_BUCKET_SIZE_K,
 };
-use crate::PutRequestSpecific;
+use crate::core::iterative_query::GetRequestSpecific;
+use crate::{MutableItem, PutRequestSpecific};
 
 pub mod handle_request;
 pub mod handle_response;
@@ -268,6 +270,109 @@ impl Core {
         Ok(())
     }
 
+    /// If we are already announcing a signed peer or a mutable item, might as well
+    /// return it to the request asking for the same target.
+    pub fn check_outgoing_put_request(&self, target: &Id) -> Option<Response> {
+        self.put_queries
+            .get(target)
+            .and_then(|existing| match existing.request.clone() {
+                PutRequestSpecific::PutMutable(request) => Some(Response::Mutable(request.into())),
+                PutRequestSpecific::AnnounceSignedPeer(request) => {
+                    Some(Response::SignedPeers(vec![SignedAnnounce {
+                        key: request.k,
+                        timestamp: request.t,
+                        signature: request.sig,
+                    }]))
+                }
+
+                _ => None,
+            })
+    }
+
+    /// If query is still active, no need to create a new one.
+    pub fn check_responses_from_active_query(&self, target: &Id) -> Option<&[Response]> {
+        self.iterative_queries
+            .get(target)
+            .map(|query| query.responses())
+    }
+
+    /// Create an [IterativeQuery] and populate it with candidate nodes, but not insert it to
+    /// [Core::iterative_queries] yet.
+    ///
+    /// Return the query, and a list of nodes (from our bootstrapping node and/or routing tables)
+    /// to visit to start the query.
+    ///
+    /// Returns `None` if there is an already active query.
+    pub fn create_iterative_query(
+        &mut self,
+        request: GetRequestSpecific,
+        extra_nodes: Option<&[SocketAddrV4]>,
+    ) -> Option<(IterativeQuery, Vec<SocketAddrV4>)> {
+        let target = request.target();
+
+        if self.iterative_queries.contains_key(&target) {
+            return None;
+        }
+
+        // We have multiple routing table now, so we should first figure out which one
+        // is the appropriate for this query.
+        let routing_table_closest = self.get_closest_nodes_from_routing_tables(&request);
+
+        let mut query = IterativeQuery::new(*self.id(), target, request);
+
+        // Seed this query with the closest nodes we know about.
+        for node in routing_table_closest {
+            query.add_candidate(node)
+        }
+
+        // If we have cached iterative query with the same hash, use its nodes as well..
+        if let Some(closest_responding_nodes) = self.get_cached_closest_nodes(&target) {
+            for node in closest_responding_nodes {
+                query.add_candidate(node.clone())
+            }
+        }
+
+        let mut to_visit = query.closest_candidates();
+
+        // Seed the query either with the closest nodes from the routing table, or the
+        // bootstrapping nodes if the closest nodes are not enough.
+        let candidates = query.closest();
+        if candidates.is_empty() || candidates.len() < self.bootstrap.len() {
+            for bootstrapping_node in self.bootstrap.clone() {
+                to_visit.push(bootstrapping_node)
+            }
+        }
+
+        if let Some(extra_nodes) = extra_nodes {
+            to_visit.extend_from_slice(extra_nodes);
+        }
+
+        Some((query, to_visit))
+    }
+
+    // === Private Methods ===
+
+    fn get_closest_nodes_from_routing_tables(&self, request: &GetRequestSpecific) -> Vec<Node> {
+        let target = request.target();
+
+        match &request {
+            // We don't actually need to use closest secure, because we aren't storing anything
+            // to these nodes, but it is better ask further away than we need, just to add more
+            // randomness and to more likely defeat eclipsing attempts, but we pay the price in
+            // more messages, however that is ok when we rarely call FIND_NODE (once every 15 minutes)
+            GetRequestSpecific::FindNode(_) => {
+                let mut routing_table_closest = self.routing_table.closest_secure(target);
+                routing_table_closest
+                    .extend_from_slice(&self.signed_peers_routing_table.closest_secure(target));
+                routing_table_closest
+            }
+            GetRequestSpecific::GetSignedPeers(_) => {
+                self.signed_peers_routing_table.closest_secure(target)
+            }
+            _ => self.routing_table.closest_secure(target),
+        }
+    }
+
     fn update_address_votes_from_iterative_query(
         &mut self,
         query: &IterativeQuery,
@@ -421,4 +526,12 @@ pub(crate) struct CachedIterativeQuery {
     subnets: u8,
 
     request_type: RequestTypeSpecific,
+}
+
+#[derive(Debug, Clone)]
+pub enum Response {
+    Peers(Vec<SocketAddrV4>),
+    SignedPeers(Vec<SignedAnnounce>),
+    Immutable(Box<[u8]>),
+    Mutable(MutableItem),
 }

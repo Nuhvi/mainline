@@ -18,8 +18,10 @@ use crate::{
         MutableItem, PutImmutableRequestArguments, PutMutableRequestArguments, PutRequestSpecific,
         SignedAnnounce,
     },
-    core::{iterative_query::GetRequestSpecific, ConcurrencyError, PutError, PutQueryError},
-    rpc::{Info, Response, Rpc},
+    core::{
+        iterative_query::GetRequestSpecific, ConcurrencyError, PutError, PutQueryError, Response,
+    },
+    rpc::{Info, Rpc},
     Node, ServerSettings,
 };
 
@@ -582,11 +584,10 @@ fn run(config: Config, receiver: Receiver<ActorMessage>) {
                         ActorMessage::Get(request, sender) => {
                             let target = request.target();
 
-                            if let Some(responses) = rpc.get(request, None) {
-                                for response in responses {
-                                    send(&sender, response);
-                                }
-                            };
+                            let responses = rpc.get(request, None);
+                            for response in responses {
+                                send(&sender, response);
+                            }
 
                             let senders = get_senders.entry(target).or_insert(vec![]);
 

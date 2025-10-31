@@ -13,13 +13,12 @@ use crate::common::{
     FindNodeRequestArguments, Id, Message, MessageType, Node, PutRequestSpecific, RequestSpecific,
     RequestTypeSpecific,
 };
-use crate::core::iterative_query::GetRequestSpecific;
-use crate::core::PutError;
-use crate::core::{iterative_query::IterativeQuery, put_query::PutQuery, Core};
+use crate::core::{
+    iterative_query::GetRequestSpecific, put_query::PutQuery, Core, PutError, Response,
+};
 
 use socket::KrpcSocket;
 
-pub use crate::core::handle_response::Response;
 pub use info::Info;
 
 #[derive(Debug)]
@@ -168,96 +167,40 @@ impl Rpc {
         &mut self,
         request: GetRequestSpecific,
         extra_nodes: Option<&[SocketAddrV4]>,
-    ) -> Option<Vec<Response>> {
+    ) -> Vec<Response> {
         let target = request.target();
 
-        let response_from_inflight_put_mutable_request =
-            self.core.put_queries.get(&target).and_then(|existing| {
-                if let PutRequestSpecific::PutMutable(request) = &existing.request {
-                    Some(Response::Mutable(request.clone().into()))
-                } else {
-                    None
-                }
-            });
-
-        // If query is still active, no need to create a new one.
-        if let Some(query) = self.core.iterative_queries.get(&target) {
-            let mut responses = query.responses().to_vec();
-
-            if let Some(response) = response_from_inflight_put_mutable_request {
-                responses.push(response);
-            }
-
-            return Some(responses);
-        }
-
-        let node_id = self.core.routing_table.id();
-
+        let node_id = self.id();
         if target == *node_id {
             debug!(?node_id, "Bootstrapping the routing table");
         }
 
-        // We have multiple routing table now, so we should first figure out which one
-        // is the appropriate for this query.
-        let routing_table_closest = match &request {
-            // We don't actually need to use closest secure, because we aren't storing anything
-            // to these nodes, but it is better ask further away than we need, just to add more
-            // randomness and to more likely defeat eclipsing attempts, but we pay the price in
-            // more messages, however that is ok when we rarely call FIND_NODE (once every 15 minutes)
-            GetRequestSpecific::FindNode(_) => {
-                let mut routing_table_closest = self.core.routing_table.closest_secure(target);
-                routing_table_closest.extend_from_slice(
-                    &self.core.signed_peers_routing_table.closest_secure(target),
-                );
-                routing_table_closest
-            }
-            GetRequestSpecific::GetSignedPeers(_) => {
-                self.core.signed_peers_routing_table.closest_secure(target)
-            }
-            _ => self.core.routing_table.closest_secure(target),
+        let mut responses = vec![];
+
+        if let Some(response_from_outgoing_request) = self.core.check_outgoing_put_request(&target)
+        {
+            responses.push(response_from_outgoing_request);
+        }
+
+        if let Some(responses_from_active_query) =
+            self.core.check_responses_from_active_query(&target)
+        {
+            responses.extend_from_slice(responses_from_active_query);
+
+            // Terminate, no need to create another query.
+            return responses;
         };
 
-        let mut query = IterativeQuery::new(*self.id(), target, request);
-
-        // Seed the query either with the closest nodes from the routing table, or the
-        // bootstrapping nodes if the closest nodes are not enough.
-        if routing_table_closest.is_empty()
-            || routing_table_closest.len() < self.core.bootstrap.len()
+        if let Some((mut query, to_visit)) = self.core.create_iterative_query(request, extra_nodes)
         {
-            for bootstrapping_node in self.core.bootstrap.clone() {
-                query.visit(&mut self.socket, bootstrapping_node);
+            for address in to_visit {
+                query.visit(&mut self.socket, address);
             }
+
+            self.core.iterative_queries.insert(target, query);
         }
 
-        if let Some(extra_nodes) = extra_nodes {
-            for extra_node in extra_nodes {
-                query.visit(&mut self.socket, *extra_node)
-            }
-        }
-
-        // Seed this query with the closest nodes we know about.
-        for node in routing_table_closest {
-            query.add_candidate(node)
-        }
-
-        // If we have cached iterative query with the same hash, use its nodes as well..
-        if let Some(closest_responding_nodes) = self.core.get_cached_closest_nodes(&target) {
-            for node in closest_responding_nodes {
-                query.add_candidate(node.clone())
-            }
-        }
-
-        // After adding the nodes, we need to start the query.
-        query.start(&mut self.socket);
-
-        self.core.iterative_queries.insert(target, query);
-
-        // If there is an inflight PutQuery for mutable item return its value
-        if let Some(response) = response_from_inflight_put_mutable_request {
-            return Some(vec![response]);
-        }
-
-        None
+        responses
     }
 
     // === Private Methods ===

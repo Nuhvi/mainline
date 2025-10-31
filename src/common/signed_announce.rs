@@ -12,12 +12,12 @@ const MAX_TIMESTAMP_TOLERANCE: u64 = 45 * 1000 * 1000; // 45 seconds in micro se
 /// [BEP_????](https://github.com/nuhvi/mainline/beps/bep_xxxx.html)'s `announce_signed_peer`.
 pub struct SignedAnnounce {
     /// ed25519 public key
-    key: [u8; 32],
+    pub(crate) key: [u8; 32],
     /// timestamp of the signed announcement
-    timestamp: u64,
+    pub(crate) timestamp: u64,
     /// ed25519 signature
     #[serde(with = "serde_bytes")]
-    signature: [u8; 64],
+    pub(crate) signature: [u8; 64],
 }
 
 impl SignedAnnounce {
