@@ -11,6 +11,7 @@ use crate::common::{Id, Node, RequestSpecific, RequestTypeSpecific, MAX_BUCKET_S
 use crate::core::handle_response::Response;
 use crate::rpc::socket::KrpcSocket;
 use crate::ClosestNodes;
+use crate::PutRequestSpecific;
 
 /// An iterative process of concurrently sending a request to the closest known nodes to
 /// the target, updating the routing table with closer nodes discovered in the responses, and
@@ -41,6 +42,37 @@ impl GetRequestSpecific {
             GetRequestSpecific::GetPeers(args) => args.info_hash,
             GetRequestSpecific::GetSignedPeers(args) => args.info_hash,
             GetRequestSpecific::GetValue(args) => args.target,
+        }
+    }
+}
+
+impl From<&PutRequestSpecific> for GetRequestSpecific {
+    fn from(request: &PutRequestSpecific) -> Self {
+        match request {
+            PutRequestSpecific::PutImmutable(args) => {
+                GetRequestSpecific::GetValue(GetValueRequestArguments {
+                    target: args.target,
+                    seq: None,
+                    salt: None,
+                })
+            }
+            PutRequestSpecific::PutMutable(args) => {
+                GetRequestSpecific::GetValue(GetValueRequestArguments {
+                    target: args.target,
+                    seq: None,
+                    salt: args.salt.clone(),
+                })
+            }
+            PutRequestSpecific::AnnouncePeer(args) => {
+                GetRequestSpecific::GetPeers(GetPeersRequestArguments {
+                    info_hash: args.info_hash,
+                })
+            }
+            PutRequestSpecific::AnnounceSignedPeer(args) => {
+                GetRequestSpecific::GetSignedPeers(GetPeersRequestArguments {
+                    info_hash: args.info_hash,
+                })
+            }
         }
     }
 }

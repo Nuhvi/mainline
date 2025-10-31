@@ -10,8 +10,7 @@ use std::net::{SocketAddr, SocketAddrV4, ToSocketAddrs};
 use tracing::{debug, info};
 
 use crate::common::{
-    messages::{GetPeersRequestArguments, PutMutableRequestArguments},
-    FindNodeRequestArguments, GetValueRequestArguments, Id, Message, MessageType, Node,
+    messages::PutMutableRequestArguments, FindNodeRequestArguments, Id, Message, MessageType, Node,
     PutRequestSpecific, RequestSpecific, RequestTypeSpecific,
 };
 use crate::core::iterative_query::GetRequestSpecific;
@@ -282,32 +281,7 @@ impl Rpc {
         if let Some(closest_nodes) = self.core.get_cached_closest_nodes(target) {
             query.start(&mut self.socket, &closest_nodes)?
         } else {
-            let get_request = match request {
-                PutRequestSpecific::PutImmutable(_) => {
-                    GetRequestSpecific::GetValue(GetValueRequestArguments {
-                        target: *target,
-                        seq: None,
-                        salt: None,
-                    })
-                }
-                PutRequestSpecific::PutMutable(ref args) => {
-                    GetRequestSpecific::GetValue(GetValueRequestArguments {
-                        target: *target,
-                        seq: None,
-                        salt: args.salt.clone(),
-                    })
-                }
-                PutRequestSpecific::AnnouncePeer(_) => {
-                    GetRequestSpecific::GetPeers(GetPeersRequestArguments { info_hash: *target })
-                }
-                PutRequestSpecific::AnnounceSignedPeer(_) => {
-                    GetRequestSpecific::GetSignedPeers(GetPeersRequestArguments {
-                        info_hash: *target,
-                    })
-                }
-            };
-
-            self.get(get_request, None);
+            self.get(GetRequestSpecific::from(&request), None);
         };
 
         self.core.put_queries.insert(*target, query);
