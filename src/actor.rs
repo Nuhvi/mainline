@@ -195,7 +195,7 @@ impl Actor {
     /// Send a message to closer and closer nodes until we can't find any more nodes.
     ///
     /// Queries take few seconds to fully traverse the network, once it is done, it will be removed from
-    /// self.iterative_queries. But until then, calling [actor::get] multiple times, will just return the list
+    /// self.iterative_queries. But until then, calling [Actor::get] multiple times, will just return the list
     /// of responses seen so far.
     ///
     /// Effectively, we are caching responses and backing off the network for the duration it takes

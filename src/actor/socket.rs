@@ -20,7 +20,7 @@ pub const DEFAULT_PORT: u16 = 6881;
 /// Useful for checking for expected responses.
 pub const MIN_POLL_INTERVAL: Duration = Duration::from_micros(100);
 /// Maximum interval between polling udp socket, higher latency, lower cpu usage.
-/// Useful for waiting for incoming requests, and [super::Rpc::periodic_node_maintaenance].
+/// Useful for waiting for incoming requests, and [super::Actor::periodic_node_maintaenance].
 pub const MAX_POLL_INTERVAL: Duration = Duration::from_millis(500);
 pub const MIN_REQUEST_TIMEOUT: Duration = Duration::from_millis(500);
 
