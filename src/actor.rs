@@ -198,8 +198,6 @@ impl Rpc {
     /// self.iterative_queries. But until then, calling [Rpc::get] multiple times, will just return the list
     /// of responses seen so far.
     ///
-    /// Subsequent responses can be obtained from the [RpcTickReport::new_query_response] you get after calling [Rpc::tick].
-    ///
     /// Effectively, we are caching responses and backing off the network for the duration it takes
     /// to traverse it.
     ///
