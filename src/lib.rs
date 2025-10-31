@@ -7,11 +7,12 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
 
+/// Single threaded Actor model node
+mod actor;
 mod common;
 /// Functional core testable separately from I/O
 mod core;
 mod dht;
-mod rpc;
 
 // Public modules
 #[cfg(feature = "async")]

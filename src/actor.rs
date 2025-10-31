@@ -1,5 +1,3 @@
-//! K-RPC implementation.
-
 pub(crate) mod config;
 mod info;
 pub(crate) mod socket;
@@ -21,8 +19,8 @@ use crate::common::{
 use crate::core::{
     iterative_query::GetRequestSpecific, put_query::PutQuery, Core, PutError, Response,
 };
-use crate::rpc::config::Config;
 use crate::MutableItem;
+use config::Config;
 
 use socket::KrpcSocket;
 

@@ -10,6 +10,7 @@ use ed25519_dalek::SigningKey;
 use futures_lite::{Stream, StreamExt};
 
 use crate::{
+    actor::{ActorMessage, Info, ResponseSender},
     common::{
         hash_immutable, AnnouncePeerRequestArguments, AnnounceSignedPeerRequestArguments,
         FindNodeRequestArguments, GetPeersRequestArguments, GetValueRequestArguments, Id,
@@ -18,7 +19,6 @@ use crate::{
     },
     core::{iterative_query::GetRequestSpecific, PutError, PutQueryError},
     dht::{Dht, PutMutableError},
-    rpc::{ActorMessage, Info, ResponseSender},
 };
 
 impl Dht {

@@ -9,6 +9,7 @@ use ed25519_dalek::SigningKey;
 use flume::Sender;
 
 use crate::{
+    actor::{config::Config, ActorMessage, Info, ResponseSender},
     common::{
         hash_immutable, AnnouncePeerRequestArguments, AnnounceSignedPeerRequestArguments,
         FindNodeRequestArguments, GetPeersRequestArguments, GetValueRequestArguments, Id,
@@ -16,11 +17,8 @@ use crate::{
         SignedAnnounce,
     },
     core::{iterative_query::GetRequestSpecific, ConcurrencyError, PutError, PutQueryError},
-    rpc::{ActorMessage, Info, ResponseSender},
     Node, ServerSettings,
 };
-
-use crate::rpc::config::Config;
 
 #[derive(Debug, Clone)]
 /// Mainline Dht node.
@@ -114,7 +112,7 @@ impl Dht {
 
         thread::Builder::new()
             .name("Mainline Dht actor thread".to_string())
-            .spawn(move || crate::rpc::run(config, receiver))?;
+            .spawn(move || crate::actor::run(config, receiver))?;
 
         let (tx, rx) = flume::bounded(1);
 
@@ -670,7 +668,7 @@ mod test {
 
     use ed25519_dalek::SigningKey;
 
-    use crate::{core::ConcurrencyError, rpc::ActorMessage};
+    use crate::{actor::ActorMessage, core::ConcurrencyError};
 
     use super::*;
 

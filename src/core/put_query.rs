@@ -7,7 +7,7 @@ use crate::{
     Node,
 };
 
-use crate::rpc::socket::KrpcSocket;
+use crate::actor::socket::KrpcSocket;
 
 #[derive(Debug)]
 /// Once an [super::IterativeQuery] is done, or if a previous cached one was a available,
