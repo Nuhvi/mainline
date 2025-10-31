@@ -6,12 +6,12 @@ use std::net::SocketAddrV4;
 
 use tracing::{debug, trace};
 
-use super::{socket::KrpcSocket, ClosestNodes};
+use crate::actor::socket::KrpcSocket;
 use crate::common::{FindNodeRequestArguments, GetPeersRequestArguments, GetValueRequestArguments};
-use crate::{
-    common::{Id, Node, RequestSpecific, RequestTypeSpecific, MAX_BUCKET_SIZE_K},
-    rpc::Response,
-};
+use crate::common::{Id, Node, RequestSpecific, RequestTypeSpecific, MAX_BUCKET_SIZE_K};
+use crate::core::Response;
+use crate::ClosestNodes;
+use crate::PutRequestSpecific;
 
 /// An iterative process of concurrently sending a request to the closest known nodes to
 /// the target, updating the routing table with closer nodes discovered in the responses, and
@@ -36,12 +36,43 @@ pub enum GetRequestSpecific {
 }
 
 impl GetRequestSpecific {
-    pub fn target(&self) -> &Id {
+    pub fn target(&self) -> Id {
         match self {
-            GetRequestSpecific::FindNode(args) => &args.target,
-            GetRequestSpecific::GetPeers(args) => &args.info_hash,
-            GetRequestSpecific::GetSignedPeers(args) => &args.info_hash,
-            GetRequestSpecific::GetValue(args) => &args.target,
+            GetRequestSpecific::FindNode(args) => args.target,
+            GetRequestSpecific::GetPeers(args) => args.info_hash,
+            GetRequestSpecific::GetSignedPeers(args) => args.info_hash,
+            GetRequestSpecific::GetValue(args) => args.target,
+        }
+    }
+}
+
+impl From<&PutRequestSpecific> for GetRequestSpecific {
+    fn from(request: &PutRequestSpecific) -> Self {
+        match request {
+            PutRequestSpecific::PutImmutable(args) => {
+                GetRequestSpecific::GetValue(GetValueRequestArguments {
+                    target: args.target,
+                    seq: None,
+                    salt: None,
+                })
+            }
+            PutRequestSpecific::PutMutable(args) => {
+                GetRequestSpecific::GetValue(GetValueRequestArguments {
+                    target: args.target,
+                    seq: None,
+                    salt: args.salt.clone(),
+                })
+            }
+            PutRequestSpecific::AnnouncePeer(args) => {
+                GetRequestSpecific::GetPeers(GetPeersRequestArguments {
+                    info_hash: args.info_hash,
+                })
+            }
+            PutRequestSpecific::AnnounceSignedPeer(args) => {
+                GetRequestSpecific::GetSignedPeers(GetPeersRequestArguments {
+                    info_hash: args.info_hash,
+                })
+            }
         }
     }
 }
@@ -111,11 +142,6 @@ impl IterativeQuery {
 
     // === Public Methods ===
 
-    /// Force start query traversal by visiting closest nodes.
-    pub fn start(&mut self, socket: &mut KrpcSocket) {
-        self.visit_closest(socket);
-    }
-
     /// Add a candidate node to query on next tick if it is among the closest nodes.
     pub fn add_candidate(&mut self, node: Node) {
         // ready for a ipv6 routing table?
@@ -135,16 +161,6 @@ impl IterativeQuery {
     pub fn visit(&mut self, socket: &mut KrpcSocket, address: SocketAddrV4) {
         let tid = socket.request(address, self.request.clone());
         self.inflight_requests.push(tid);
-
-        let tid = socket.request(
-            address,
-            RequestSpecific {
-                requester_id: Id::random(),
-                request_type: RequestTypeSpecific::Ping,
-            },
-        );
-        self.inflight_requests.push(tid);
-
         self.visited.insert(address);
     }
 
@@ -167,13 +183,26 @@ impl IterativeQuery {
         self.responses.push(response.to_owned());
     }
 
-    /// Query closest nodes for this query's target and message.
-    ///
-    /// Returns true if it is done.
-    pub fn tick(&mut self, socket: &mut KrpcSocket) -> bool {
-        // Visit closest nodes
-        self.visit_closest(socket);
+    pub fn visit_closest(&mut self, socket: &mut KrpcSocket) {
+        let to_visit = self.closest_candidates();
 
+        for address in to_visit {
+            self.visit(socket, address);
+        }
+    }
+
+    pub fn closest_candidates(&self) -> Vec<SocketAddrV4> {
+        self.closest
+            .nodes()
+            .iter()
+            .take(MAX_BUCKET_SIZE_K)
+            .filter(|node| !self.visited.contains(&node.address()))
+            .map(|node| node.address())
+            .collect()
+    }
+
+    /// Returns true if it is done.
+    pub fn is_done(&self, socket: &KrpcSocket) -> bool {
         // If no more inflight_requests are inflight in the socket (not timed out),
         // then the query is done.
         let done = !self
@@ -186,23 +215,5 @@ impl IterativeQuery {
         };
 
         done
-    }
-
-    // === Private Methods ===
-
-    /// Visit the closest candidates and remove them as candidates
-    fn visit_closest(&mut self, socket: &mut KrpcSocket) {
-        let to_visit = self
-            .closest
-            .nodes()
-            .iter()
-            .take(MAX_BUCKET_SIZE_K)
-            .filter(|node| !self.visited.contains(&node.address()))
-            .map(|node| node.address())
-            .collect::<Vec<_>>();
-
-        for address in to_visit {
-            self.visit(socket, address);
-        }
     }
 }

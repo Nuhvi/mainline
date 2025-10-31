@@ -1,28 +1,30 @@
 //! Dht node.
 
 use std::{
-    collections::HashMap,
     net::{Ipv4Addr, SocketAddrV4},
     thread,
 };
 
 use ed25519_dalek::SigningKey;
-use flume::{Receiver, Sender, TryRecvError};
-
-use tracing::info;
+use flume::Sender;
 
 use crate::{
+    actor::{config::Config, ActorMessage, Info, ResponseSender},
     common::{
         hash_immutable, AnnouncePeerRequestArguments, AnnounceSignedPeerRequestArguments,
         FindNodeRequestArguments, GetPeersRequestArguments, GetValueRequestArguments, Id,
         MutableItem, PutImmutableRequestArguments, PutMutableRequestArguments, PutRequestSpecific,
         SignedAnnounce,
     },
-    rpc::{ConcurrencyError, GetRequestSpecific, Info, PutError, PutQueryError, Response, Rpc},
+    core::{iterative_query::GetRequestSpecific, ConcurrencyError, PutError, PutQueryError},
     Node, ServerSettings,
 };
 
-use crate::rpc::config::Config;
+#[cfg(feature = "async")]
+pub mod async_dht;
+mod testnet;
+
+pub use testnet::Testnet;
 
 #[derive(Debug, Clone)]
 /// Mainline Dht node.
@@ -116,7 +118,7 @@ impl Dht {
 
         thread::Builder::new()
             .name("Mainline Dht actor thread".to_string())
-            .spawn(move || run(config, receiver))?;
+            .spawn(move || crate::actor::run(config, receiver))?;
 
         let (tx, rx) = flume::bounded(1);
 
@@ -546,260 +548,6 @@ impl<T> Iterator for GetIterator<T> {
     }
 }
 
-fn run(config: Config, receiver: Receiver<ActorMessage>) {
-    match Rpc::new(config) {
-        Ok(mut rpc) => {
-            let address = rpc.local_addr();
-            info!(?address, "Mainline DHT listening");
-
-            let mut put_senders = HashMap::new();
-            let mut get_senders = HashMap::new();
-
-            loop {
-                match receiver.try_recv() {
-                    Ok(actor_message) => match actor_message {
-                        ActorMessage::Check(sender) => {
-                            let _ = sender.send(Ok(()));
-                        }
-                        ActorMessage::Info(sender) => {
-                            let _ = sender.send(rpc.info());
-                        }
-                        ActorMessage::Put(request, sender, extra_nodes) => {
-                            let target = *request.target();
-
-                            match rpc.put(request, extra_nodes) {
-                                Ok(()) => {
-                                    let senders = put_senders.entry(target).or_insert(vec![]);
-
-                                    senders.push(sender);
-                                }
-                                Err(error) => {
-                                    let _ = sender.send(Err(error));
-                                }
-                            };
-                        }
-                        ActorMessage::Get(request, sender) => {
-                            let target = *request.target();
-
-                            if let Some(responses) = rpc.get(request, None) {
-                                for response in responses {
-                                    send(&sender, response);
-                                }
-                            };
-
-                            let senders = get_senders.entry(target).or_insert(vec![]);
-
-                            senders.push(sender);
-                        }
-                        ActorMessage::ToBootstrap(sender) => {
-                            let _ = sender.send(rpc.to_bootstrap());
-                        }
-                    },
-                    Err(TryRecvError::Disconnected) => {
-                        // Node was dropped, kill this thread.
-                        tracing::debug!("dht::Dht's actor thread was shutdown after Drop.");
-                        break;
-                    }
-                    Err(TryRecvError::Empty) => {
-                        // No op
-                    }
-                }
-
-                let report = rpc.tick();
-
-                // Response for an ongoing GET query
-                if let Some((target, response)) = report.new_query_response {
-                    if let Some(senders) = get_senders.get(&target) {
-                        for sender in senders {
-                            send(sender, response.clone());
-                        }
-                    }
-                }
-
-                // Cleanup done GET queries
-                for (id, closest_nodes) in report.done_get_queries {
-                    if let Some(senders) = get_senders.remove(&id) {
-                        for sender in senders {
-                            // return closest_nodes to whoever was asking
-                            if let ResponseSender::ClosestNodes(sender) = sender {
-                                let _ = sender.send(closest_nodes.clone());
-                            }
-                        }
-                    }
-                }
-
-                // Cleanup done PUT query and send a resulting error if any.
-                for (id, error) in report.done_put_queries {
-                    if let Some(senders) = put_senders.remove(&id) {
-                        let result = if let Some(error) = error {
-                            Err(error)
-                        } else {
-                            Ok(id)
-                        };
-
-                        for sender in senders {
-                            let _ = sender.send(result.clone());
-                        }
-                    }
-                }
-            }
-        }
-        Err(err) => {
-            if let Ok(ActorMessage::Check(sender)) = receiver.try_recv() {
-                let _ = sender.send(Err(err));
-            }
-        }
-    };
-}
-
-fn send(sender: &ResponseSender, response: Response) {
-    match (sender, response) {
-        (ResponseSender::Peers(s), Response::Peers(r)) => {
-            let _ = s.send(r);
-        }
-        (ResponseSender::SignedPeers(s), Response::SignedPeers(r)) => {
-            let _ = s.send(r);
-        }
-        (ResponseSender::Mutable(s), Response::Mutable(r)) => {
-            let _ = s.send(r);
-        }
-        (ResponseSender::Immutable(s), Response::Immutable(r)) => {
-            let _ = s.send(r);
-        }
-        _ => {}
-    }
-}
-
-#[derive(Debug)]
-pub(crate) enum ActorMessage {
-    Info(Sender<Info>),
-    Put(
-        PutRequestSpecific,
-        Sender<Result<Id, PutError>>,
-        Option<Box<[Node]>>,
-    ),
-    Get(GetRequestSpecific, ResponseSender),
-    Check(Sender<Result<(), std::io::Error>>),
-    ToBootstrap(Sender<Vec<String>>),
-}
-
-#[derive(Debug, Clone)]
-pub enum ResponseSender {
-    ClosestNodes(Sender<Box<[Node]>>),
-    Peers(Sender<Vec<SocketAddrV4>>),
-    SignedPeers(Sender<Vec<SignedAnnounce>>),
-    Mutable(Sender<MutableItem>),
-    Immutable(Sender<Box<[u8]>>),
-}
-
-/// Create a testnet of Dht nodes to run tests against instead of the real mainline network.
-#[derive(Debug)]
-pub struct Testnet {
-    /// bootstrapping nodes for this testnet.
-    pub bootstrap: Vec<String>,
-    /// all nodes in this testnet
-    pub nodes: Vec<Dht>,
-}
-
-impl Testnet {
-    /// Create a new testnet with a certain size.
-    ///
-    /// Note: this network will be shutdown as soon as this struct
-    /// gets dropped, if you want the network to be `'static`, then
-    /// you should call [Self::leak].
-    ///
-    /// This will block until all nodes are [bootstrapped][Dht::bootstrapped],
-    /// if you are using an async runtime, consider using [Self::new_async].
-    pub fn new(count: usize) -> Result<Testnet, std::io::Error> {
-        let testnet = Testnet::new_inner(count, false, None)?;
-
-        for node in &testnet.nodes {
-            node.bootstrapped();
-        }
-
-        Ok(testnet)
-    }
-
-    /// Similar to [Self::new] but awaits all nodes to bootstrap instead of blocking.
-    #[cfg(feature = "async")]
-    pub async fn new_async(count: usize) -> Result<Testnet, std::io::Error> {
-        let testnet = Testnet::new_inner(count, false, None)?;
-
-        for node in testnet.nodes.clone() {
-            node.as_async().bootstrapped().await;
-        }
-
-        Ok(testnet)
-    }
-
-    #[cfg(test)]
-    fn new_without_signed_peers(count: usize) -> Result<Testnet, std::io::Error> {
-        let testnet = Testnet::new_inner(count, true, None)?;
-
-        for node in &testnet.nodes {
-            node.bootstrapped();
-        }
-
-        Ok(testnet)
-    }
-
-    #[cfg(test)]
-    fn new_with_bootstrap(count: usize, bootstrap: &[String]) -> Result<Testnet, std::io::Error> {
-        let testnet = Testnet::new_inner(count, false, Some(bootstrap.to_vec()))?;
-
-        for node in &testnet.nodes {
-            node.bootstrapped();
-        }
-
-        Ok(testnet)
-    }
-
-    fn new_inner(
-        count: usize,
-        disable_signed_peers: bool,
-        bootstrap: Option<Vec<String>>,
-    ) -> Result<Testnet, std::io::Error> {
-        let mut nodes: Vec<Dht> = vec![];
-        let mut bootstrap = bootstrap.unwrap_or_default();
-
-        for i in 0..count {
-            let mut builder = Dht::builder();
-
-            if disable_signed_peers {
-                #[cfg(test)]
-                builder.disable_signed_peers();
-            }
-
-            let node = builder.server_mode().bootstrap(&bootstrap).build()?;
-
-            if i == 0 {
-                let info = node.info();
-                let addr = info.local_addr();
-
-                bootstrap.push(format!("127.0.0.1:{}", addr.port()));
-            }
-
-            nodes.push(node);
-        }
-
-        let testnet = Self { bootstrap, nodes };
-
-        Ok(testnet)
-    }
-
-    /// By default as soon as this testnet gets dropped,
-    /// all the nodes get dropped and the entire network is shutdown.
-    ///
-    /// This method uses [Box::leak] to keep nodes running, which is
-    /// useful if you need to keep running the testnet in the process
-    /// even if this struct gets dropped.
-    pub fn leak(&self) {
-        for node in self.nodes.clone() {
-            Box::leak(Box::new(node));
-        }
-    }
-}
-
 #[derive(thiserror::Error, Debug)]
 /// Put MutableItem errors.
 pub enum PutMutableError {
@@ -818,7 +566,7 @@ mod test {
 
     use ed25519_dalek::SigningKey;
 
-    use crate::rpc::ConcurrencyError;
+    use crate::{actor::ActorMessage, core::ConcurrencyError};
 
     use super::*;
 

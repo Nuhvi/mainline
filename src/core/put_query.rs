@@ -7,10 +7,10 @@ use crate::{
     Node,
 };
 
-use super::socket::KrpcSocket;
+use crate::actor::socket::KrpcSocket;
 
 #[derive(Debug)]
-/// Once an [super::IterativeQuery] is done, or if a previous cached one was a vailable,
+/// Once an [super::IterativeQuery] is done, or if a previous cached one was a available,
 /// we can store data at the closest nodes using this PutQuery, that keeps track of
 /// acknowledging nodes, and or errors.
 pub struct PutQuery {
@@ -24,9 +24,9 @@ pub struct PutQuery {
 }
 
 impl PutQuery {
-    pub fn new(target: Id, request: PutRequestSpecific, extra_nodes: Option<Box<[Node]>>) -> Self {
+    pub fn new(request: PutRequestSpecific, extra_nodes: Option<Box<[Node]>>) -> Self {
         Self {
-            target,
+            target: *request.target(),
             stored_at: 0,
             inflight_requests: Vec::new(),
             request,
@@ -112,13 +112,8 @@ impl PutQuery {
         }
     }
 
-    /// Check if the query is done, and if so send the query target to the receiver if any.
-    pub fn tick(&mut self, socket: &KrpcSocket) -> Result<bool, PutError> {
-        // Didn't start yet.
-        if self.inflight_requests.is_empty() {
-            return Ok(false);
-        }
-
+    /// Check if the query is either successfully done, or terminated with an error.
+    pub fn check(&self, socket: &KrpcSocket) -> Result<bool, PutError> {
         // And all queries got responses or timedout
         if self.is_done(socket) {
             let target = self.target;
@@ -157,13 +152,20 @@ impl PutQuery {
         Ok(false)
     }
 
+    /// Query started and finished
     fn is_done(&self, socket: &KrpcSocket) -> bool {
+        // Didn't start yet.
+        if self.inflight_requests.is_empty() {
+            return false;
+        }
+
         !self
             .inflight_requests
             .iter()
             .any(|tid| socket.inflight(tid))
     }
 
+    /// Return most common error if any
     fn majority_nodes_rejected_put_mutable(&self) -> Option<ConcurrencyError> {
         let half = ((self.inflight_requests.len() / 2) + 1) as u8;
 
@@ -216,7 +218,7 @@ pub enum PutQueryError {
     #[error("Failed to find any nodes close to store value at")]
     NoClosestNodes,
 
-    /// Either Put Query faild to store at any nodes, and most nodes responded
+    /// Either Put Query failed to store at any nodes, and most nodes responded
     /// with a non `301` nor `302` errors.
     ///
     /// Either way; contains the most common error response.
@@ -249,7 +251,7 @@ pub enum ConcurrencyError {
     #[error("MutableItem::seq is not the most recent, try reading most recent item before writing again.")]
     NotMostRecent,
 
-    /// The `CAS` condition does not match the `seq` of the most recent knonw signed item.
+    /// The `CAS` condition does not match the `seq` of the most recent known signed item.
     #[error("CAS check failed, try reading most recent item before writing again.")]
     CasFailed,
 }

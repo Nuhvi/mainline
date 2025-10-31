@@ -7,10 +7,11 @@ use std::time::{Duration, Instant};
 use tracing::{debug, trace, warn};
 
 use crate::common::{ErrorSpecific, Message, MessageType, RequestSpecific, ResponseSpecific};
+#[cfg(not(test))]
+use crate::core::VERSION;
 
 use super::config::Config;
 
-pub(crate) const VERSION: [u8; 4] = [82, 83, 0, 6]; // "RS" version 06
 const MTU: usize = 2048;
 
 pub const DEFAULT_PORT: u16 = 6881;
@@ -19,7 +20,7 @@ pub const DEFAULT_PORT: u16 = 6881;
 /// Useful for checking for expected responses.
 pub const MIN_POLL_INTERVAL: Duration = Duration::from_micros(100);
 /// Maximum interval between polling udp socket, higher latency, lower cpu usage.
-/// Useful for waiting for incoming requests, and [super::Rpc::periodic_node_maintaenance].
+/// Useful for waiting for incoming requests, and [super::Actor::periodic_node_maintaenance].
 pub const MAX_POLL_INTERVAL: Duration = Duration::from_millis(500);
 pub const MIN_REQUEST_TIMEOUT: Duration = Duration::from_millis(500);
 
@@ -72,7 +73,7 @@ impl KrpcSocket {
             version: if config.disable_announce_signed_peers {
                 LEGACY_VERSION
             } else {
-                VERSION
+                crate::core::VERSION
             },
         })
     }
@@ -521,7 +522,10 @@ fn supports_request(version: &[u8; 4], request_specific: &crate::common::Request
 mod test {
     use std::thread;
 
-    use crate::common::{Id, PingResponseArguments, RequestTypeSpecific};
+    use crate::{
+        common::{Id, PingResponseArguments, RequestTypeSpecific},
+        core::VERSION,
+    };
 
     use super::*;
 

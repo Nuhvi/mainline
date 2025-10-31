@@ -1,15 +1,20 @@
 use std::net::Ipv4Addr;
 
-use crate::rpc::DEFAULT_BOOTSTRAP_NODES;
+pub const DEFAULT_BOOTSTRAP_NODES: [&str; 4] = [
+    "router.bittorrent.com:6881",
+    "dht.transmissionbt.com:6881",
+    "dht.libtorrent.org:25401",
+    "relay.pkarr.org:6881",
+];
 
-use super::ServerSettings;
+use crate::ServerSettings;
 
 #[derive(Debug, Clone)]
 /// Dht Configurations
 pub struct Config {
     /// Bootstrap nodes
     ///
-    /// Defaults to [super::DEFAULT_BOOTSTRAP_NODES]
+    /// Defaults to [DEFAULT_BOOTSTRAP_NODES]
     pub bootstrap: Vec<String>,
     /// Explicit port to listen on.
     ///
