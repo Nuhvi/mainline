@@ -41,7 +41,7 @@ impl PutQuery {
         closest_nodes: &[Node],
     ) -> Result<(), PutError> {
         if self.started() {
-            panic!("should not call PutQuery::start() twice");
+            return Ok(());
         };
 
         let target = self.target;
@@ -51,11 +51,11 @@ impl PutQuery {
             Err(PutQueryError::NoClosestNodes)?;
         }
 
-        if closest_nodes.len() > u8::MAX as usize {
-            panic!("should not send PUT query to more than 256 nodes")
-        }
-
-        for node in closest_nodes.iter().chain(self.extra_nodes.iter()) {
+        for node in closest_nodes
+            .iter()
+            .take(u8::MAX as usize)
+            .chain(self.extra_nodes.iter())
+        {
             // Set correct values to the request placeholders
             if let Some(token) = node.token() {
                 let tid = socket.request(
