@@ -12,7 +12,7 @@ use crate::core::VERSION;
 
 use super::config::Config;
 
-const MTU: usize = 8192;
+const MTU: usize = 2048;
 
 pub const DEFAULT_PORT: u16 = 6881;
 
