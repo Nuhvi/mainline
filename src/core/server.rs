@@ -201,15 +201,15 @@ impl Server {
             RequestTypeSpecific::GetPeers(GetPeersRequestArguments { info_hash, .. }) => {
                 MessageType::Response(match self.peers.get_random_peers(&info_hash) {
                     Some(peers) => ResponseSpecific::GetPeers(GetPeersResponseArguments {
-                        responder_id: *signing_peers_routing_table.id(),
+                        responder_id: *routing_table.id(),
                         token: self.tokens.generate_token(from).into(),
-                        nodes: Some(signing_peers_routing_table.closest(info_hash)),
+                        nodes: Some(routing_table.closest(info_hash)),
                         values: peers,
                     }),
                     None => ResponseSpecific::NoValues(NoValuesResponseArguments {
-                        responder_id: *signing_peers_routing_table.id(),
+                        responder_id: *routing_table.id(),
                         token: self.tokens.generate_token(from).into(),
-                        nodes: Some(signing_peers_routing_table.closest(info_hash)),
+                        nodes: Some(routing_table.closest(info_hash)),
                     }),
                 })
             }
@@ -217,9 +217,9 @@ impl Server {
                 MessageType::Response(match self.signed_peers.get_random_peers(&info_hash) {
                     Some(peers) => {
                         ResponseSpecific::GetSignedPeers(GetSignedPeersResponseArguments {
-                            responder_id: *routing_table.id(),
+                            responder_id: *signing_peers_routing_table.id(),
                             token: self.tokens.generate_token(from).into(),
-                            nodes: Some(routing_table.closest(info_hash)),
+                            nodes: Some(signing_peers_routing_table.closest(info_hash)),
                             peers: peers
                                 .iter()
                                 .map(|p| (*p.key(), p.timestamp(), *p.signature()))
@@ -227,9 +227,9 @@ impl Server {
                         })
                     }
                     None => ResponseSpecific::NoValues(NoValuesResponseArguments {
-                        responder_id: *routing_table.id(),
+                        responder_id: *signing_peers_routing_table.id(),
                         token: self.tokens.generate_token(from).into(),
-                        nodes: Some(routing_table.closest(info_hash)),
+                        nodes: Some(signing_peers_routing_table.closest(info_hash)),
                     }),
                 })
             }
