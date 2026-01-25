@@ -41,7 +41,7 @@ impl SignedPeersStore {
     pub fn get_random_peers(&mut self, info_hash: &Id) -> Option<Vec<SignedAnnounce>> {
         if let Some(info_hash_lru) = self.info_hashes.get(info_hash) {
             let size = info_hash_lru.len();
-            let target_size = 20;
+            let target_size = 10;
 
             if size == 0 {
                 return None;
@@ -169,6 +169,6 @@ mod test {
 
         let sample = store.get_random_peers(&info_hash).unwrap();
 
-        assert_eq!(sample.len(), 20);
+        assert_eq!(sample.len(), 10);
     }
 }
