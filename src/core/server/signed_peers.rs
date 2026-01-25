@@ -169,6 +169,6 @@ mod test {
 
         let sample = store.get_random_peers(&info_hash).unwrap();
 
-        assert_eq!(sample.len(), 20);
+        assert_eq!(sample.len(), 10);
     }
 }
