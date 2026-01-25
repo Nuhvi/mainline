@@ -546,7 +546,7 @@ mod test {
     #[test]
     fn recv_request() {
         let mut server = KrpcSocket::server().unwrap();
-        let server_address = server.local_addr();
+        let server_address = SocketAddrV4::new([127, 0, 0, 1].into(), server.local_addr().port());
 
         let mut client = KrpcSocket::client().unwrap();
         client.inflight_requests.next_tid = 120;
@@ -587,7 +587,8 @@ mod test {
 
         let server_thread = thread::spawn(move || {
             let mut server = KrpcSocket::client().unwrap();
-            let server_address = server.local_addr();
+            let server_address =
+                SocketAddrV4::new([127, 0, 0, 1].into(), server.local_addr().port());
             tx.send(server_address).unwrap();
 
             server.inflight_requests.requests.push(InflightRequest {
