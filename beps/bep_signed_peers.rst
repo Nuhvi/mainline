@@ -6,7 +6,7 @@
 :Status: Draft
 :Type: Standards Track
 :Created: 24-Oct-2025
-:Post-History:
+:Post-History: 25-Jan-2026: Respond with max 10 instead of 20 peers.
 
 Abstract
 ========
@@ -94,6 +94,8 @@ each is encoded as a 104 bytes string with the following structure:
 - (64 bytes): Ed25519 signature
 
 The signature is computed over the concatenation of the infohash (20bytes) and timestamp (8 bytes) as described above.
+
+Because the signed announcements are 104 bytes, only ~10 of them can safely fit in an MTU.
 
 If the queried node has no signed peer announcements for the infohash,
 it should omit the ``peers`` key.
