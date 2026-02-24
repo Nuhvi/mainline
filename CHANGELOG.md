@@ -2,6 +2,12 @@
 
 All notable changes to mainline dht will be documented in this file.
 
+## Unpublished
+
+### Added
+
+- `DhtBuilder::build_async()`, `Dht::new_async()`, and `AsyncDht::new()` to avoid blocking on initial dns queries in async runtimes.
+
 ## [6.1.0](https://github.com/Nuhvi/mainline/compare/v6.0.0...v6.1.0) - 2025-10-28
 
 ### Fixed

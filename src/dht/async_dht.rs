@@ -33,6 +33,20 @@ impl Dht {
 pub struct AsyncDht(Dht);
 
 impl AsyncDht {
+    /// Create a [AsyncDht] node, without blocking on initial dns queries.
+    ///
+    /// Could return an error if it failed to bind to the specified
+    /// port or other io errors while binding the udp socket.
+    pub async fn new(config: crate::dht::Config) -> Result<Self, std::io::Error> {
+        let (sender, rx) = Dht::setup(config)?;
+
+        rx.recv_async()
+            .await
+            .expect("actor thread unexpectedly shutdown")?;
+
+        Ok(Dht(sender).as_async())
+    }
+
     /// Information and statistics about this [Dht] node.
     pub async fn info(&self) -> Info {
         let (tx, rx) = flume::bounded::<Info>(1);
@@ -324,7 +338,7 @@ impl AsyncDht {
     /// use dht::{Dht, MutableItem, SigningKey, Testnet};
     ///
     /// let testnet = Testnet::new(3).unwrap();
-    /// let dht = Dht::builder().bootstrap(&testnet.bootstrap).build().unwrap().as_async();
+    /// let dht = Dht::builder().bootstrap(&testnet.bootstrap).build_async().await.unwrap();
     ///
     /// let signing_key = SigningKey::from_bytes(&[0; 32]);
     /// let key = signing_key.verifying_key().to_bytes();
@@ -464,14 +478,14 @@ mod test {
 
             let a = Dht::builder()
                 .bootstrap(&testnet.bootstrap)
-                .build()
-                .unwrap()
-                .as_async();
+                .build_async()
+                .await
+                .unwrap();
             let b = Dht::builder()
                 .bootstrap(&testnet.bootstrap)
-                .build()
-                .unwrap()
-                .as_async();
+                .build_async()
+                .await
+                .unwrap();
 
             let info_hash = Id::random();
 
@@ -494,14 +508,14 @@ mod test {
 
             let a = Dht::builder()
                 .bootstrap(&testnet.bootstrap)
-                .build()
-                .unwrap()
-                .as_async();
+                .build_async()
+                .await
+                .unwrap();
             let b = Dht::builder()
                 .bootstrap(&testnet.bootstrap)
-                .build()
-                .unwrap()
-                .as_async();
+                .build_async()
+                .await
+                .unwrap();
 
             let value = b"Hello World!";
             let expected_target = Id::from_str("e5f96f6f38320f0f33959cb4d3d656452117aadb").unwrap();
@@ -523,14 +537,14 @@ mod test {
 
             let a = Dht::builder()
                 .bootstrap(&testnet.bootstrap)
-                .build()
-                .unwrap()
-                .as_async();
+                .build_async()
+                .await
+                .unwrap();
             let b = Dht::builder()
                 .bootstrap(&testnet.bootstrap)
-                .build()
-                .unwrap()
-                .as_async();
+                .build_async()
+                .await
+                .unwrap();
 
             let signer = SigningKey::from_bytes(&[
                 56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -563,14 +577,14 @@ mod test {
 
             let a = Dht::builder()
                 .bootstrap(&testnet.bootstrap)
-                .build()
-                .unwrap()
-                .as_async();
+                .build_async()
+                .await
+                .unwrap();
             let b = Dht::builder()
                 .bootstrap(&testnet.bootstrap)
-                .build()
-                .unwrap()
-                .as_async();
+                .build_async()
+                .await
+                .unwrap();
 
             let signer = SigningKey::from_bytes(&[
                 56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -602,9 +616,9 @@ mod test {
 
             let a = Dht::builder()
                 .bootstrap(&testnet.bootstrap)
-                .build()
-                .unwrap()
-                .as_async();
+                .build_async()
+                .await
+                .unwrap();
 
             let first = a.put_immutable(&[1, 2, 3]).await;
             let second = a.put_immutable(&[1, 2, 3]).await;
@@ -622,14 +636,14 @@ mod test {
 
             let a = Dht::builder()
                 .bootstrap(&testnet.bootstrap)
-                .build()
-                .unwrap()
-                .as_async();
+                .build_async()
+                .await
+                .unwrap();
             let b = Dht::builder()
                 .bootstrap(&testnet.bootstrap)
-                .build()
-                .unwrap()
-                .as_async();
+                .build_async()
+                .await
+                .unwrap();
 
             let signer = SigningKey::from_bytes(&[
                 56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -755,9 +769,9 @@ mod test {
 
             let dht = Dht::builder()
                 .bootstrap(&testnet.bootstrap)
-                .build()
-                .unwrap()
-                .as_async();
+                .build_async()
+                .await
+                .unwrap();
 
             let signer = SigningKey::from_bytes(&[
                 56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -804,9 +818,9 @@ mod test {
 
             let dht = Dht::builder()
                 .bootstrap(&testnet.bootstrap)
-                .build()
-                .unwrap()
-                .as_async();
+                .build_async()
+                .await
+                .unwrap();
 
             let signer = SigningKey::from_bytes(&[
                 56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -835,9 +849,9 @@ mod test {
 
             let client = Dht::builder()
                 .bootstrap(&testnet.bootstrap)
-                .build()
-                .unwrap()
-                .as_async();
+                .build_async()
+                .await
+                .unwrap();
 
             assert!(client.bootstrapped().await);
         }
@@ -852,14 +866,14 @@ mod test {
 
             let a = Dht::builder()
                 .bootstrap(&testnet.bootstrap)
-                .build()
-                .unwrap()
-                .as_async();
+                .build_async()
+                .await
+                .unwrap();
             let b = Dht::builder()
                 .bootstrap(&testnet.bootstrap)
-                .build()
-                .unwrap()
-                .as_async();
+                .build_async()
+                .await
+                .unwrap();
 
             let info_hash = Id::random();
 

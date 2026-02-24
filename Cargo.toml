@@ -43,7 +43,7 @@ colored = "3.0.0"
 chrono = "0.4"
 
 [features]
-## Enable [Dht::as_async()].
+## Enable [DhtBuilder::build_async()], [Dht::new_async()], and [Dht::as_async()].
 async = ["flume/async", "dep:futures-lite"]
 
 full = ["async"]

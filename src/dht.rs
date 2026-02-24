@@ -6,7 +6,7 @@ use std::{
 };
 
 use ed25519_dalek::SigningKey;
-use flume::Sender;
+use flume::{Receiver, Sender};
 
 use crate::{
     actor::{config::Config, ActorMessage, Info, ResponseSender},
@@ -25,6 +25,9 @@ pub mod async_dht;
 mod testnet;
 
 pub use testnet::Testnet;
+
+#[cfg(feature = "async")]
+use async_dht::AsyncDht;
 
 #[derive(Debug, Clone)]
 /// Mainline Dht node.
@@ -102,9 +105,15 @@ impl DhtBuilder {
         self
     }
 
-    /// Create a Dht node.
+    /// Create a [Dht] node.
     pub fn build(&self) -> Result<Dht, std::io::Error> {
         Dht::new(self.0.clone())
+    }
+
+    /// Create a [AsyncDht] node, without blocking on initial dns queries.
+    #[cfg(feature = "async")]
+    pub async fn build_async(&self) -> Result<AsyncDht, std::io::Error> {
+        AsyncDht::new(self.0.clone()).await
     }
 }
 
@@ -114,6 +123,25 @@ impl Dht {
     /// Could return an error if it failed to bind to the specified
     /// port or other io errors while binding the udp socket.
     pub fn new(config: Config) -> Result<Self, std::io::Error> {
+        let (sender, rx) = Dht::setup(config)?;
+        rx.recv().expect("actor thread unexpectedly shutdown")?;
+
+        Ok(Dht(sender))
+    }
+
+    /// Create a new [AsyncDht] node, without blocking on initial dns queries.
+    ///
+    /// Could return an error if it failed to bind to the specified
+    /// port or other io errors while binding the udp socket.
+    #[cfg(feature = "async")]
+    pub async fn new_async(config: Config) -> Result<AsyncDht, std::io::Error> {
+        AsyncDht::new(config).await
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn setup(
+        config: Config,
+    ) -> Result<(Sender<ActorMessage>, Receiver<Result<(), std::io::Error>>), std::io::Error> {
         let (sender, receiver) = flume::unbounded();
 
         thread::Builder::new()
@@ -126,9 +154,7 @@ impl Dht {
             .send(ActorMessage::Check(tx))
             .expect("actor thread unexpectedly shutdown");
 
-        rx.recv().expect("actor thread unexpectedly shutdown")?;
-
-        Ok(Dht(sender))
+        Ok((sender, rx))
     }
 
     /// Returns a builder to edit settings before creating a Dht node.
