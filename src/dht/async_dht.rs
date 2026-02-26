@@ -47,6 +47,11 @@ impl AsyncDht {
         Ok(Dht(sender).as_async())
     }
 
+    /// Returns a reference to the inner synchronous [Dht] .
+    pub fn as_sync(&self) -> &Dht {
+        &self.0
+    }
+
     /// Information and statistics about this [Dht] node.
     pub async fn info(&self) -> Info {
         let (tx, rx) = flume::bounded::<Info>(1);
