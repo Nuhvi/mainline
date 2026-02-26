@@ -1,6 +1,6 @@
 [package]
 name = "dht"
-version = "6.3.0"
+version = "6.4.0"
 authors = ["nuh.dev"]
 edition = "2021"
 description = "Simple, robust, BitTorrent's Mainline DHT implementation"
