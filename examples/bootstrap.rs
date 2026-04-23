@@ -9,7 +9,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let client = Dht::server().await?;
+    let client = Dht::server()?;
 
     client.bootstrapped().await?;
 
@@ -17,10 +17,7 @@ async fn main() -> anyhow::Result<()> {
 
     println!("{info:?}");
 
-    let client = Dht::builder()
-        .bootstrap(&[info.local_addr()])
-        .build()
-        .await?;
+    let client = Dht::builder().bootstrap(&[info.local_addr()]).build()?;
 
     client.bootstrapped().await?;
 

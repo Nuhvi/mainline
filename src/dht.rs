@@ -122,32 +122,24 @@ impl DhtBuilder {
     }
 
     /// Create a [Dht] node.
-    pub async fn build(&self) -> io::Result<Dht> {
-        Dht::new(self.0.clone()).await
+    ///
+    /// Must be called from within a Tokio runtime context, since the UDP socket is
+    /// registered with the Tokio reactor during construction.
+    pub fn build(&self) -> io::Result<Dht> {
+        Dht::new(self.0.clone())
     }
 }
 
 impl Dht {
     /// Create a new Dht node.
     ///
-    /// Could return an error if it failed to bind to the specified
-    /// port or other io errors while binding the udp socket.
-    pub async fn new(config: Config) -> io::Result<Self> {
+    /// Binds the UDP socket synchronously, so any bind error is surfaced immediately.
+    /// Must be called from within a Tokio runtime context: the socket is registered
+    /// with the Tokio reactor here, and the actor loop is spawned as a background task.
+    pub fn new(config: Config) -> io::Result<Self> {
+        let actor = crate::actor::Actor::new(config)?;
         let (sender, receiver) = mpsc::channel(ACTOR_INBOX_CAPACITY);
-
-        let (check_tx, check_rx) = oneshot::channel();
-        // The receiver is still owned locally, so this send cannot fail.
-        sender
-            .send(ActorMessage::Check(check_tx))
-            .await
-            .expect("receiver alive until spawn");
-
-        tokio::spawn(crate::actor::run(config, receiver));
-
-        check_rx
-            .await
-            .map_err(|_| io::Error::other("DHT actor task did not respond during init"))??;
-
+        tokio::spawn(crate::actor::run(actor, receiver));
         Ok(Dht(sender))
     }
 
@@ -157,8 +149,8 @@ impl Dht {
     }
 
     /// Create a new DHT client with default bootstrap nodes.
-    pub async fn client() -> io::Result<Self> {
-        Dht::builder().build().await
+    pub fn client() -> io::Result<Self> {
+        Dht::builder().build()
     }
 
     /// Create a new DHT node that is running in [Server mode][DhtBuilder::server_mode] as
@@ -170,8 +162,8 @@ impl Dht {
     ///
     /// If you are not sure, use [Self::client] and it will switch
     /// to server mode when/if these two conditions are met.
-    pub async fn server() -> io::Result<Self> {
-        Dht::builder().server_mode().build().await
+    pub fn server() -> io::Result<Self> {
+        Dht::builder().server_mode().build()
     }
 
     // === Getters ===
@@ -462,7 +454,7 @@ impl Dht {
     /// use dht::{Dht, MutableItem, SigningKey, Testnet};
     ///
     /// let testnet = Testnet::new(3).await.unwrap();
-    /// let dht = Dht::builder().bootstrap(&testnet.bootstrap).build().await.unwrap();
+    /// let dht = Dht::builder().bootstrap(&testnet.bootstrap).build().unwrap();
     ///
     /// let secret_key = SigningKey::from_bytes(&[0; 32]);
     /// let key = secret_key.verifying_key().to_bytes();
@@ -630,7 +622,7 @@ mod test {
             .with_env_filter("debug")
             .try_init();
 
-        let dht = Dht::client().await.unwrap();
+        let dht = Dht::client().unwrap();
 
         let signer = SigningKey::from_bytes(&rand::random());
         let key = *signer.verifying_key().as_bytes();
@@ -654,12 +646,11 @@ mod test {
 
     #[tokio::test]
     async fn bind_twice() {
-        let a = Dht::client().await.unwrap();
+        let a = Dht::client().unwrap();
         let result = Dht::builder()
             .port(a.info().await.unwrap().local_addr().port())
             .server_mode()
-            .build()
-            .await;
+            .build();
 
         assert!(result.is_err());
     }
@@ -671,12 +662,10 @@ mod test {
         let a = Dht::builder()
             .bootstrap(&testnet.bootstrap)
             .build()
-            .await
             .unwrap();
         let b = Dht::builder()
             .bootstrap(&testnet.bootstrap)
             .build()
-            .await
             .unwrap();
 
         let info_hash = Id::random();
@@ -703,12 +692,10 @@ mod test {
         let a = Dht::builder()
             .bootstrap(&testnet.bootstrap)
             .build()
-            .await
             .unwrap();
         let b = Dht::builder()
             .bootstrap(&testnet.bootstrap)
             .build()
-            .await
             .unwrap();
 
         let value = b"Hello World!";
@@ -724,14 +711,14 @@ mod test {
 
     #[tokio::test]
     async fn find_node_no_values() {
-        let client = Dht::builder().no_bootstrap().build().await.unwrap();
+        let client = Dht::builder().no_bootstrap().build().unwrap();
 
         client.find_node(Id::random()).await.unwrap();
     }
 
     #[tokio::test]
     async fn put_get_immutable_no_values() {
-        let client = Dht::builder().no_bootstrap().build().await.unwrap();
+        let client = Dht::builder().no_bootstrap().build().unwrap();
 
         assert_eq!(client.get_immutable(Id::random()).await.unwrap(), None);
     }
@@ -743,12 +730,10 @@ mod test {
         let a = Dht::builder()
             .bootstrap(&testnet.bootstrap)
             .build()
-            .await
             .unwrap();
         let b = Dht::builder()
             .bootstrap(&testnet.bootstrap)
             .build()
-            .await
             .unwrap();
 
         let signer = SigningKey::from_bytes(&[
@@ -781,12 +766,10 @@ mod test {
         let a = Dht::builder()
             .bootstrap(&testnet.bootstrap)
             .build()
-            .await
             .unwrap();
         let b = Dht::builder()
             .bootstrap(&testnet.bootstrap)
             .build()
-            .await
             .unwrap();
 
         let signer = SigningKey::from_bytes(&[
@@ -818,7 +801,6 @@ mod test {
         let a = Dht::builder()
             .bootstrap(&testnet.bootstrap)
             .build()
-            .await
             .unwrap();
 
         let id = a.put_immutable(&[1, 2, 3]).await.unwrap();
@@ -833,12 +815,10 @@ mod test {
         let a = Dht::builder()
             .bootstrap(&testnet.bootstrap)
             .build()
-            .await
             .unwrap();
         let b = Dht::builder()
             .bootstrap(&testnet.bootstrap)
             .build()
-            .await
             .unwrap();
 
         let signer = SigningKey::from_bytes(&[
@@ -880,7 +860,6 @@ mod test {
         let client = Dht::builder()
             .bootstrap(&testnet.bootstrap)
             .build()
-            .await
             .unwrap();
 
         let signer = SigningKey::from_bytes(&[
@@ -928,7 +907,6 @@ mod test {
         let client = Dht::builder()
             .bootstrap(&testnet.bootstrap)
             .build()
-            .await
             .unwrap();
 
         let signer = SigningKey::from_bytes(&[
@@ -958,7 +936,6 @@ mod test {
         let client = Dht::builder()
             .bootstrap(&testnet.bootstrap)
             .build()
-            .await
             .unwrap();
 
         let signer = SigningKey::from_bytes(&[
@@ -997,7 +974,6 @@ mod test {
         let client = Dht::builder()
             .bootstrap(&testnet.bootstrap)
             .build()
-            .await
             .unwrap();
 
         assert!(client.bootstrapped().await.unwrap());
@@ -1011,12 +987,10 @@ mod test {
         let a = Dht::builder()
             .bootstrap(&testnet.bootstrap)
             .build()
-            .await
             .unwrap();
         let b = Dht::builder()
             .bootstrap(&testnet.bootstrap)
             .build()
-            .await
             .unwrap();
 
         let info_hash = Id::random();
@@ -1084,7 +1058,6 @@ mod test {
                 .bootstrap(&testnet_legacy.bootstrap)
                 .disable_signed_peers()
                 .build()
-                .await
                 .unwrap();
             assert!(
                 a.announce_signed_peer(info_hash, &signers[0])
@@ -1104,8 +1077,8 @@ mod test {
 
             let bootstrap = testnet_new.bootstrap;
 
-            let a = Dht::builder().bootstrap(&bootstrap).build().await.unwrap();
-            let b = Dht::builder().bootstrap(&bootstrap).build().await.unwrap();
+            let a = Dht::builder().bootstrap(&bootstrap).build().unwrap();
+            let b = Dht::builder().bootstrap(&bootstrap).build().unwrap();
 
             for signer in &signers {
                 a.announce_signed_peer(info_hash, signer)

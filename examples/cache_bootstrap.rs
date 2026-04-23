@@ -28,7 +28,7 @@ async fn main() -> anyhow::Result<()> {
     // this way you don't rely on default bootstrap nodes.
     builder.extra_bootstrap(&cached_nodes);
 
-    let client = builder.build().await?;
+    let client = builder.build()?;
 
     client.bootstrapped().await?;
 

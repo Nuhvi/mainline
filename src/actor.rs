@@ -19,14 +19,13 @@ use crate::core::{
     Core, PutError, Response, iterative_query::GetRequestSpecific, put_query::PutQuery,
 };
 
-use config::Config;
 use socket::KrpcSocket;
 
 pub use info::Info;
 
 #[derive(Debug)]
 /// Internal Rpc called in the Dht thread loop, useful to create your own actor setup.
-struct Actor {
+pub(crate) struct Actor {
     pub(crate) socket: KrpcSocket,
     core: Core,
 
@@ -36,14 +35,14 @@ struct Actor {
 
 impl Actor {
     /// Create a new actor
-    async fn new(config: config::Config) -> io::Result<Self> {
+    pub(crate) fn new(config: config::Config) -> io::Result<Self> {
         let id = if let Some(ip) = config.public_ip {
             Id::from_ip(ip.into())
         } else {
             Id::random()
         };
 
-        let socket = KrpcSocket::new(&config).await?;
+        let socket = KrpcSocket::new(&config)?;
         let bootstrap = config
             .bootstrap
             .iter()
@@ -391,83 +390,74 @@ impl Actor {
     }
 }
 
-/// Async event loop for the actor.
-pub(crate) async fn run(config: Config, mut receiver: mpsc::Receiver<ActorMessage>) {
-    match Actor::new(config).await {
-        Ok(mut actor) => {
-            // Maintenance interval
-            let mut maintenance = tokio::time::interval(Duration::from_secs(1));
-            maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+/// Async event loop driving an already-built [`Actor`].
+///
+/// [`Dht::new`] builds the actor synchronously (so bind errors surface immediately
+/// on the caller) and hands it off here to run in a spawned task.
+pub(crate) async fn run(mut actor: Actor, mut receiver: mpsc::Receiver<ActorMessage>) {
+    // Maintenance interval
+    let mut maintenance = tokio::time::interval(Duration::from_secs(1));
+    maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-            loop {
-                // Flush any queued outgoing packets
-                actor.socket.flush().await;
+    loop {
+        // Flush any queued outgoing packets
+        actor.socket.flush().await;
 
-                tokio::select! {
-                    msg = receiver.recv() => {
-                        match msg {
-                            Some(actor_message) => match actor_message {
-                                ActorMessage::Check(sender) => {
-                                    let _ = sender.send(Ok(()));
-                                }
-                                ActorMessage::Info(sender) => {
-                                    let _ = sender.send(actor.info());
-                                }
-                                ActorMessage::Put(request, sender, extra_nodes) => {
-                                    let target = *request.target();
+        tokio::select! {
+            msg = receiver.recv() => {
+                match msg {
+                    Some(actor_message) => match actor_message {
+                        ActorMessage::Info(sender) => {
+                            let _ = sender.send(actor.info());
+                        }
+                        ActorMessage::Put(request, sender, extra_nodes) => {
+                            let target = *request.target();
 
-                                    match actor.put(request, extra_nodes) {
-                                        Ok(()) => {
-                                            let senders = actor.put_senders.entry(target).or_default();
-                                            senders.push(sender);
-                                        }
-                                        Err(error) => {
-                                            let _ = sender.send(Err(error));
-                                        }
-                                    };
-                                }
-                                ActorMessage::Get(request, mut sender) => {
-                                    let target = request.target();
-
-                                    let responses = actor.get(request, None);
-                                    for response in responses {
-                                        send(&mut sender, response);
-                                    }
-
-                                    let senders = actor.get_senders.entry(target).or_default();
+                            match actor.put(request, extra_nodes) {
+                                Ok(()) => {
+                                    let senders = actor.put_senders.entry(target).or_default();
                                     senders.push(sender);
                                 }
-                                ActorMessage::ToBootstrap(sender) => {
-                                    let _ = sender.send(actor.to_bootstrap());
+                                Err(error) => {
+                                    let _ = sender.send(Err(error));
                                 }
-                            },
-                            None => {
-                                // All senders dropped, shutdown.
-                                debug!("dht::Dht's actor task was shutdown after Drop.");
-                                break;
+                            };
+                        }
+                        ActorMessage::Get(request, mut sender) => {
+                            let target = request.target();
+
+                            let responses = actor.get(request, None);
+                            for response in responses {
+                                send(&mut sender, response);
                             }
+
+                            let senders = actor.get_senders.entry(target).or_default();
+                            senders.push(sender);
                         }
-                    }
-                    packet = actor.socket.recv_from() => {
-                        if let Some((message, from)) = packet {
-                            actor.process_message(message, from);
+                        ActorMessage::ToBootstrap(sender) => {
+                            let _ = sender.send(actor.to_bootstrap());
                         }
-                    }
-                    _ = maintenance.tick() => {
-                        // Wake the loop so actor.tick() runs even when idle,
-                        // ensuring routing table refresh and node pings happen on schedule.
+                    },
+                    None => {
+                        // All senders dropped, shutdown.
+                        debug!("dht::Dht's actor task was shutdown after Drop.");
+                        break;
                     }
                 }
+            }
+            packet = actor.socket.recv_from() => {
+                if let Some((message, from)) = packet {
+                    actor.process_message(message, from);
+                }
+            }
+            _ = maintenance.tick() => {
+                // Wake the loop so actor.tick() runs even when idle,
+                // ensuring routing table refresh and node pings happen on schedule.
+            }
+        }
 
-                actor.tick();
-            }
-        }
-        Err(err) => {
-            if let Some(ActorMessage::Check(sender)) = receiver.recv().await {
-                let _ = sender.send(Err(err));
-            }
-        }
-    };
+        actor.tick();
+    }
 }
 
 fn send(sender: &mut ResponseSender, response: Response) {
@@ -499,7 +489,6 @@ pub(crate) enum ActorMessage {
         Option<Box<[Node]>>,
     ),
     Get(GetRequestSpecific, ResponseSender),
-    Check(oneshot::Sender<io::Result<()>>),
     ToBootstrap(oneshot::Sender<Vec<String>>),
 }
 

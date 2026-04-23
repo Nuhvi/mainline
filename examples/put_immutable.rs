@@ -22,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
 
-    let dht = Dht::client().await?;
+    let dht = Dht::client()?;
     let value = cli.value.as_bytes();
 
     println!("\nStoring immutable data: {} ...\n", cli.value);

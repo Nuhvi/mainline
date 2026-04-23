@@ -28,8 +28,7 @@ async fn main() -> anyhow::Result<()> {
             filter: Box::new(Filter),
             ..Default::default()
         })
-        .build()
-        .await?;
+        .build()?;
 
     client.bootstrapped().await?;
 

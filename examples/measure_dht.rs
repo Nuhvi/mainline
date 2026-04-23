@@ -9,7 +9,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let dht = Dht::client().await?;
+    let dht = Dht::client()?;
 
     println!("Calculating Dht size by sampling random lookup queries..",);
 

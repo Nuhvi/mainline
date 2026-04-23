@@ -132,7 +132,7 @@ pub struct KrpcSocket {
 }
 
 impl KrpcSocket {
-    pub(crate) async fn new(config: &Config) -> io::Result<Self> {
+    pub(crate) fn new(config: &Config) -> io::Result<Self> {
         let port = config.port;
 
         let io = if let Some(port) = port {
@@ -166,17 +166,16 @@ impl KrpcSocket {
     }
 
     #[cfg(test)]
-    pub(crate) async fn server() -> io::Result<Self> {
+    pub(crate) fn server() -> io::Result<Self> {
         Self::new(&Config {
             server_mode: true,
             ..Default::default()
         })
-        .await
     }
 
     #[cfg(test)]
-    pub(crate) async fn client() -> io::Result<Self> {
-        Self::new(&Config::default()).await
+    pub(crate) fn client() -> io::Result<Self> {
+        Self::new(&Config::default())
     }
 
     // === Getters ===
@@ -599,7 +598,7 @@ mod test {
 
     #[tokio::test]
     async fn tid() {
-        let socket = KrpcSocket::server().await.unwrap();
+        let socket = KrpcSocket::server().unwrap();
 
         let mut requests = socket.inflight_requests;
         assert_eq!(requests.tid(), 0);
@@ -614,10 +613,10 @@ mod test {
 
     #[tokio::test]
     async fn recv_request() {
-        let mut server = KrpcSocket::server().await.unwrap();
+        let mut server = KrpcSocket::server().unwrap();
         let server_address = SocketAddrV4::new([127, 0, 0, 1].into(), server.local_addr().port());
 
-        let mut client = KrpcSocket::client().await.unwrap();
+        let mut client = KrpcSocket::client().unwrap();
         client.inflight_requests.next_tid = 120;
 
         let client_address = client.local_addr();
@@ -646,10 +645,10 @@ mod test {
 
     #[tokio::test]
     async fn recv_response() {
-        let mut client = KrpcSocket::client().await.unwrap();
+        let mut client = KrpcSocket::client().unwrap();
         let client_address = client.local_addr();
 
-        let mut server = KrpcSocket::client().await.unwrap();
+        let mut server = KrpcSocket::client().unwrap();
         let server_address = SocketAddrV4::new([127, 0, 0, 1].into(), server.local_addr().port());
 
         let responder_id = Id::random();
@@ -684,10 +683,10 @@ mod test {
 
     #[tokio::test]
     async fn ignore_response_from_wrong_address() {
-        let mut server = KrpcSocket::client().await.unwrap();
+        let mut server = KrpcSocket::client().unwrap();
         let server_address = server.local_addr();
 
-        let mut client = KrpcSocket::client().await.unwrap();
+        let mut client = KrpcSocket::client().unwrap();
 
         let client_address = client.local_addr();
 
@@ -715,7 +714,7 @@ mod test {
 
     #[tokio::test]
     async fn inflight_request_timeout() {
-        let mut server = KrpcSocket::client().await.unwrap();
+        let mut server = KrpcSocket::client().unwrap();
 
         let tid = 8;
         let sent_at = Instant::now();

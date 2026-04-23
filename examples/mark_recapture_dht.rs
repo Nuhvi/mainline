@@ -104,7 +104,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Initialize the DHT client.
-    let dht = Dht::client().await?;
+    let dht = Dht::client()?;
 
     // Collect samples from the DHT.
     let (marked_sample, recapture_sample) =

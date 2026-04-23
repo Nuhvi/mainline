@@ -24,7 +24,7 @@ async fn main() -> anyhow::Result<()> {
 
     let info_hash = Id::from_str(cli.infohash.as_str())?;
 
-    let dht = Dht::client().await?;
+    let dht = Dht::client()?;
 
     println!("\nAnnouncing peer on an infohash: {} ...\n", cli.infohash);
 

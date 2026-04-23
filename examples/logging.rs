@@ -523,7 +523,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     // Configure and start the DHT node in server mode
-    let dht = Dht::builder().server_mode().build().await?;
+    let dht = Dht::builder().server_mode().build()?;
 
     DhtLogger::info("DHT server node is running! Press Ctrl+C to stop.");
     // Wait for bootstrap to complete

@@ -24,7 +24,7 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
 
-    let dht = Dht::client().await?;
+    let dht = Dht::client()?;
 
     let secret_bytes: [u8; 32] = hex::decode(&cli.secret_key)?
         .try_into()

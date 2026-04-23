@@ -30,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
     // you can't or don't want to connect to by accident.
     let info_hash = Id::from_str(cli.infohash.as_str())?;
 
-    let dht = Dht::client().await?;
+    let dht = Dht::client()?;
 
     let secret_bytes: [u8; 32] = hex::decode(&cli.secret_key)?
         .try_into()
