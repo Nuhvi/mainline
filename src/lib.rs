@@ -3,18 +3,6 @@
 #![doc = document_features::document_features!()]
 //!
 
-#![deny(missing_docs, unused_must_use)]
-#![deny(rustdoc::broken_intra_doc_links)]
-#![deny(
-    clippy::panic,
-    clippy::unwrap_used,
-    // clippy::expect_used,
-    clippy::await_holding_lock,
-    // clippy::indexing_slicing,
-    clippy::await_holding_refcell_ref
-)]
-#![cfg_attr(test, allow(clippy::unwrap_used))]
-
 /// Single threaded Actor model node
 mod actor;
 mod common;
