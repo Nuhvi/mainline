@@ -8,6 +8,10 @@ All notable changes to mainline dht will be documented in this file.
 
 - `AsyncDht::as_sync()` to get a reference to the inner synchronous `Dht`.
 
+## Fixed
+
+- security issues in BEP 44 mutable message handling.
+
 ## [6.3.0](https://github.com/Nuhvi/mainline/compare/v6.0.0...v6.1.0) - 2026-02-26
 
 ### Added
