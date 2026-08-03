@@ -1259,4 +1259,35 @@ mod tests {
         let parsed_msg = Message::from_serde_message(parsed_serde_msg).unwrap();
         assert_eq!(parsed_msg, original_msg);
     }
+
+    /// A `put` query with a public key `k` but no `seq`/`sig` (an unsolicited,
+    /// signature-less packet) used to panic in `Message::from_bytes` on the
+    /// `Option::expect` for the missing `seq`, killing the DHT actor thread
+    /// (see the mainline "one packet DoS" PoC). Decoding must instead return
+    /// an error.
+    #[test]
+    fn test_put_with_key_but_no_seq_does_not_panic() {
+        let msg = internal::DHTMessage {
+            transaction_id: vec![0, 0, 0, 0],
+            version: None,
+            variant: internal::DHTMessageVariant::Request(internal::DHTRequestSpecific::PutValue {
+                arguments: internal::DHTPutValueRequestArguments {
+                    id: [1; 20],
+                    target: [0x11; 20],
+                    token: (*b"ZZZZ").into(),
+                    v: (*b"hi").into(),
+                    k: Some([0x33; 32]),
+                    sig: None,
+                    seq: None,
+                    cas: None,
+                    salt: None,
+                },
+            }),
+            ip: None,
+            read_only: None,
+        };
+
+        let bytes = msg.to_bytes().unwrap();
+        assert!(Message::from_bytes(&bytes).is_err());
+    }
 }
