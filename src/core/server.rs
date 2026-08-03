@@ -454,7 +454,7 @@ impl Server {
 
                     match MutableItem::from_dht_message(target, &k, v, seq, &sig, salt) {
                         Ok(item) => {
-                            self.mutable_values.put(target, item);
+                            self.mutable_values.put(*item.target(), item);
 
                             MessageType::Response(ResponseSpecific::Ping(PingResponseArguments {
                                 responder_id: *routing_table.id(),

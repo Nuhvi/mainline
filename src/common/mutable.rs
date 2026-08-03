@@ -93,6 +93,11 @@ impl MutableItem {
         key.verify(&encode_signable(seq, &v, salt.as_deref()), &signature)
             .map_err(|_| MutableError::InvalidMutableSignature)?;
 
+        let derived = MutableItem::target_from_key(&key.to_bytes(), salt.as_deref());
+        if derived != target {
+            return Err(MutableError::TargetMismatch);
+        }
+
         Ok(Self {
             target,
             key: key.to_bytes(),
@@ -161,6 +166,10 @@ pub enum MutableError {
     #[error("Invalid mutable item public key")]
     /// Invalid mutable item public key
     InvalidMutablePublicKey,
+
+    #[error("Mutable item target does not match its public key")]
+    /// The item's target is not `sha1(k[+salt])` of its public key
+    TargetMismatch,
 }
 
 impl PutMutableRequestArguments {
