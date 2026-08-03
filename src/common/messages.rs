@@ -548,6 +548,11 @@ impl Message {
                         }
                         internal::DHTRequestSpecific::PutValue { arguments } => {
                             if let Some(k) = arguments.k {
+                                let (Some(seq), Some(sig)) = (arguments.seq, arguments.sig) else {
+                                    return Err(
+                                        DecodeMessageError::MissingMutablePutSequenceOrSignature,
+                                    );
+                                };
                                 RequestSpecific {
                                     requester_id: Id::from_bytes(arguments.id)?,
 
@@ -558,12 +563,8 @@ impl Message {
                                                 target: Id::from_bytes(arguments.target)?,
                                                 v: arguments.v,
                                                 k,
-                                                seq: arguments.seq.expect(
-                                                    "Put mutable message to have sequence number",
-                                                ),
-                                                sig: arguments.sig.expect(
-                                                    "Put mutable message to have a signature",
-                                                ),
+                                                seq,
+                                                sig,
                                                 salt: arguments.salt,
                                                 cas: arguments.cas,
                                             },
@@ -923,6 +924,9 @@ pub enum DecodeMessageError {
 
     #[error("Wrong number of bytes for signed peers")]
     InvalidSignedPeersEncodingLength,
+
+    #[error("Mutable put message must have a sequence number and a signature")]
+    MissingMutablePutSequenceOrSignature,
 }
 
 #[cfg(test)]
