@@ -238,7 +238,7 @@ impl Message {
     fn into_serde_message(self) -> internal::DHTMessage {
         internal::DHTMessage {
             transaction_id: self.transaction_id.to_be_bytes().to_vec(),
-            version: self.version,
+            version: self.version.map(|v| v.to_vec()),
             ip: self
                 .requester_ip
                 .map(|sockaddr| sockaddr_to_bytes(&sockaddr)),
@@ -463,7 +463,12 @@ impl Message {
                 [a, b, c, d] => u32::from_be_bytes([a, b, c, d]),
                 _ => return Err(DecodeMessageError::InvalidTransactionIdSize),
             },
-            version: msg.version,
+            // the version string is opaque and may be any length; decode it
+            // regardless of length (a non-4-byte version must not drop the
+            // whole message) and keep the 4-byte form used internally.
+            version: msg
+                .version
+                .and_then(|v| <[u8; 4]>::try_from(v.as_slice()).ok()),
             requester_ip: match msg.ip {
                 Some(ip) => Some(bytes_to_sockaddr(ip)?),
                 _ => None,
