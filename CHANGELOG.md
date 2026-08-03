@@ -2,23 +2,25 @@
 
 All notable changes to mainline dht will be documented in this file.
 
-## Unpublished 
-
-## Added
-
-- `AsyncDht::as_sync()` to get a reference to the inner synchronous `Dht`.
+## [6.3.0](https://github.com/Nuhvi/mainline/compare/v6.4.0...v6.4.1) - 2026-08-03
 
 ## Fixed
 
 - security issues in BEP 44 mutable message handling.
 
-## [6.3.0](https://github.com/Nuhvi/mainline/compare/v6.0.0...v6.1.0) - 2026-02-26
+## [6.3.0](https://github.com/Nuhvi/mainline/compare/v6.3.0...v6.4.0) - 2026-02-26
+
+## Added
+
+- `AsyncDht::as_sync()` to get a reference to the inner synchronous `Dht`.
+
+## [6.3.0](https://github.com/Nuhvi/mainline/compare/v6.2.0...v6.3.0) - 2026-02-26
 
 ### Added
 
 - `DhtBuilder::build_async()`, `Dht::new_async()`, and `AsyncDht::new()` to avoid blocking on initial dns queries in async runtimes.
 
-## [6.2.0](https://github.com/Nuhvi/mainline/compare/v6.0.0...v6.1.0) - 2025-01-25
+## [6.2.0](https://github.com/Nuhvi/mainline/compare/v6.1.0...v6.2.0) - 2025-01-25
 
 ### Fixed
 
