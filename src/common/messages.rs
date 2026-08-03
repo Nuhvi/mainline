@@ -978,6 +978,29 @@ mod tests {
     }
 
     #[test]
+    fn test_version_of_any_length() {
+        let original_msg = Message {
+            transaction_id: 258,
+            version: None,
+            requester_ip: None,
+            read_only: false,
+            message_type: MessageType::Request(RequestSpecific {
+                requester_id: Id::random(),
+                request_type: RequestTypeSpecific::Ping,
+            }),
+        };
+
+        // an opaque version string that is not 4 bytes must not drop the message
+        let mut serde_msg = original_msg.into_serde_message();
+        serde_msg.version = Some(vec![0x62, 0x61]);
+
+        let bytes = serde_msg.to_bytes().unwrap();
+        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes).unwrap();
+        let parsed_msg = Message::from_serde_message(parsed_serde_msg).unwrap();
+        assert_eq!(parsed_msg.version, None);
+    }
+
+    #[test]
     fn test_find_node_request() {
         let original_msg = Message {
             transaction_id: 258,
