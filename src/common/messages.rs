@@ -1266,9 +1266,10 @@ mod tests {
 
     /// A `put` query with a public key `k` but no `seq`/`sig` (an unsolicited,
     /// signature-less packet) used to panic in `Message::from_bytes` on the
-    /// `Option::expect` for the missing `seq`, killing the DHT actor thread
-    /// (see the mainline "one packet DoS" PoC). Decoding must instead return
-    /// an error.
+    /// `Option::expect` for the missing `seq`, killing the DHT actor thread.
+    /// Decoding must instead return an error.
+    ///
+    /// Thanks to daniel@makrotopia.org for disclosure.
     #[test]
     fn test_put_with_key_but_no_seq_does_not_panic() {
         let msg = internal::DHTMessage {

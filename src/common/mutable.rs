@@ -209,4 +209,35 @@ mod tests {
 
         assert_eq!(&*signable, b"4:salt6:foobar3:seqi4e1:v12:Hello world!");
     }
+
+    /// A mutable item must be bound to its key: BEP 44 defines
+    /// `target = sha1(k[+salt])`, so an item signed by key `K` may only be
+    /// stored/served at `target_from_key(K, salt)`. we used to accept an
+    /// item at any target as long as its signature verified against its own
+    /// `k`, letting an attacker substitute a record they signed with their own
+    /// key at a victim's target (see the mainline "record substitution" PoC).
+    ///
+    /// Thanks to daniel@makrotopia.org for disclosure.
+    #[test]
+    fn mutable_item_must_be_bound_to_its_key() {
+        let attacker = SigningKey::from_bytes(&[0xa1; 32]);
+        let victim = SigningKey::from_bytes(&[0xff; 32]);
+        let victim_target = MutableItem::target_from_key(&victim.verifying_key().to_bytes(), None);
+
+        let value = b"ATTACKER-CONTROLLED RECORD";
+        let seq = 1;
+        let signable = encode_signable(seq, value, None);
+        let signature: [u8; 64] = attacker.sign(&signable).into();
+
+        let result = MutableItem::from_dht_message(
+            victim_target,
+            &attacker.verifying_key().to_bytes(),
+            value.to_vec().into(),
+            seq,
+            &signature,
+            None,
+        );
+
+        assert!(result.is_err());
+    }
 }
