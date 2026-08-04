@@ -356,7 +356,7 @@ impl Dht {
 
     /// Get an Immutable data by its sha1 hash.
     pub fn get_immutable(&self, target: Id) -> Option<Box<[u8]>> {
-        let (tx, rx) = flume::unbounded::<Box<[u8]>>();
+        let (tx, rx) = flume::unbounded::<Option<Box<[u8]>>>();
         self.send(ActorMessage::Get(
             GetRequestSpecific::GetValue(GetValueRequestArguments {
                 target,
@@ -366,7 +366,7 @@ impl Dht {
             ResponseSender::Immutable(tx),
         ));
 
-        Some(receive(rx))
+        receive(rx)
     }
 
     /// Put an immutable data to the DHT.

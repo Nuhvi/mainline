@@ -232,7 +232,7 @@ impl AsyncDht {
 
     /// Get an Immutable data by its sha1 hash.
     pub async fn get_immutable(&self, target: Id) -> Option<Box<[u8]>> {
-        let (tx, rx) = flume::unbounded::<Box<[u8]>>();
+        let (tx, rx) = flume::unbounded::<Option<Box<[u8]>>>();
         self.send(ActorMessage::Get(
             GetRequestSpecific::GetValue(GetValueRequestArguments {
                 target,
@@ -242,7 +242,7 @@ impl AsyncDht {
             ResponseSender::Immutable(tx),
         ));
 
-        Some(receive_async(rx).await)
+        receive_async(rx).await
     }
 
     /// Put an immutable data to the DHT.
