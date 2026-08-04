@@ -9,8 +9,9 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use dht::Dht;
+use eyre::{Result, WrapErr};
 
-fn main() {
+fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -20,14 +21,14 @@ fn main() {
 
     let mut builder = Dht::builder();
 
-    let cached_nodes = load();
+    let cached_nodes = load()?;
 
     // To confirm that these old nodes are still viable,
     // try `builder.bootstrap(&cached_nodes)` instead,
     // this way you don't rely on default bootstrap nodes.
     builder.extra_bootstrap(&cached_nodes);
 
-    let client = builder.build().unwrap();
+    let client = builder.build()?;
 
     client.bootstrapped();
 
@@ -36,30 +37,33 @@ fn main() {
     save(bootstrap)
 }
 
-fn load() -> Vec<String> {
+fn load() -> Result<Vec<String>> {
     let nodes_file = nodes_file();
     let mut cached_nodes = vec![];
 
     if nodes_file.exists() {
         let mut file =
-            fs::File::open(&nodes_file).expect("Failed to open bootstrapping nodes file");
+            fs::File::open(&nodes_file).wrap_err("Failed to open bootstrapping nodes file")?;
         let mut content = String::new();
         file.read_to_string(&mut content)
-            .expect("Failed to read bootstrapping nodes file");
+            .wrap_err("Failed to read bootstrapping nodes file")?;
 
         for line in content.lines() {
             cached_nodes.push(line.to_string());
         }
     };
 
-    cached_nodes
+    Ok(cached_nodes)
 }
 
-fn save(bootstrap: Vec<String>) {
+fn save(bootstrap: Vec<String>) -> Result<()> {
     let bootstrap_content = bootstrap.join("\n");
-    let mut file = fs::File::create(&nodes_file()).expect("Failed to save bootstrapping nodes");
-    file.write(bootstrap_content.as_bytes())
-        .expect("Failed to write bootstrapping nodes");
+    let mut file =
+        fs::File::create(&nodes_file()).wrap_err("Failed to save bootstrapping nodes")?;
+    file.write_all(bootstrap_content.as_bytes())
+        .wrap_err("Failed to write bootstrapping nodes")?;
+
+    Ok(())
 }
 
 fn nodes_file() -> PathBuf {

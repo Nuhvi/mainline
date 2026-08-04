@@ -1,6 +1,9 @@
-use dht::{Dht, Id};
+//! Estimates the DHT size by sampling random lookup queries.
 
-fn main() {
+use dht::{Dht, Id};
+use eyre::Result;
+
+fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -8,7 +11,7 @@ fn main() {
         )
         .init();
 
-    let dht = Dht::client().unwrap();
+    let dht = Dht::client()?;
 
     println!("Calculating Dht size by sampling random lookup queries..",);
 
@@ -28,6 +31,9 @@ fn main() {
         // we don't need to pace ourselves anymore, as the krpc socket
         // does that on its own now...
     }
+
+    #[allow(unreachable_code)]
+    Ok(())
 }
 
 fn format_number(num: usize) -> String {

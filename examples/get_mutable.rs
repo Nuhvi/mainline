@@ -1,11 +1,12 @@
-use ed25519_dalek::VerifyingKey;
-use std::convert::TryFrom;
+//! A command-line tool that looks up mutable data on the DHT by public key.
 
+use std::convert::TryFrom;
 use std::time::Instant;
 
-use dht::{Dht, MutableItem};
-
 use clap::Parser;
+use dht::{Dht, MutableItem};
+use ed25519_dalek::VerifyingKey;
+use eyre::{eyre, Result};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -14,7 +15,7 @@ struct Cli {
     public_key: String,
 }
 
-fn main() {
+fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -24,8 +25,8 @@ fn main() {
 
     let cli = Cli::parse();
 
-    let public_key = from_hex(cli.public_key.clone()).to_bytes();
-    let dht = Dht::client().unwrap();
+    let public_key = from_hex(&cli.public_key)?.to_bytes();
+    let dht = Dht::client()?;
 
     println!("Looking up mutable item: {} ...", cli.public_key);
 
@@ -52,6 +53,8 @@ fn main() {
         "\nQuery exhausted in {:?} seconds.",
         start.elapsed().as_secs_f32(),
     );
+
+    Ok(())
 }
 
 fn get_first(dht: &Dht, public_key: &[u8; 32]) {
@@ -78,18 +81,18 @@ fn print_value(item: &MutableItem) {
     };
 }
 
-fn from_hex(s: String) -> VerifyingKey {
+fn from_hex(s: &str) -> Result<VerifyingKey> {
     if s.len() % 2 != 0 {
-        panic!("Number of Hex characters should be even");
+        return Err(eyre!("Number of Hex characters should be even"));
     }
 
     let mut bytes = Vec::with_capacity(s.len() / 2);
 
     for i in 0..s.len() / 2 {
         let byte_str = &s[i * 2..(i * 2) + 2];
-        let byte = u8::from_str_radix(byte_str, 16).expect("Invalid hex character");
+        let byte = u8::from_str_radix(byte_str, 16).map_err(|_| eyre!("Invalid hex character"))?;
         bytes.push(byte);
     }
 
-    VerifyingKey::try_from(bytes.as_slice()).expect("Invalid mutable key")
+    VerifyingKey::try_from(bytes.as_slice()).map_err(|_| eyre!("Invalid mutable key"))
 }

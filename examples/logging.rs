@@ -1,5 +1,9 @@
+//! Shows how to customise DHT logging with a custom tracing formatter and a
+//! long-running server node.
+
 use colored::*;
 use dht::Dht;
+use eyre::Result;
 use std::{
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -512,7 +516,7 @@ fn format_socket_validation(msg: &str) -> String {
     format!("[{}] {}", "SOCKET VALIDATION".magenta().bold(), msg)
 }
 
-fn main() {
+fn main() -> Result<()> {
     // Configure logging with our custom formatter
     tracing_subscriber::fmt()
         .with_max_level(Level::TRACE)
@@ -525,10 +529,7 @@ fn main() {
         .init();
 
     // Configure and start the DHT node in server mode
-    let dht = Dht::builder()
-        .server_mode()
-        .build()
-        .expect("Failed to create DHT server");
+    let dht = Dht::builder().server_mode().build()?;
 
     DhtLogger::info("DHT server node is running! Press Ctrl+C to stop.");
     // Wait for bootstrap to complete

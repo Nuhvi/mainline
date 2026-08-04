@@ -31,6 +31,7 @@
 //!
 
 use dht::{Dht, Id, Node};
+use eyre::Result;
 use histo::Histogram;
 use std::{
     collections::{HashMap, HashSet},
@@ -42,7 +43,7 @@ const K: usize = 20; // Not really k but we take the k closest nodes into accoun
 const MAX_DISTANCE: u8 = 150; // Health check to not include outrageously distant nodes.
 const USE_RANDOM_BOOTSTRAP_NODES: bool = false;
 
-fn main() {
+fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -61,15 +62,14 @@ fn main() {
     ctrlc::set_handler(move || {
         println!();
         println!("Received Ctrl+C! Finishing current lookup. Hold on...");
-        tx_interrupted.send(()).unwrap();
-    })
-    .expect("Error setting Ctrl-C handler");
+        let _ = tx_interrupted.send(());
+    })?;
 
     let mut last_nodes: HashSet<Ipv4Addr> = HashSet::new();
     let mut lookup_count = 0;
     while rx_interrupted.try_recv().is_err() {
         lookup_count += 1;
-        let dht = init_dht(USE_RANDOM_BOOTSTRAP_NODES);
+        let dht = init_dht(USE_RANDOM_BOOTSTRAP_NODES)?;
         let nodes = dht.find_node(target);
         let nodes: Box<[Node]> = nodes
             .iter()
@@ -93,12 +93,12 @@ fn main() {
             };
         }
 
-        if closest_nodes.is_empty() {
+        let (Some(closest_node), Some(furthest_node)) =
+            (closest_nodes.first(), closest_nodes.last())
+        else {
             continue;
-        }
-        let closest_node = closest_nodes.first().unwrap();
+        };
         let closest_distance = target.distance(closest_node.id());
-        let furthest_node = closest_nodes.last().unwrap();
         let furthest_distance = target.distance(furthest_node.id());
 
         let overlap_with_last_lookup: HashSet<Ipv4Addr> =
@@ -119,6 +119,8 @@ fn main() {
     println!();
     println!("Histogram");
     print_histogram(ip_hits, lookup_count);
+
+    Ok(())
 }
 
 fn print_histogram(hits: HashMap<Ipv4Addr, u16>, lookup_count: usize) {
@@ -141,22 +143,22 @@ fn print_histogram(hits: HashMap<Ipv4Addr, u16>, lookup_count: usize) {
     println!("{}", histogram);
 }
 
-fn get_random_boostrap_nodes2() -> Vec<String> {
-    let dht = Dht::client().unwrap();
+fn get_random_bootstrap_nodes2() -> Result<Vec<String>> {
+    let dht = Dht::client()?;
     let nodes = dht.find_node(Id::random());
     let addrs = nodes
         .iter()
         .map(|node| node.address().to_string())
         .collect::<Box<[_]>>();
     let slice: Vec<String> = addrs[..8].into_iter().map(|va| va.clone()).collect();
-    slice
+    Ok(slice)
 }
 
-fn init_dht(use_random_boostrap_nodes: bool) -> Dht {
-    if use_random_boostrap_nodes {
-        let bootstrap = get_random_boostrap_nodes2();
-        return Dht::builder().bootstrap(&bootstrap).build().unwrap();
+fn init_dht(use_random_bootstrap_nodes: bool) -> Result<Dht> {
+    if use_random_bootstrap_nodes {
+        let bootstrap = get_random_bootstrap_nodes2()?;
+        Ok(Dht::builder().bootstrap(&bootstrap).build()?)
     } else {
-        Dht::client().unwrap()
+        Ok(Dht::client()?)
     }
 }

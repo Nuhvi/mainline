@@ -1,6 +1,9 @@
-use dht::Dht;
+//! Bootstraps a local DHT server and re-bootstraps a client from it.
 
-fn main() {
+use dht::Dht;
+use eyre::Result;
+
+fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -8,7 +11,7 @@ fn main() {
         )
         .init();
 
-    let client = Dht::server().unwrap();
+    let client = Dht::server()?;
 
     client.bootstrapped();
 
@@ -17,13 +20,14 @@ fn main() {
     println!("{info:?}");
 
     let client = Dht::builder()
-        .bootstrap(&[info.local_addr()])
-        .build()
-        .unwrap();
+        .bootstrap(&[client.info().local_addr()])
+        .build()?;
 
     client.bootstrapped();
 
     let info = client.info();
 
     println!("Bootstrapped using local node. {info:?}");
+
+    Ok(())
 }
