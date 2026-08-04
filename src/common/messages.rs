@@ -691,7 +691,7 @@ impl Message {
     pub fn from_bytes(bytes: &[u8]) -> Result<Message, DecodeMessageError> {
         if bytes.len() < 15 {
             return Err(DecodeMessageError::TooShort);
-        } else if bytes[0] != 100 {
+        } else if bytes.first() != Some(&100) {
             return Err(DecodeMessageError::NotBencodeDictionary);
         }
 
@@ -776,9 +776,13 @@ fn bytes_to_sockaddr<T: AsRef<[u8]>>(bytes: T) -> Result<SocketAddrV4, DecodeMes
     let bytes = bytes.as_ref();
     match bytes.len() {
         6 => {
-            let ip = Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3]);
+            let [a, b, c, d, ..] = bytes else {
+                return Err(DecodeMessageError::InvalidSocketAddrEncodingLength);
+            };
+            let ip = Ipv4Addr::new(*a, *b, *c, *d);
 
-            let port_bytes_as_array: [u8; 2] = bytes[4..6]
+            let (_, port_bytes) = bytes.split_at(4);
+            let port_bytes_as_array: [u8; 2] = port_bytes
                 .try_into()
                 .map_err(|_| DecodeMessageError::InvalidPortEncoding)?;
 
@@ -823,10 +827,10 @@ fn bytes_to_nodes4<T: AsRef<[u8]>>(bytes: T) -> Result<Box<[Node]>, DecodeMessag
 
     let expected_num = bytes.len() / NODE_BYTE_SIZE;
     let mut to_ret = Vec::with_capacity(expected_num);
-    for i in 0..bytes.len() / NODE_BYTE_SIZE {
-        let i = i * NODE_BYTE_SIZE;
-        let id = Id::from_bytes(&bytes[i..i + ID_SIZE])?;
-        let sockaddr = bytes_to_sockaddr(&bytes[i + ID_SIZE..i + NODE_BYTE_SIZE])?;
+    for chunk in bytes.chunks(NODE_BYTE_SIZE) {
+        let (id_bytes, sock_bytes) = chunk.split_at(ID_SIZE);
+        let id = Id::from_bytes(id_bytes)?;
+        let sockaddr = bytes_to_sockaddr(sock_bytes)?;
         let node = Node::new(id, sockaddr);
         to_ret.push(node);
     }
@@ -866,13 +870,23 @@ fn bytes_to_signed_peer<T: AsRef<[u8]>>(
         return Err(DecodeMessageError::InvalidSignedPeersEncodingLength);
     }
 
-    let t: [u8; 8] = std::array::from_fn(|i| bytes[32 + i]);
+    let key: [u8; 32] = bytes
+        .get(..32)
+        .ok_or(DecodeMessageError::InvalidSignedPeersEncodingLength)?
+        .try_into()
+        .map_err(|_| DecodeMessageError::InvalidSignedPeersEncodingLength)?;
+    let t: [u8; 8] = bytes
+        .get(32..40)
+        .ok_or(DecodeMessageError::InvalidSignedPeersEncodingLength)?
+        .try_into()
+        .map_err(|_| DecodeMessageError::InvalidSignedPeersEncodingLength)?;
+    let signature: [u8; 64] = bytes
+        .get(40..104)
+        .ok_or(DecodeMessageError::InvalidSignedPeersEncodingLength)?
+        .try_into()
+        .map_err(|_| DecodeMessageError::InvalidSignedPeersEncodingLength)?;
 
-    Ok((
-        std::array::from_fn(|i| bytes[i]),
-        u64::from_be_bytes(t),
-        std::array::from_fn(|i| bytes[40 + i]),
-    ))
+    Ok((key, u64::from_be_bytes(t), signature))
 }
 
 fn signed_peers_to_bytes(peers: &[([u8; 32], u64, [u8; 64])]) -> Vec<serde_bytes::ByteBuf> {

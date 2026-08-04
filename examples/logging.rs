@@ -212,14 +212,14 @@ fn format_socket_message(msg: &str) -> String {
             // Extract error message parts
             let parts: Vec<&str> = error_msg.split('\n').collect();
 
-            if parts.len() >= 3 {
+            if let [first, second, third, ..] = parts.as_slice() {
                 // First line contains main error
-                let error = parts[0].replace("Failed to parse packet bytes: ", "");
+                let error = first.replace("Failed to parse packet bytes: ", "");
                 details.push_str(&format!("  Error Type: {}\n", "Parse Error"));
                 details.push_str(&format!("  Details: {}\n", error));
 
                 // Second line contains address
-                if let Some(addr) = parts[1].strip_prefix("From: ") {
+                if let Some(addr) = second.strip_prefix("From: ") {
                     details.push_str(&format!("  Remote Addr: {}\n", addr));
                 }
 
@@ -229,7 +229,7 @@ fn format_socket_message(msg: &str) -> String {
                 }
 
                 // Third line contains raw message
-                if let Some(raw) = parts[2].strip_prefix("Raw message: ") {
+                if let Some(raw) = third.strip_prefix("Raw message: ") {
                     details.push_str("\n  Raw Message (Hex):\n");
                     let hex_dump = raw
                         .as_bytes()
@@ -313,13 +313,13 @@ fn format_socket_message(msg: &str) -> String {
                     .map(|s| s.trim()) // Remove whitespace
                     .collect();
 
-                if version_nums.len() >= 4 {
+                if let [v0, v1, v2, v3, ..] = version_nums.as_slice() {
                     let formatted_version = format!(
                         "{}.{}.{}.{}",
-                        version_nums[0],
-                        version_nums[1],
-                        version_nums[2],
-                        version_nums[3].trim_end_matches(']') // Remove extra bracket if present
+                        v0,
+                        v1,
+                        v2,
+                        v3.trim_end_matches(']') // Remove extra bracket if present
                     );
                     details.push_str(&format!("  Version: {}\n", formatted_version.bright_cyan()));
                 }

@@ -98,11 +98,19 @@ impl PutQuery {
             .position(|(_, err)| error.code == err.code)
         {
             // Increment the count of the existing error
-            self.errors[pos].0 += 1;
+            if let Some((count, _)) = self.errors.get_mut(pos) {
+                *count += 1;
+            }
 
             // Move the updated element to maintain the order (highest count first)
             let mut i = pos;
-            while i > 0 && self.errors[i].0 > self.errors[i - 1].0 {
+            while i > 0
+                && self
+                    .errors
+                    .get(i)
+                    .zip(self.errors.get(i - 1))
+                    .is_some_and(|(a, b)| a.0 > b.0)
+            {
                 self.errors.swap(i, i - 1);
                 i -= 1;
             }

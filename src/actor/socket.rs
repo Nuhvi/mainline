@@ -166,7 +166,7 @@ impl KrpcSocket {
                     let _ = self.socket.set_read_timeout(Some(self.poll_interval));
                 }
 
-                let bytes = &buf[..amt];
+                let bytes = buf.get(..amt)?;
 
                 if from.port() == 0 {
                     trace!(

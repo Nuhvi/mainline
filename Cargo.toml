@@ -55,16 +55,16 @@ default = ["full"]
 all-features = true
 
 [lints.rust]
-missing_docs      = "deny"
-unused_must_use   = "deny"
+missing_docs              = "deny"
+unused_must_use           = "deny"
 
 [lints.rustdoc]
-broken_intra_doc_links = "deny"
+broken_intra_doc_links    = "deny"
 
 [lints.clippy]
-panic                    = "deny"
-unwrap_used              = "deny"
-expect_used              = "deny"
-await_holding_lock       = "deny"
+panic                     = "deny"
+unwrap_used               = "deny"
+expect_used               = "deny"
+await_holding_lock        = "deny"
 await_holding_refcell_ref = "deny"
-# indexing_slicing       = "deny"   # still commented
+indexing_slicing          = "deny"

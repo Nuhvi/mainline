@@ -38,7 +38,7 @@ mod test {
         ])?;
 
         assert!(validate_immutable(&v, target));
-        assert!(!validate_immutable(&v[1..], target));
+        assert!(!validate_immutable(v.get(1..).unwrap_or(&[]), target));
         Ok(())
     }
 

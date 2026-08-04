@@ -68,7 +68,12 @@ impl SignedPeersStore {
                     ((remaining_slots as f32 / remaining_items as f32) * CHANCE_SCALE) as u32;
 
                 // Get random integer from the chunk
-                let rand_int = u32::from_le_bytes(std::array::from_fn(|i| chunk[index + i]));
+                let rand_int = u32::from_le_bytes(
+                    chunk
+                        .get(index..index + 4)
+                        .and_then(|s| s.try_into().ok())
+                        .unwrap_or_default(),
+                );
 
                 // Randomly decide to add the item based on the current chance
                 if rand_int < current_chance {

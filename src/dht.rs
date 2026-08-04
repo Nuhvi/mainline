@@ -475,12 +475,12 @@ impl Dht {
     ///     let new_seq = most_recent_seq + 1;
     ///
     ///     (
-    ///         MutableItem::new(signing_key, &new_value, new_seq, salt),
+    ///         MutableItem::new(&signing_key, &new_value, new_seq, salt),
     ///         // 3. Use the most recent [MutableItem::seq] as a `CAS`.
     ///         Some(most_recent_seq)
     ///     )
     /// } else {
-    ///     (MutableItem::new(signing_key, b"first value", 1, salt), None)
+    ///     (MutableItem::new(&signing_key, b"first value", 1, salt), None)
     /// };
     ///
     /// dht.put_mutable(item, cas).unwrap();
@@ -1029,7 +1029,9 @@ mod test {
                 .bootstrap(&testnet_legacy.bootstrap)
                 .disable_signed_peers()
                 .build()?;
-            assert!(a.announce_signed_peer(info_hash, &signers[0]).is_err());
+            if let Some(first_signer) = signers.first() {
+                assert!(a.announce_signed_peer(info_hash, first_signer).is_err());
+            }
             assert_eq!(a.get_signed_peers(info_hash).next(), None)
         }
 

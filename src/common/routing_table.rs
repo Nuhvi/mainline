@@ -120,7 +120,12 @@ impl RoutingTable {
             }
         }
 
-        closest.nodes()[..MAX_BUCKET_SIZE_K.min(closest.len())].into()
+        closest
+            .nodes()
+            .iter()
+            .take(MAX_BUCKET_SIZE_K.min(closest.len()))
+            .cloned()
+            .collect()
     }
 
     /// Secure version of [Self::closest] that tries to circumvent sybil attacks.
@@ -297,7 +302,10 @@ impl KBucket {
 
     pub fn add(&mut self, incoming: Node) -> bool {
         if let Some(index) = self.iter().position(|n| n.id() == incoming.id()) {
-            let existing = self.nodes[index].clone();
+            let Some(existing) = self.nodes.get(index) else {
+                return false;
+            };
+            let existing = existing.clone();
 
             // If the incoming node is secure, then we trust its IP address for this Id,
             // and even if it changed its port number, we should accept it.
@@ -320,7 +328,7 @@ impl KBucket {
         } else if self.nodes.len() < MAX_BUCKET_SIZE_K {
             self.nodes.push(incoming);
             true
-        } else if self.nodes[0].is_stale() {
+        } else if self.nodes.first().is_some_and(|n| n.is_stale()) {
             // Remove the least recently seen node and add the new one
             self.nodes.remove(0);
             self.nodes.push(incoming);
@@ -480,12 +488,12 @@ mod test {
             bucket.add(node1.clone());
             bucket.add(Node::random());
 
-            assert_ne!(bucket.nodes[1].id(), node1.id());
+            assert_ne!(bucket.nodes.get(1).map(|n| n.id()), Some(node1.id()));
 
             bucket.add(node2);
 
             assert_eq!(bucket.nodes.len(), 2);
-            assert_eq!(bucket.nodes[1].id(), node1.id());
+            assert_eq!(bucket.nodes.get(1).map(|n| n.id()), Some(node1.id()));
         }
 
         // Different port
@@ -498,12 +506,12 @@ mod test {
             bucket.add(node1.clone());
             bucket.add(Node::random());
 
-            assert_ne!(bucket.nodes[1].id(), node1.id());
+            assert_ne!(bucket.nodes.get(1).map(|n| n.id()), Some(node1.id()));
 
             bucket.add(node2.clone());
 
             assert_eq!(bucket.nodes.len(), 2);
-            assert_eq!(bucket.nodes[1].id(), node1.id());
+            assert_eq!(bucket.nodes.get(1).map(|n| n.id()), Some(node1.id()));
         }
 
         {
@@ -522,14 +530,20 @@ mod test {
                 bucket.add(unsecure.clone());
                 bucket.add(secure.clone());
 
-                assert_eq!(bucket.nodes[0].address(), secure.address())
+                assert_eq!(
+                    bucket.nodes.first().map(|n| n.address()),
+                    Some(secure.address())
+                )
             }
 
             {
                 bucket.add(secure.clone());
                 bucket.add(unsecure.clone());
 
-                assert_eq!(bucket.nodes[0].address(), secure.address())
+                assert_eq!(
+                    bucket.nodes.first().map(|n| n.address()),
+                    Some(secure.address())
+                )
             }
         }
 
@@ -543,13 +557,16 @@ mod test {
             bucket.add(node1.clone());
             bucket.add(Node::random());
 
-            assert_ne!(bucket.nodes[1].id(), node1.id());
+            assert_ne!(bucket.nodes.get(1).map(|n| n.id()), Some(node1.id()));
 
             bucket.add(node2.clone());
 
             assert_eq!(bucket.nodes.len(), 2);
-            assert_ne!(bucket.nodes[1].id(), node1.id());
-            assert_ne!(bucket.nodes[1].address(), node2.address());
+            assert_ne!(bucket.nodes.get(1).map(|n| n.id()), Some(node1.id()));
+            assert_ne!(
+                bucket.nodes.get(1).map(|n| n.address()),
+                Some(node2.address())
+            );
         }
         Ok(())
     }

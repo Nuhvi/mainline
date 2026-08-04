@@ -102,7 +102,9 @@ impl ClosestNodes {
             until_secure += 1;
         }
 
-        &self.nodes[0..until_secure.max(MAX_BUCKET_SIZE_K).min(self.nodes().len())]
+        let end = until_secure.max(MAX_BUCKET_SIZE_K).min(self.nodes().len());
+
+        self.nodes.get(0..end).unwrap_or(&[])
     }
 
     /// Count the number of subnets with unique 6 bits prefix in ipv4
@@ -142,7 +144,9 @@ fn distance(target: &Id, node: &Node) -> u128 {
     let xor = node.id().xor(target);
 
     // Round up the lower 4 bytes to get a u128 from u160.
-    u128::from_be_bytes(std::array::from_fn(|i| xor.as_bytes()[i]))
+    let low = xor.as_bytes().split_at(16).0;
+
+    u128::from_be_bytes(low.try_into().unwrap_or_default())
 }
 
 fn dht_size_estimate<I>(distances: I) -> f64
@@ -242,7 +246,9 @@ mod tests {
 
         for _ in 0..20 {
             let mut bytes = target_bytes.to_vec();
-            bytes[18..].copy_from_slice(&Id::random().as_bytes()[18..]);
+            let (_, tail) = bytes.split_at_mut(18);
+            let random_id = Id::random();
+            tail.copy_from_slice(random_id.as_bytes().split_at(18).1);
             let node = Node::new(Id::random(), SocketAddrV4::new(0.into(), 0));
 
             sybil.add(node.clone());

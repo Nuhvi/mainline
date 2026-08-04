@@ -34,8 +34,7 @@ impl Id {
             return Err(InvalidIdSize(bytes.len()));
         }
 
-        let mut tmp: [u8; ID_SIZE] = [0; ID_SIZE];
-        tmp[..ID_SIZE].clone_from_slice(&bytes[..ID_SIZE]);
+        let tmp: [u8; ID_SIZE] = bytes.try_into().map_err(|_| InvalidIdSize(bytes.len()))?;
 
         Ok(Id(tmp))
     }
@@ -67,8 +66,8 @@ impl Id {
     pub fn xor(&self, other: &Id) -> Id {
         let mut result = [0_u8; 20];
 
-        for (i, (a, b)) in self.0.iter().zip(other.0).enumerate() {
-            result[i] = a ^ b;
+        for (slot, (a, b)) in result.iter_mut().zip(self.0.iter().zip(other.0)) {
+            *slot = a ^ b;
         }
 
         result.into()
@@ -99,7 +98,9 @@ impl Id {
         let mut bytes = [0_u8; 21];
         super::fill_random(&mut bytes);
 
-        from_ipv4_and_r(std::array::from_fn(|i| bytes[i + 1]), ipv4, bytes[0])
+        let (_, rest) = bytes.split_at(1);
+        let rand: [u8; 20] = rest.try_into().unwrap_or_default();
+        from_ipv4_and_r(rand, ipv4, bytes[0])
     }
 
     /// Validate that this Id is valid with respect to [BEP_0042](http://bittorrent.org/beps/bep_0042.html).
@@ -119,7 +120,11 @@ impl Id {
 }
 
 fn first_21_bits(bytes: &[u8]) -> [u8; 3] {
-    [bytes[0], bytes[1], bytes[2] & 0xf8]
+    let [a, b, c, ..] = bytes else {
+        return [0, 0, 0];
+    };
+
+    [*a, *b, *c & 0xf8]
 }
 
 fn from_ipv4_and_r(bytes: [u8; 20], ip: Ipv4Addr, r: u8) -> Id {
@@ -275,8 +280,8 @@ mod test {
         let id = Id::random();
 
         let mut opposite = [0_u8; 20];
-        for (i, &value) in id.as_bytes().iter().enumerate() {
-            opposite[i] = value ^ 0xff;
+        for (slot, &value) in opposite.iter_mut().zip(id.as_bytes().iter()) {
+            *slot = value ^ 0xff;
         }
         let target = Id::from_bytes(opposite)?;
 

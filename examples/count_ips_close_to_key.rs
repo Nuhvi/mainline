@@ -150,7 +150,7 @@ fn get_random_bootstrap_nodes2() -> Result<Vec<String>> {
         .iter()
         .map(|node| node.address().to_string())
         .collect::<Box<[_]>>();
-    let slice: Vec<String> = addrs[..8].to_vec();
+    let slice: Vec<String> = addrs.iter().take(8).cloned().collect();
     Ok(slice)
 }
 

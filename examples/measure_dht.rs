@@ -32,7 +32,6 @@ fn main() -> Result<()> {
         // does that on its own now...
     }
 
-    #[allow(unreachable_code)]
     Ok(())
 }
 
