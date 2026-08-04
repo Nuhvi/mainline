@@ -28,10 +28,10 @@ fn main() -> Result<()> {
 
     println!("\nStoring immutable data: {} ...\n", cli.value);
     println!("\n=== COLD QUERY ===");
-    put_immutable(&dht, &value)?;
+    put_immutable(&dht, value)?;
 
     println!("\n=== SUBSEQUENT QUERY ===");
-    put_immutable(&dht, &value)?;
+    put_immutable(&dht, value)?;
 
     Ok(())
 }

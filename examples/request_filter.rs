@@ -38,5 +38,7 @@ fn main() -> Result<()> {
 
     println!("{:?}", info);
 
-    loop {}
+    loop {
+        std::thread::park();
+    }
 }

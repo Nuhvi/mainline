@@ -85,10 +85,10 @@ fn main() -> Result<()> {
             let previous = ip_hits.get(socket);
             match previous {
                 Some(val) => {
-                    ip_hits.insert(socket.clone(), val + 1);
+                    ip_hits.insert(*socket, val + 1);
                 }
                 None => {
-                    ip_hits.insert(socket.clone(), 1);
+                    ip_hits.insert(*socket, 1);
                 }
             };
         }
@@ -102,7 +102,7 @@ fn main() -> Result<()> {
         let furthest_distance = target.distance(furthest_node.id());
 
         let overlap_with_last_lookup: HashSet<Ipv4Addr> =
-            sockets.intersection(&last_nodes).map(|ip| *ip).collect();
+            sockets.intersection(&last_nodes).copied().collect();
 
         let overlap = overlap_with_last_lookup.len() as f64 / K as f64;
         last_nodes = sockets;
@@ -112,7 +112,7 @@ fn main() -> Result<()> {
             ip_hits.len(),
             closest_distance,
             furthest_distance,
-            (overlap*100 as f64) as usize
+            (overlap * 100_f64) as usize
         );
     }
 
@@ -131,13 +131,13 @@ fn print_histogram(hits: HashMap<Ipv4Addr, u16>, lookup_count: usize) {
     let percents: HashMap<Ipv4Addr, u64> = hits
         .into_iter()
         .map(|(ip, hits)| {
-            let percent = (hits as f32 / lookup_count as f32) * 100 as f32;
+            let percent = (hits as f32 / lookup_count as f32) * 100_f32;
             (ip, percent as u64)
         })
         .collect();
 
     for (_, percent) in percents.iter() {
-        histogram.add(percent.clone());
+        histogram.add(*percent);
     }
 
     println!("{}", histogram);
@@ -150,7 +150,7 @@ fn get_random_bootstrap_nodes2() -> Result<Vec<String>> {
         .iter()
         .map(|node| node.address().to_string())
         .collect::<Box<[_]>>();
-    let slice: Vec<String> = addrs[..8].into_iter().map(|va| va.clone()).collect();
+    let slice: Vec<String> = addrs[..8].to_vec();
     Ok(slice)
 }
 

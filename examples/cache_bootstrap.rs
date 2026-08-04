@@ -58,8 +58,7 @@ fn load() -> Result<Vec<String>> {
 
 fn save(bootstrap: Vec<String>) -> Result<()> {
     let bootstrap_content = bootstrap.join("\n");
-    let mut file =
-        fs::File::create(&nodes_file()).wrap_err("Failed to save bootstrapping nodes")?;
+    let mut file = fs::File::create(nodes_file()).wrap_err("Failed to save bootstrapping nodes")?;
     file.write_all(bootstrap_content.as_bytes())
         .wrap_err("Failed to write bootstrapping nodes")?;
 

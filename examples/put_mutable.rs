@@ -67,12 +67,12 @@ fn put(dht: &Dht, signer: &SigningKey, value: &[u8], salt: Option<&[u8]>) -> Res
         println!("Found older seq {most_recent_seq} incrementing sequence to {new_seq}...");
 
         (
-            MutableItem::new(&signer, &new_value, new_seq, salt),
+            MutableItem::new(signer, &new_value, new_seq, salt),
             // 3. Use the most recent [MutableItem::seq] as a `CAS`.
             Some(most_recent_seq),
         )
     } else {
-        (MutableItem::new(&signer, value, 1, salt), None)
+        (MutableItem::new(signer, value, 1, salt), None)
     };
 
     dht.put_mutable(item, cas)?;
@@ -87,7 +87,7 @@ fn put(dht: &Dht, signer: &SigningKey, value: &[u8], salt: Option<&[u8]>) -> Res
 }
 
 fn from_hex(s: &str) -> Result<SigningKey> {
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return Err(eyre!("Number of Hex characters should be even"));
     }
 

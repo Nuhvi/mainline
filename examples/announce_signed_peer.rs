@@ -64,7 +64,7 @@ fn announce(dht: &Dht, info_hash: Id, signer: &SigningKey) -> Result<()> {
 }
 
 fn from_hex(s: &str) -> Result<SigningKey> {
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return Err(eyre!("Number of Hex characters should be even"));
     }
 
