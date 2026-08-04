@@ -1,8 +1,10 @@
+//! A command-line tool that looks up peers for a given info-hash on the DHT.
+
 use std::{collections::HashSet, str::FromStr, time::Instant};
 
-use dht::{Dht, Id};
-
 use clap::Parser;
+use dht::{Dht, Id};
+use eyre::Result;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -11,7 +13,7 @@ struct Cli {
     infohash: String,
 }
 
-fn main() {
+fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -21,9 +23,9 @@ fn main() {
 
     let cli = Cli::parse();
 
-    let info_hash = Id::from_str(cli.infohash.as_str()).expect("Expected info_hash");
+    let info_hash = Id::from_str(cli.infohash.as_str())?;
 
-    let dht = Dht::client().unwrap();
+    let dht = Dht::client()?;
 
     println!("Looking up peers for info_hash: {} ...", info_hash);
     println!("\n=== COLD QUERY ===");
@@ -32,6 +34,8 @@ fn main() {
     println!("\n=== SUBSEQUENT QUERY ===");
     println!("Looking up peers for info_hash: {} ...", info_hash);
     get_peers(&dht, &info_hash);
+
+    Ok(())
 }
 
 fn get_peers(dht: &Dht, info_hash: &Id) {

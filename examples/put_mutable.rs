@@ -1,8 +1,10 @@
+//! A command-line tool that stores mutable data on the DHT.
+
 use std::{convert::TryFrom, time::Instant};
 
-use dht::{Dht, MutableItem, SigningKey};
-
 use clap::Parser;
+use dht::{Dht, MutableItem, SigningKey};
+use eyre::{eyre, Result};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -13,7 +15,7 @@ struct Cli {
     value: String,
 }
 
-fn main() {
+fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -23,9 +25,9 @@ fn main() {
 
     let cli = Cli::parse();
 
-    let dht = Dht::client().unwrap();
+    let dht = Dht::client()?;
 
-    let signer = from_hex(cli.secret_key);
+    let signer = from_hex(&cli.secret_key)?;
 
     println!(
         "\nStoring mutable data: \"{}\" for public_key: {}  ...",
@@ -34,15 +36,15 @@ fn main() {
     );
 
     println!("\n=== COLD QUERY ===");
-    put(&dht, &signer, cli.value.as_bytes(), None);
+    put(&dht, &signer, cli.value.as_bytes(), None)?;
 
     println!("\n=== SUBSEQUENT QUERY ===");
-    // You can now republish to the same closest nodes
-    // skipping the the lookup step.
-    put(&dht, &signer, cli.value.as_bytes(), None);
+    put(&dht, &signer, cli.value.as_bytes(), None)?;
+
+    Ok(())
 }
 
-fn put(dht: &Dht, signer: &SigningKey, value: &[u8], salt: Option<&[u8]>) {
+fn put(dht: &Dht, signer: &SigningKey, value: &[u8], salt: Option<&[u8]>) -> Result<()> {
     let start = Instant::now();
 
     let (item, cas) = if let Some(most_recent) =
@@ -62,40 +64,42 @@ fn put(dht: &Dht, signer: &SigningKey, value: &[u8], salt: Option<&[u8]>) {
         let most_recent_seq = most_recent.seq();
         let new_seq = most_recent_seq + 1;
 
-        println!("Found older seq {most_recent_seq} incremnting sequence to {new_seq}...",);
+        println!("Found older seq {most_recent_seq} incrementing sequence to {new_seq}...");
 
         (
-            MutableItem::new(&signer, &new_value, new_seq, salt),
+            MutableItem::new(signer, &new_value, new_seq, salt),
             // 3. Use the most recent [MutableItem::seq] as a `CAS`.
             Some(most_recent_seq),
         )
     } else {
-        (MutableItem::new(&signer, value, 1, salt), None)
+        (MutableItem::new(signer, value, 1, salt), None)
     };
 
-    dht.put_mutable(item, cas).unwrap();
+    dht.put_mutable(item, cas)?;
 
     println!(
         "Stored mutable data as {:?} in {:?} milliseconds",
         to_hex(signer.verifying_key().as_bytes()),
         start.elapsed().as_millis()
     );
+
+    Ok(())
 }
 
-fn from_hex(s: String) -> SigningKey {
-    if s.len() % 2 != 0 {
-        panic!("Number of Hex characters should be even");
+fn from_hex(s: &str) -> Result<SigningKey> {
+    if !s.len().is_multiple_of(2) {
+        return Err(eyre!("Number of Hex characters should be even"));
     }
 
     let mut bytes = Vec::with_capacity(s.len() / 2);
 
     for i in 0..s.len() / 2 {
         let byte_str = &s[i * 2..(i * 2) + 2];
-        let byte = u8::from_str_radix(byte_str, 16).expect("Invalid hex character");
+        let byte = u8::from_str_radix(byte_str, 16).map_err(|_| eyre!("Invalid hex character"))?;
         bytes.push(byte);
     }
 
-    SigningKey::try_from(bytes.as_slice()).expect("Invalid signing key")
+    SigningKey::try_from(bytes.as_slice()).map_err(|_| eyre!("Invalid signing key"))
 }
 
 fn to_hex(bytes: &[u8]) -> String {

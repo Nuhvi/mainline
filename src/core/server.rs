@@ -34,6 +34,10 @@ pub const MAX_PEERS: usize = 500;
 /// Default maximum number of Immutable and Mutable items to store.
 pub const MAX_VALUES: usize = 1000;
 
+const MAX_INFO_HASHES_NONZERO: NonZeroUsize = NonZeroUsize::new(MAX_INFO_HASHES).unwrap();
+const MAX_PEERS_NONZERO: NonZeroUsize = NonZeroUsize::new(MAX_PEERS).unwrap();
+const MAX_VALUES_NONZERO: NonZeroUsize = NonZeroUsize::new(MAX_VALUES).unwrap();
+
 /// A trait for filtering incoming requests to a DHT node and
 /// decide whether to allow handling it or rate limit or ban
 /// the requester, or prohibit specific requests' details.
@@ -126,27 +130,19 @@ impl Server {
         Self {
             tokens,
             peers: PeersStore::new(
-                NonZeroUsize::new(settings.max_info_hashes).unwrap_or(
-                    NonZeroUsize::new(MAX_INFO_HASHES).expect("MAX_PEERS is NonZeroUsize"),
-                ),
-                NonZeroUsize::new(settings.max_peers_per_info_hash)
-                    .unwrap_or(NonZeroUsize::new(MAX_PEERS).expect("MAX_PEERS is NonZeroUsize")),
+                NonZeroUsize::new(settings.max_info_hashes).unwrap_or(MAX_INFO_HASHES_NONZERO),
+                NonZeroUsize::new(settings.max_peers_per_info_hash).unwrap_or(MAX_PEERS_NONZERO),
             ),
             signed_peers: SignedPeersStore::new(
-                NonZeroUsize::new(settings.max_info_hashes).unwrap_or(
-                    NonZeroUsize::new(MAX_INFO_HASHES).expect("MAX_PEERS is NonZeroUsize"),
-                ),
-                NonZeroUsize::new(settings.max_peers_per_info_hash)
-                    .unwrap_or(NonZeroUsize::new(MAX_PEERS).expect("MAX_PEERS is NonZeroUsize")),
+                NonZeroUsize::new(settings.max_info_hashes).unwrap_or(MAX_INFO_HASHES_NONZERO),
+                NonZeroUsize::new(settings.max_peers_per_info_hash).unwrap_or(MAX_PEERS_NONZERO),
             ),
 
             immutable_values: LruCache::new(
-                NonZeroUsize::new(settings.max_immutable_values)
-                    .unwrap_or(NonZeroUsize::new(MAX_VALUES).expect("MAX_VALUES is NonZeroUsize")),
+                NonZeroUsize::new(settings.max_immutable_values).unwrap_or(MAX_VALUES_NONZERO),
             ),
             mutable_values: LruCache::new(
-                NonZeroUsize::new(settings.max_mutable_values)
-                    .unwrap_or(NonZeroUsize::new(MAX_VALUES).expect("MAX_VALUES is NonZeroUsize")),
+                NonZeroUsize::new(settings.max_mutable_values).unwrap_or(MAX_VALUES_NONZERO),
             ),
             filter: settings.filter,
         }

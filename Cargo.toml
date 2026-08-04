@@ -41,6 +41,7 @@ dashmap = "6.1"
 flume = "0.11.1"
 colored = "3.0.0"
 chrono = "0.4"
+eyre = "0.6.12"
 
 [features]
 ## Enable [DhtBuilder::build_async()], [Dht::new_async()], and [Dht::as_async()].
@@ -52,3 +53,18 @@ default = ["full"]
 
 [package.metadata.docs.rs]
 all-features = true
+
+[lints.rust]
+missing_docs              = "deny"
+unused_must_use           = "deny"
+
+[lints.rustdoc]
+broken_intra_doc_links    = "deny"
+
+[lints.clippy]
+panic                     = "deny"
+unwrap_used               = "deny"
+expect_used               = "deny"
+await_holding_lock        = "deny"
+await_holding_refcell_ref = "deny"
+indexing_slicing          = "deny"

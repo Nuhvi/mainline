@@ -48,6 +48,7 @@
 
 use dashmap::DashSet;
 use dht::{Dht, Id};
+use eyre::Result;
 use rayon::{prelude::*, ThreadPool, ThreadPoolBuilder};
 use tracing::{debug, info};
 
@@ -87,7 +88,7 @@ impl EstimateResult {
     }
 }
 
-fn main() {
+fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -103,17 +104,14 @@ fn main() {
     );
 
     // Configure the Rayon thread pool with a same num of threads as batch size
-    let pool = ThreadPoolBuilder::new()
-        .num_threads(BATCH_SIZE)
-        .build()
-        .expect("Failed to build Rayon thread pool");
+    let pool = ThreadPoolBuilder::new().num_threads(BATCH_SIZE).build()?;
 
     // Initialize the DHT client.
-    let dht = Dht::client().expect("Failed to create DHT client");
+    let dht = Dht::client()?;
 
     // Collect samples from the DHT.
     let (marked_sample, recapture_sample) =
-        collect_samples(&dht, pool, MIN_OVERLAP, MAX_RANDOM_NODE_IDS);
+        collect_samples(&dht, pool, MIN_OVERLAP, MAX_RANDOM_NODE_IDS)?;
 
     // Display the final statistics.
     if let Some(estimate) = compute_estimate(&marked_sample, &recapture_sample) {
@@ -121,6 +119,8 @@ fn main() {
     } else {
         println!("Unable to calculate the DHT size estimate due to insufficient overlap.");
     }
+
+    Ok(())
 }
 
 fn collect_samples(
@@ -128,7 +128,7 @@ fn collect_samples(
     pool: ThreadPool,
     min_overlap: usize,
     max_unique_random_node_ids: usize,
-) -> (DashSet<Id>, DashSet<Id>) {
+) -> Result<(DashSet<Id>, DashSet<Id>)> {
     let marked_sample = DashSet::new();
     let recapture_sample = DashSet::new();
     let mut total_iterations = 0;
@@ -146,21 +146,27 @@ fn collect_samples(
         let recapture_random_ids: Vec<_> = (0..BATCH_SIZE).map(|_| Id::random()).collect();
 
         // Perform sampling in the thread pool
-        pool.install(|| {
+        pool.install(|| -> Result<()> {
             // Sample for marked_sample in parallel.
-            mark_random_ids.par_iter().for_each(|random_id| {
-                for node in dht.find_node(*random_id) {
-                    marked_sample.insert(*node.id());
-                }
-            });
+            mark_random_ids
+                .par_iter()
+                .try_for_each(|random_id| -> Result<()> {
+                    for node in dht.find_node(*random_id) {
+                        marked_sample.insert(*node.id());
+                    }
+                    Ok(())
+                })?;
 
             // Sample for recapture_sample in parallel.
-            recapture_random_ids.par_iter().for_each(|random_id| {
-                for node in dht.find_node(*random_id) {
-                    recapture_sample.insert(*node.id());
-                }
-            });
-        });
+            recapture_random_ids
+                .par_iter()
+                .try_for_each(|random_id| -> Result<()> {
+                    for node in dht.find_node(*random_id) {
+                        recapture_sample.insert(*node.id());
+                    }
+                    Ok(())
+                })
+        })?;
 
         total_iterations += BATCH_SIZE;
 
@@ -191,7 +197,7 @@ fn collect_samples(
         }
     }
 
-    (marked_sample, recapture_sample)
+    Ok((marked_sample, recapture_sample))
 }
 
 /// Computes the DHT size estimate using the Chapman estimator.

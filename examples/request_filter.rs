@@ -1,6 +1,9 @@
+//! Shows how to filter incoming requests on a DHT server.
+
 use std::net::SocketAddrV4;
 
 use dht::{Dht, RequestFilter, RequestSpecific, ServerSettings};
+use eyre::Result;
 
 #[derive(Debug, Default, Clone)]
 struct Filter;
@@ -13,7 +16,7 @@ impl RequestFilter for Filter {
     }
 }
 
-fn main() {
+fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -27,8 +30,7 @@ fn main() {
             filter: Box::new(Filter),
             ..Default::default()
         })
-        .build()
-        .unwrap();
+        .build()?;
 
     client.bootstrapped();
 
@@ -36,5 +38,7 @@ fn main() {
 
     println!("{:?}", info);
 
-    loop {}
+    loop {
+        std::thread::park();
+    }
 }

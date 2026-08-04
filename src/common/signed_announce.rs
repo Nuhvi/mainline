@@ -103,6 +103,11 @@ impl SignedAnnounce {
     }
 }
 
+/// Current system time in microseconds since the UNIX epoch.
+///
+/// Panics if the system clock is set before the UNIX epoch,
+/// which is not expected to happen.
+#[allow(clippy::expect_used)]
 fn system_time() -> u64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -138,11 +143,12 @@ pub enum SignedAnnounceError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eyre::Result;
 
     #[test]
-    fn more_than_time_tolerance() {
+    fn more_than_time_tolerance() -> Result<()> {
         let mut secret_key = [0; 32];
-        getrandom::fill(&mut secret_key).unwrap();
+        getrandom::fill(&mut secret_key).map_err(|_| eyre::eyre!("getrandom failed"))?;
         let signer = SigningKey::from_bytes(&secret_key);
 
         let info_hash = Id::random();
@@ -172,12 +178,13 @@ mod tests {
         );
 
         assert!(matches!(result, Err(SignedAnnounceError::Timestamp)));
+        Ok(())
     }
 
     #[test]
-    fn invalid_signature() {
+    fn invalid_signature() -> Result<()> {
         let mut secret_key = [0; 32];
-        getrandom::fill(&mut secret_key).unwrap();
+        getrandom::fill(&mut secret_key).map_err(|_| eyre::eyre!("getrandom failed"))?;
         let signer = SigningKey::from_bytes(&secret_key);
 
         let info_hash = Id::random();
@@ -189,8 +196,7 @@ mod tests {
             announce.key(),
             announce.timestamp,
             &announce.signature,
-        )
-        .unwrap();
+        )?;
 
         let result = SignedAnnounce::from_dht_request(
             &info_hash,
@@ -209,5 +215,6 @@ mod tests {
         );
 
         assert!(matches!(result, Err(SignedAnnounceError::PublicKey)));
+        Ok(())
     }
 }

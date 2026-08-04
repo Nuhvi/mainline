@@ -124,7 +124,7 @@ impl Dht {
     /// port or other io errors while binding the udp socket.
     pub fn new(config: Config) -> Result<Self, std::io::Error> {
         let (sender, rx) = Dht::setup(config)?;
-        rx.recv().expect("actor thread unexpectedly shutdown")?;
+        receive(rx)?;
 
         Ok(Dht(sender))
     }
@@ -138,7 +138,7 @@ impl Dht {
         AsyncDht::new(config).await
     }
 
-    #[allow(clippy::type_complexity)]
+    #[allow(clippy::type_complexity, clippy::expect_used)]
     fn setup(
         config: Config,
     ) -> Result<(Sender<ActorMessage>, Receiver<Result<(), std::io::Error>>), std::io::Error> {
@@ -187,7 +187,7 @@ impl Dht {
         let (tx, rx) = flume::bounded::<Info>(1);
         self.send(ActorMessage::Info(tx));
 
-        rx.recv().expect("actor thread unexpectedly shutdown")
+        receive(rx)
     }
 
     /// Turn this node's routing table to a list of bootstrapping nodes.   
@@ -195,7 +195,7 @@ impl Dht {
         let (tx, rx) = flume::bounded::<Vec<String>>(1);
         self.send(ActorMessage::ToBootstrap(tx));
 
-        rx.recv().expect("actor thread unexpectedly shutdown")
+        receive(rx)
     }
 
     // === Public Methods ===
@@ -233,8 +233,7 @@ impl Dht {
             ResponseSender::ClosestNodes(tx),
         ));
 
-        rx.recv()
-            .expect("Query was dropped before sending a response, please open an issue.")
+        receive(rx)
     }
 
     // === Peers ===
@@ -357,7 +356,7 @@ impl Dht {
 
     /// Get an Immutable data by its sha1 hash.
     pub fn get_immutable(&self, target: Id) -> Option<Box<[u8]>> {
-        let (tx, rx) = flume::unbounded::<Box<[u8]>>();
+        let (tx, rx) = flume::unbounded::<Option<Box<[u8]>>>();
         self.send(ActorMessage::Get(
             GetRequestSpecific::GetValue(GetValueRequestArguments {
                 target,
@@ -367,7 +366,7 @@ impl Dht {
             ResponseSender::Immutable(tx),
         ));
 
-        rx.recv().map(Some).unwrap_or(None)
+        receive(rx)
     }
 
     /// Put an immutable data to the DHT.
@@ -476,12 +475,12 @@ impl Dht {
     ///     let new_seq = most_recent_seq + 1;
     ///
     ///     (
-    ///         MutableItem::new(signing_key, &new_value, new_seq, salt),
+    ///         MutableItem::new(&signing_key, &new_value, new_seq, salt),
     ///         // 3. Use the most recent [MutableItem::seq] as a `CAS`.
     ///         Some(most_recent_seq)
     ///     )
     /// } else {
-    ///     (MutableItem::new(signing_key, b"first value", 1, salt), None)
+    ///     (MutableItem::new(&signing_key, b"first value", 1, salt), None)
     /// };
     ///
     /// dht.put_mutable(item, cas).unwrap();
@@ -521,8 +520,7 @@ impl Dht {
             ResponseSender::ClosestNodes(tx),
         ));
 
-        rx.recv()
-            .expect("Query was dropped before sending a response, please open an issue.")
+        receive(rx)
     }
 
     /// Send a PUT request to the closest nodes, and optionally some extra nodes.
@@ -539,9 +537,7 @@ impl Dht {
         request: PutRequestSpecific,
         extra_nodes: Option<Box<[Node]>>,
     ) -> Result<Id, PutError> {
-        self.put_inner(request, extra_nodes)
-            .recv()
-            .expect("Query was dropped before sending a response, please open an issue.")
+        receive(self.put_inner(request, extra_nodes))
     }
 
     // === Private Methods ===
@@ -557,11 +553,17 @@ impl Dht {
         rx
     }
 
+    #[allow(clippy::expect_used)]
     pub(crate) fn send(&self, message: ActorMessage) {
         self.0
             .send(message)
-            .expect("actor thrread unexpectedly shutdown");
+            .expect("actor thread unexpectedly shutdown");
     }
+}
+
+#[allow(clippy::expect_used)]
+fn receive<T>(rx: Receiver<T>) -> T {
+    rx.recv().expect("actor thread unexpectedly shutdown")
 }
 
 pub struct GetIterator<T>(flume::IntoIter<T>);
@@ -591,95 +593,90 @@ mod test {
     use std::{str::FromStr, time::Duration};
 
     use ed25519_dalek::SigningKey;
+    use eyre::{eyre, Result};
 
     use crate::{actor::ActorMessage, core::ConcurrencyError};
 
     use super::*;
 
     #[test]
-    fn bind_twice() {
-        let a = Dht::client().unwrap();
+    fn bind_twice() -> Result<()> {
+        let a = Dht::client()?;
         let result = Dht::builder()
             .port(a.info().local_addr().port())
             .server_mode()
             .build();
 
         assert!(result.is_err());
+
+        Ok(())
     }
 
     #[test]
-    fn announce_get_peer() {
-        let testnet = Testnet::new(10).unwrap();
+    fn announce_get_peer() -> Result<()> {
+        let testnet = Testnet::new(10)?;
 
-        let a = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
-        let b = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let a = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
+        let b = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
 
         let info_hash = Id::random();
 
-        a.announce_peer(info_hash, Some(45555))
-            .expect("failed to announce");
+        a.announce_peer(info_hash, Some(45555))?;
 
-        let peers = b.get_peers(info_hash).next().expect("No peers");
+        let peers = b
+            .get_peers(info_hash)
+            .next()
+            .ok_or_else(|| eyre!("No peers"))?;
 
-        assert_eq!(peers.first().unwrap().port(), 45555);
+        assert_eq!(peers.first().map(|p| p.port()), Some(45555));
+
+        Ok(())
     }
 
     #[test]
-    fn put_get_immutable() {
-        let testnet = Testnet::new(10).unwrap();
+    fn put_get_immutable() -> Result<()> {
+        let testnet = Testnet::new(10)?;
 
-        let a = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
-        let b = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let a = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
+        let b = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
 
         let value = b"Hello World!";
-        let expected_target = Id::from_str("e5f96f6f38320f0f33959cb4d3d656452117aadb").unwrap();
+        let expected_target = Id::from_str("e5f96f6f38320f0f33959cb4d3d656452117aadb")?;
 
-        let target = a.put_immutable(value).unwrap();
+        let target = a.put_immutable(value)?;
         assert_eq!(target, expected_target);
 
-        let response = b.get_immutable(target).unwrap();
+        let response = b.get_immutable(target).ok_or_else(|| eyre!("No value"))?;
 
         assert_eq!(response, value.to_vec().into_boxed_slice());
+
+        Ok(())
     }
 
     #[test]
-    fn find_node_no_values() {
-        let client = Dht::builder().no_bootstrap().build().unwrap();
+    fn find_node_no_values() -> Result<()> {
+        let client = Dht::builder().no_bootstrap().build()?;
 
         client.find_node(Id::random());
+
+        Ok(())
     }
 
     #[test]
-    fn put_get_immutable_no_values() {
-        let client = Dht::builder().no_bootstrap().build().unwrap();
+    fn put_get_immutable_no_values() -> Result<()> {
+        let client = Dht::builder().no_bootstrap().build()?;
 
         assert_eq!(client.get_immutable(Id::random()), None);
+
+        Ok(())
     }
 
     #[test]
-    fn put_get_mutable() {
-        let testnet = Testnet::new(10).unwrap();
+    fn put_get_mutable() -> Result<()> {
+        let testnet = Testnet::new(10)?;
 
-        let a = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
-        let b = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let a = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
+        let b = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -691,28 +688,24 @@ mod test {
 
         let item = MutableItem::new(&signer, value, seq, None);
 
-        a.put_mutable(item.clone(), None).unwrap();
+        a.put_mutable(item.clone(), None)?;
 
         let response = b
             .get_mutable(signer.verifying_key().as_bytes(), None, None)
             .next()
-            .expect("No mutable values");
+            .ok_or_else(|| eyre!("No mutable values"))?;
 
         assert_eq!(&response, &item);
+
+        Ok(())
     }
 
     #[test]
-    fn put_get_mutable_no_more_recent_value() {
-        let testnet = Testnet::new(10).unwrap();
+    fn put_get_mutable_no_more_recent_value() -> Result<()> {
+        let testnet = Testnet::new(10)?;
 
-        let a = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
-        let b = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let a = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
+        let b = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -724,41 +717,36 @@ mod test {
 
         let item = MutableItem::new(&signer, value, seq, None);
 
-        a.put_mutable(item.clone(), None).unwrap();
+        a.put_mutable(item.clone(), None)?;
 
         let response = b
             .get_mutable(signer.verifying_key().as_bytes(), None, Some(seq))
             .next();
 
         assert!(&response.is_none());
+
+        Ok(())
     }
 
     #[test]
-    fn repeated_put_query() {
-        let testnet = Testnet::new(10).unwrap();
+    fn repeated_put_query() -> Result<()> {
+        let testnet = Testnet::new(10)?;
 
-        let a = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let a = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
 
-        let id = a.put_immutable(&[1, 2, 3]).unwrap();
+        let id = a.put_immutable(&[1, 2, 3])?;
 
-        assert_eq!(a.put_immutable(&[1, 2, 3]).unwrap(), id);
+        assert_eq!(a.put_immutable(&[1, 2, 3])?, id);
+
+        Ok(())
     }
 
     #[test]
-    fn concurrent_get_mutable() {
-        let testnet = Testnet::new(10).unwrap();
+    fn concurrent_get_mutable() -> Result<()> {
+        let testnet = Testnet::new(10)?;
 
-        let a = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
-        let b = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let a = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
+        let b = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -771,29 +759,28 @@ mod test {
 
         let item = MutableItem::new(&signer, value, seq, None);
 
-        a.put_mutable(item.clone(), None).unwrap();
+        a.put_mutable(item.clone(), None)?;
 
         let _response_first = b
             .get_mutable(&key, None, None)
             .next()
-            .expect("No mutable values");
+            .ok_or_else(|| eyre!("No mutable values"))?;
 
         let response_second = b
             .get_mutable(&key, None, None)
             .next()
-            .expect("No mutable values");
+            .ok_or_else(|| eyre!("No mutable values"))?;
 
         assert_eq!(&response_second, &item);
+
+        Ok(())
     }
 
     #[test]
-    fn concurrent_put_mutable_same() {
-        let testnet = Testnet::new(10).unwrap();
+    fn concurrent_put_mutable_same() -> Result<()> {
+        let testnet = Testnet::new(10)?;
 
-        let client = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let client = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -811,24 +798,23 @@ mod test {
             let client = client.clone();
             let item = item.clone();
 
-            let handle = std::thread::spawn(move || client.put_mutable(item, None).unwrap());
+            let handle = std::thread::spawn(move || client.put_mutable(item, None));
 
             handles.push(handle);
         }
 
         for handle in handles {
-            handle.join().unwrap();
+            handle.join().map_err(|_| eyre!("Thread panicked"))??;
         }
+
+        Ok(())
     }
 
     #[test]
-    fn concurrent_put_mutable_different() {
-        let testnet = Testnet::new(10).unwrap();
+    fn concurrent_put_mutable_different() -> Result<()> {
+        let testnet = Testnet::new(10)?;
 
-        let client = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let client = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
 
         let mut handles = vec![];
 
@@ -863,18 +849,17 @@ mod test {
         }
 
         for handle in handles {
-            handle.join().unwrap();
+            handle.join().map_err(|_| eyre!("Thread panicked"))?;
         }
+
+        Ok(())
     }
 
     #[test]
-    fn concurrent_put_mutable_different_with_cas() {
-        let testnet = Testnet::new(10).unwrap();
+    fn concurrent_put_mutable_different_with_cas() -> Result<()> {
+        let testnet = Testnet::new(10)?;
 
-        let client = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let client = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
@@ -888,10 +873,7 @@ mod test {
             let (sender, _) = flume::bounded::<Result<Id, PutError>>(1);
             let request =
                 PutRequestSpecific::PutMutable(PutMutableRequestArguments::from(item, None));
-            client
-                .0
-                .send(ActorMessage::Put(request, sender, None))
-                .unwrap();
+            client.0.send(ActorMessage::Put(request, sender, None))?;
         }
 
         std::thread::sleep(Duration::from_millis(100));
@@ -903,30 +885,27 @@ mod test {
             let most_recent = client.get_mutable_most_recent(item.key(), None);
 
             if let Some(cas) = most_recent.map(|item| item.seq()) {
-                client.put_mutable(item, Some(cas)).unwrap();
+                client.put_mutable(item, Some(cas))?;
             } else {
-                client.put_mutable(item, None).unwrap();
+                client.put_mutable(item, None)?;
             }
         }
+
+        Ok(())
     }
 
     #[test]
-    fn conflict_302_seq_less_than_current() {
-        let testnet = Testnet::new(10).unwrap();
+    fn conflict_302_seq_less_than_current() -> Result<()> {
+        let testnet = Testnet::new(10)?;
 
-        let client = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let client = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
             228, 127, 70, 4, 204, 182, 64, 77, 98, 92, 215, 27, 103,
         ]);
 
-        client
-            .put_mutable(MutableItem::new(&signer, &[], 1001, None), None)
-            .unwrap();
+        client.put_mutable(MutableItem::new(&signer, &[], 1001, None), None)?;
 
         assert!(matches!(
             client.put_mutable(MutableItem::new(&signer, &[], 1000, None), None),
@@ -934,79 +913,72 @@ mod test {
                 ConcurrencyError::NotMostRecent
             ))
         ));
+
+        Ok(())
     }
 
     #[test]
-    fn conflict_301_cas() {
-        let testnet = Testnet::new(10).unwrap();
+    fn conflict_301_cas() -> Result<()> {
+        let testnet = Testnet::new(10)?;
 
-        let client = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let client = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
 
         let signer = SigningKey::from_bytes(&[
             56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
             228, 127, 70, 4, 204, 182, 64, 77, 98, 92, 215, 27, 103,
         ]);
 
-        client
-            .put_mutable(MutableItem::new(&signer, &[], 1001, None), None)
-            .unwrap();
+        client.put_mutable(MutableItem::new(&signer, &[], 1001, None), None)?;
 
         assert!(matches!(
             client.put_mutable(MutableItem::new(&signer, &[], 1002, None), Some(1000)),
             Err(PutMutableError::Concurrency(ConcurrencyError::CasFailed))
         ));
+
+        Ok(())
     }
 
     #[test]
-    fn populate_bootstrapping_node_routing_table() {
+    fn populate_bootstrapping_node_routing_table() -> Result<()> {
         let size = 3;
 
-        let testnet = Testnet::new(size).unwrap();
+        let testnet = Testnet::new(size)?;
 
         assert!(testnet
             .nodes
             .iter()
             .all(|n| n.to_bootstrap().len() == size - 1));
+
+        Ok(())
     }
 
     #[test]
-    fn bootstrap_with_one_node() {
-        let testnet = Testnet::new(1).unwrap();
+    fn bootstrap_with_one_node() -> Result<()> {
+        let testnet = Testnet::new(1)?;
 
-        let client = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let client = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
 
         assert!(client.bootstrapped());
+
+        Ok(())
     }
 
     #[test]
-    fn announce_signed_peers_at_full_adoption() {
-        let testnet = Testnet::new(10).unwrap();
+    fn announce_signed_peers_at_full_adoption() -> Result<()> {
+        let testnet = Testnet::new(10)?;
 
-        let a = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
-        let b = Dht::builder()
-            .bootstrap(&testnet.bootstrap)
-            .build()
-            .unwrap();
+        let a = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
+        let b = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
 
         let info_hash = Id::random();
 
-        let signers = [0, 1, 2]
-            .iter()
-            .map(|_| {
-                let mut secret_key = [0; 32];
-                getrandom::fill(&mut secret_key).unwrap();
-                SigningKey::from_bytes(&secret_key)
-            })
-            .collect::<Vec<_>>();
+        let mut signers = vec![];
+        for _ in 0..3 {
+            let mut secret_key = [0; 32];
+            getrandom::fill(&mut secret_key)
+                .map_err(|_| eyre!("failed to generate random bytes"))?;
+            signers.push(SigningKey::from_bytes(&secret_key));
+        }
 
         let mut expected_keys = signers
             .iter()
@@ -1015,30 +987,33 @@ mod test {
         expected_keys.sort();
 
         for signer in signers {
-            a.announce_signed_peer(info_hash, &signer)
-                .expect("failed to announce");
+            a.announce_signed_peer(info_hash, &signer)?;
         }
 
-        let peers = b.get_signed_peers(info_hash).next().expect("No peers");
+        let peers = b
+            .get_signed_peers(info_hash)
+            .next()
+            .ok_or_else(|| eyre!("No peers"))?;
 
         let mut keys = peers.iter().map(|a| a.key().to_vec()).collect::<Vec<_>>();
         keys.sort();
 
         assert_eq!(keys, expected_keys);
+
+        Ok(())
     }
 
     #[test]
-    fn announce_signed_peers_at_low_adoption() {
-        let testnet_legacy = Testnet::new_without_signed_peers(10).unwrap();
+    fn announce_signed_peers_at_low_adoption() -> Result<()> {
+        let testnet_legacy = Testnet::new_without_signed_peers(10)?;
 
-        let signers = [0, 1, 2]
-            .iter()
-            .map(|_| {
-                let mut secret_key = [0; 32];
-                getrandom::fill(&mut secret_key).unwrap();
-                SigningKey::from_bytes(&secret_key)
-            })
-            .collect::<Vec<_>>();
+        let mut signers = vec![];
+        for _ in 0..3 {
+            let mut secret_key = [0; 32];
+            getrandom::fill(&mut secret_key)
+                .map_err(|_| eyre!("failed to generate random bytes"))?;
+            signers.push(SigningKey::from_bytes(&secret_key));
+        }
 
         let mut expected_keys = signers
             .iter()
@@ -1053,9 +1028,10 @@ mod test {
             let a = Dht::builder()
                 .bootstrap(&testnet_legacy.bootstrap)
                 .disable_signed_peers()
-                .build()
-                .unwrap();
-            assert!(a.announce_signed_peer(info_hash, &signers[0]).is_err());
+                .build()?;
+            if let Some(first_signer) = signers.first() {
+                assert!(a.announce_signed_peer(info_hash, first_signer).is_err());
+            }
             assert_eq!(a.get_signed_peers(info_hash).next(), None)
         }
 
@@ -1064,24 +1040,28 @@ mod test {
             // will tell `a` and `b` that there are closer nodes than itself
             // to the info_hash they request, while these "closer" nodes don't
             // support these queries at all, thus, a separate table is necessary.
-            let testnet_new = Testnet::new_with_bootstrap(3, &testnet_legacy.bootstrap).unwrap();
+            let testnet_new = Testnet::new_with_bootstrap(3, &testnet_legacy.bootstrap)?;
 
             let bootstrap = testnet_new.bootstrap;
 
-            let a = Dht::builder().bootstrap(&bootstrap).build().unwrap();
-            let b = Dht::builder().bootstrap(&bootstrap).build().unwrap();
+            let a = Dht::builder().bootstrap(&bootstrap).build()?;
+            let b = Dht::builder().bootstrap(&bootstrap).build()?;
 
             for signer in &signers {
-                a.announce_signed_peer(info_hash, signer)
-                    .expect("failed to announce");
+                a.announce_signed_peer(info_hash, signer)?;
             }
 
-            let peers = b.get_signed_peers(info_hash).next().expect("No peers");
+            let peers = b
+                .get_signed_peers(info_hash)
+                .next()
+                .ok_or_else(|| eyre!("No peers"))?;
 
             let mut keys = peers.iter().map(|a| a.key().to_vec()).collect::<Vec<_>>();
             keys.sort();
 
             assert_eq!(keys, expected_keys);
         }
+
+        Ok(())
     }
 }

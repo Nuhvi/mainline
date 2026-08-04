@@ -145,9 +145,16 @@ impl Actor {
         for (id, closest_nodes) in done_iterative_queries {
             if let Some(senders) = self.get_senders.remove(&id) {
                 for sender in senders {
-                    // return closest_nodes to whoever was asking
-                    if let ResponseSender::ClosestNodes(sender) = sender {
-                        let _ = sender.send(closest_nodes.clone());
+                    match sender {
+                        ResponseSender::ClosestNodes(sender) => {
+                            let _ = sender.send(closest_nodes.clone());
+                        }
+                        // Query finished without finding a value;
+                        // let a waiting [Dht::get_immutable] know it wasn't found.
+                        ResponseSender::Immutable(sender) => {
+                            let _ = sender.send(None);
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -352,16 +359,9 @@ impl Actor {
         done_iterative_queries: &[(Id, Box<[Node]>)],
         done_put_queries: &mut Vec<(Id, Option<PutError>)>,
     ) {
-        for (id, _) in done_iterative_queries {
+        for (id, closest_nodes) in done_iterative_queries {
             if let Some(put_query) = self.core.put_queries.get_mut(id) {
-                if let Err(error) = put_query.start(
-                    &mut self.socket,
-                    done_iterative_queries
-                        .iter()
-                        .find(|(this_id, _)| this_id == id)
-                        .map(|(_, closest_nodes)| closest_nodes)
-                        .expect("done_iterative_queries"),
-                ) {
+                if let Err(error) = put_query.start(&mut self.socket, closest_nodes) {
                     done_put_queries.push((*id, Some(error)))
                 }
             }
@@ -466,7 +466,7 @@ fn send(sender: &ResponseSender, response: Response) {
             let _ = s.send(r);
         }
         (ResponseSender::Immutable(s), Response::Immutable(r)) => {
-            let _ = s.send(r);
+            let _ = s.send(Some(r));
         }
         _ => {}
     }
@@ -491,5 +491,5 @@ pub enum ResponseSender {
     Peers(Sender<Vec<SocketAddrV4>>),
     SignedPeers(Sender<Vec<SignedAnnounce>>),
     Mutable(Sender<MutableItem>),
-    Immutable(Sender<Box<[u8]>>),
+    Immutable(Sender<Option<Box<[u8]>>>),
 }

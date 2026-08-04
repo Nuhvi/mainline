@@ -166,7 +166,7 @@ impl KrpcSocket {
                     let _ = self.socket.set_read_timeout(Some(self.poll_interval));
                 }
 
-                let bytes = &buf[..amt];
+                let bytes = buf.get(..amt)?;
 
                 if from.port() == 0 {
                     trace!(
@@ -522,6 +522,8 @@ fn supports_request(version: &[u8; 4], request_specific: &crate::common::Request
 mod test {
     use std::thread;
 
+    use eyre::Result;
+
     use crate::{
         common::{Id, PingResponseArguments, RequestTypeSpecific},
         core::VERSION,
@@ -530,8 +532,8 @@ mod test {
     use super::*;
 
     #[test]
-    fn tid() {
-        let mut socket = KrpcSocket::server().unwrap();
+    fn tid() -> Result<()> {
+        let mut socket = KrpcSocket::server()?;
 
         assert_eq!(socket.inflight_requests.tid(), 0);
         assert_eq!(socket.inflight_requests.tid(), 1);
@@ -541,14 +543,15 @@ mod test {
 
         assert_eq!(socket.inflight_requests.tid(), u32::MAX);
         assert_eq!(socket.inflight_requests.tid(), 0);
+        Ok(())
     }
 
     #[test]
-    fn recv_request() {
-        let mut server = KrpcSocket::server().unwrap();
+    fn recv_request() -> Result<()> {
+        let mut server = KrpcSocket::server()?;
         let server_address = SocketAddrV4::new([127, 0, 0, 1].into(), server.local_addr().port());
 
-        let mut client = KrpcSocket::client().unwrap();
+        let mut client = KrpcSocket::client()?;
         client.inflight_requests.next_tid = 120;
 
         let client_address = client.local_addr();
@@ -572,24 +575,28 @@ mod test {
 
         client.request(server_address, request);
 
-        server_thread.join().unwrap();
+        server_thread
+            .join()
+            .map_err(|_| eyre::eyre!("thread panicked"))?;
+        Ok(())
     }
 
     #[test]
-    fn recv_response() {
+    fn recv_response() -> Result<()> {
         let (tx, rx) = flume::bounded(1);
 
-        let mut client = KrpcSocket::client().unwrap();
+        let mut client = KrpcSocket::client()?;
         let client_address = client.local_addr();
 
         let responder_id = Id::random();
         let response = ResponseSpecific::Ping(PingResponseArguments { responder_id });
 
-        let server_thread = thread::spawn(move || {
-            let mut server = KrpcSocket::client().unwrap();
+        let server_thread = thread::spawn(move || -> Result<()> {
+            let mut server = KrpcSocket::client()?;
             let server_address =
                 SocketAddrV4::new([127, 0, 0, 1].into(), server.local_addr().port());
-            tx.send(server_address).unwrap();
+            tx.send(server_address)
+                .map_err(|_| eyre::eyre!("send failed"))?;
 
             server.inflight_requests.requests.push(InflightRequest {
                 tid: 8,
@@ -612,21 +619,25 @@ mod test {
                     break;
                 }
             }
+            Ok(())
         });
 
-        let server_address = rx.recv().unwrap();
+        let server_address = rx.recv().map_err(|_| eyre::eyre!("recv failed"))?;
 
         client.response(server_address, 8, response);
 
-        server_thread.join().unwrap();
+        server_thread
+            .join()
+            .map_err(|_| eyre::eyre!("thread panicked"))??;
+        Ok(())
     }
 
     #[test]
-    fn ignore_response_from_wrong_address() {
-        let mut server = KrpcSocket::client().unwrap();
+    fn ignore_response_from_wrong_address() -> Result<()> {
+        let mut server = KrpcSocket::client()?;
         let server_address = server.local_addr();
 
-        let mut client = KrpcSocket::client().unwrap();
+        let mut client = KrpcSocket::client()?;
 
         let client_address = client.local_addr();
 
@@ -652,12 +663,15 @@ mod test {
 
         client.response(server_address, 8, response);
 
-        server_thread.join().unwrap();
+        server_thread
+            .join()
+            .map_err(|_| eyre::eyre!("thread panicked"))?;
+        Ok(())
     }
 
     #[test]
-    fn inflight_request_timeout() {
-        let mut server = KrpcSocket::client().unwrap();
+    fn inflight_request_timeout() -> Result<()> {
+        let mut server = KrpcSocket::client()?;
 
         let tid = 8;
         let sent_at = Instant::now();
@@ -671,5 +685,6 @@ mod test {
         std::thread::sleep(server.inflight_requests.request_timeout());
 
         assert!(!server.inflight(&tid));
+        Ok(())
     }
 }

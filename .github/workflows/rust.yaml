@@ -68,7 +68,7 @@ jobs:
       run: cargo fmt -- --check
 
     - name: Lint with Clippy
-      run: cargo clippy --workspace --all-features --bins --tests
+      run: cargo clippy --workspace --all-features --bins --tests --examples
 
     - name: Build
       if: steps.cargo-build-cache.outputs.cache-hit != 'true'
