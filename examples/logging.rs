@@ -525,7 +525,7 @@ fn main() -> Result<()> {
         .with_file(true)
         .with_ansi(true)
         .with_line_number(true)
-        .event_format(DhtFormatter::default())
+        .event_format(DhtFormatter)
         .init();
 
     // Configure and start the DHT node in server mode

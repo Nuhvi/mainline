@@ -138,7 +138,7 @@ impl Dht {
         AsyncDht::new(config).await
     }
 
-    #[allow(clippy::type_complexity)]
+    #[allow(clippy::type_complexity, clippy::expect_used)]
     fn setup(
         config: Config,
     ) -> Result<(Sender<ActorMessage>, Receiver<Result<(), std::io::Error>>), std::io::Error> {
@@ -553,6 +553,7 @@ impl Dht {
         rx
     }
 
+    #[allow(clippy::expect_used)]
     pub(crate) fn send(&self, message: ActorMessage) {
         self.0
             .send(message)

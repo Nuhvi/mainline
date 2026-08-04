@@ -117,7 +117,7 @@ impl AsyncDht {
     /// to implement your own logic for gossipping more peers after you discover the first ones.
     pub fn get_peers(&self, info_hash: Id) -> GetStream<Vec<SocketAddrV4>> {
         let (tx, rx) = flume::unbounded::<Vec<SocketAddrV4>>();
-        let _ = self.send(ActorMessage::Get(
+        self.send(ActorMessage::Get(
             GetRequestSpecific::GetPeers(GetPeersRequestArguments { info_hash }),
             ResponseSender::Peers(tx),
         ));
@@ -220,7 +220,7 @@ impl AsyncDht {
     /// Read [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst) for more information.
     pub async fn get_signed_peers(&self, info_hash: Id) -> GetStream<Vec<SignedAnnounce>> {
         let (tx, rx) = flume::unbounded::<Vec<SignedAnnounce>>();
-        let _ = self.send(ActorMessage::Get(
+        self.send(ActorMessage::Get(
             GetRequestSpecific::GetSignedPeers(GetPeersRequestArguments { info_hash }),
             ResponseSender::SignedPeers(tx),
         ));
@@ -233,7 +233,7 @@ impl AsyncDht {
     /// Get an Immutable data by its sha1 hash.
     pub async fn get_immutable(&self, target: Id) -> Option<Box<[u8]>> {
         let (tx, rx) = flume::unbounded::<Box<[u8]>>();
-        let _ = self.send(ActorMessage::Get(
+        self.send(ActorMessage::Get(
             GetRequestSpecific::GetValue(GetValueRequestArguments {
                 target,
                 seq: None,
@@ -288,7 +288,7 @@ impl AsyncDht {
         let salt = salt.map(|s| s.into());
         let target = MutableItem::target_from_key(public_key, salt.as_deref());
         let (tx, rx) = flume::unbounded::<MutableItem>();
-        let _ = self.send(ActorMessage::Get(
+        self.send(ActorMessage::Get(
             GetRequestSpecific::GetValue(GetValueRequestArguments {
                 target,
                 seq: more_recent_than,
