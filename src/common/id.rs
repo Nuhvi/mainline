@@ -1,7 +1,6 @@
 //! Kademlia node Id or a lookup target
 use crc::{Crc, CRC_32_ISCSI};
 use serde::{Deserialize, Serialize};
-use std::convert::TryInto;
 use std::{
     fmt::{self, Debug, Display, Formatter},
     net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -23,7 +22,7 @@ impl Id {
     /// Generate a random Id
     pub fn random() -> Id {
         let mut bytes: [u8; 20] = [0; 20];
-        getrandom::fill(&mut bytes).expect("getrandom");
+        super::fill_random(&mut bytes);
 
         Id(bytes)
     }
@@ -98,9 +97,9 @@ impl Id {
     /// Create a new Id from an Ipv4 address according to [BEP_0042](http://bittorrent.org/beps/bep_0042.html).
     pub fn from_ipv4(ipv4: Ipv4Addr) -> Id {
         let mut bytes = [0_u8; 21];
-        getrandom::fill(&mut bytes).expect("getrandom");
+        super::fill_random(&mut bytes);
 
-        from_ipv4_and_r(bytes[1..].try_into().expect("infallible"), ipv4, bytes[0])
+        from_ipv4_and_r(std::array::from_fn(|i| bytes[i + 1]), ipv4, bytes[0])
     }
 
     /// Validate that this Id is valid with respect to [BEP_0042](http://bittorrent.org/beps/bep_0042.html).
@@ -147,11 +146,9 @@ fn id_prefix_ipv4(ip: Ipv4Addr, r: u8) -> [u8; 3] {
     let mut digest = CASTAGNOLI.digest();
     digest.update(&masked_ip.to_be_bytes());
 
-    let crc = digest.finalize();
+    let crc = digest.finalize().to_be_bytes();
 
-    crc.to_be_bytes()[..3]
-        .try_into()
-        .expect("Failed to convert bytes 0-2 of the crc into a 3-byte array")
+    [crc[0], crc[1], crc[2]]
 }
 
 impl Display for Id {
@@ -240,61 +237,67 @@ pub enum DecodeIdError {
 #[cfg(test)]
 mod test {
     use super::*;
+    use eyre::Result;
 
     #[test]
-    fn distance_to_self() {
+    fn distance_to_self() -> Result<()> {
         let id = Id::random();
         let distance = id.distance(&id);
-        assert_eq!(distance, 0)
+        assert_eq!(distance, 0);
+        Ok(())
     }
 
     #[test]
-    fn distance_to_id() {
-        let id = Id::from_str("0639A1E24FBB8AB277DF033476AB0DE10FAB3BDC").unwrap();
+    fn distance_to_id() -> Result<()> {
+        let id = Id::from_str("0639A1E24FBB8AB277DF033476AB0DE10FAB3BDC")?;
 
-        let target = Id::from_str("035b1aeb9737ade1a80933594f405d3f772aa08e").unwrap();
+        let target = Id::from_str("035b1aeb9737ade1a80933594f405d3f772aa08e")?;
 
         let distance = id.distance(&target);
 
-        assert_eq!(distance, 155)
+        assert_eq!(distance, 155);
+        Ok(())
     }
 
     #[test]
-    fn distance_to_random_id() {
+    fn distance_to_random_id() -> Result<()> {
         let id = Id::random();
         let target = Id::random();
 
         let distance = id.distance(&target);
 
-        assert_ne!(distance, 0)
+        assert_ne!(distance, 0);
+        Ok(())
     }
 
     #[test]
-    fn distance_to_furthest() {
+    fn distance_to_furthest() -> Result<()> {
         let id = Id::random();
 
         let mut opposite = [0_u8; 20];
         for (i, &value) in id.as_bytes().iter().enumerate() {
             opposite[i] = value ^ 0xff;
         }
-        let target = Id::from_bytes(opposite).unwrap();
+        let target = Id::from_bytes(opposite)?;
 
         let distance = id.distance(&target);
 
-        assert_eq!(distance, MAX_DISTANCE)
+        assert_eq!(distance, MAX_DISTANCE);
+        Ok(())
     }
 
     #[test]
-    fn from_u8_20() {
+    fn from_u8_20() -> Result<()> {
         let bytes = [8; 20];
 
         let id: Id = bytes.into();
 
         assert_eq!(*id.as_bytes(), bytes);
+        Ok(())
     }
 
     #[test]
-    fn from_ipv4() {
+    fn from_ipv4() -> Result<()> {
         let vectors = vec![
             (Ipv4Addr::new(124, 31, 75, 21), 1, [0x5f, 0xbf, 0xbf]),
             (Ipv4Addr::new(21, 75, 31, 124), 86, [0x5a, 0x3c, 0xe9]),
@@ -315,10 +318,11 @@ mod test {
             assert_eq!(prefix, first_21_bits(&expected_prefix));
             assert_eq!(result.as_bytes()[ID_SIZE - 1], r);
         }
+        Ok(())
     }
 
     #[test]
-    fn is_valid_for_ipv4() {
+    fn is_valid_for_ipv4() -> Result<()> {
         let valid_vectors = vec![
             (
                 Ipv4Addr::new(124, 31, 75, 21),
@@ -343,13 +347,15 @@ mod test {
         ];
 
         for vector in valid_vectors {
-            test(vector.0, vector.1);
+            test(vector.0, vector.1)?;
         }
 
-        fn test(ip: Ipv4Addr, hex: &str) {
-            let id = Id::from_str(hex).unwrap();
+        fn test(ip: Ipv4Addr, hex: &str) -> Result<()> {
+            let id = Id::from_str(hex)?;
 
             assert!(id.is_valid_for_ip(ip));
+            Ok(())
         }
+        Ok(())
     }
 }

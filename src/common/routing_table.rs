@@ -362,19 +362,22 @@ mod test {
     use std::sync::Arc;
     use std::time::Instant;
 
+    use eyre::Result;
+
     use crate::common::{Id, KBucket, Node, NodeInner, RoutingTable, MAX_BUCKET_SIZE_K};
 
     #[test]
-    fn table_is_empty() {
+    fn table_is_empty() -> Result<()> {
         let mut table = RoutingTable::new(Id::random());
         assert!(table.is_empty());
 
         table.add(Node::random());
         assert!(!table.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn to_vec() {
+    fn to_vec() -> Result<()> {
         let mut table = RoutingTable::new(Id::random());
 
         let mut expected_nodes: Vec<Node> = vec![];
@@ -394,10 +397,11 @@ mod test {
         sorted_expected.sort_by(|a, b| a.id().cmp(b.id()));
 
         assert_eq!(sorted_table, sorted_expected);
+        Ok(())
     }
 
     #[test]
-    fn contains() {
+    fn contains() -> Result<()> {
         let mut table = RoutingTable::new(Id::random());
 
         let node = Node::random();
@@ -406,10 +410,11 @@ mod test {
 
         table.add(node.clone());
         assert!(table.contains(node.id()));
+        Ok(())
     }
 
     #[test]
-    fn remove() {
+    fn remove() -> Result<()> {
         let mut table = RoutingTable::new(Id::random());
 
         let node = Node::random();
@@ -419,10 +424,11 @@ mod test {
 
         table.remove(node.id());
         assert!(!table.contains(node.id()));
+        Ok(())
     }
 
     #[test]
-    fn buckets_are_sets() {
+    fn buckets_are_sets() -> Result<()> {
         let mut table = RoutingTable::new(Id::random());
 
         let node1 = Node::random();
@@ -432,21 +438,23 @@ mod test {
         table.add(node2);
 
         assert_eq!(table.size(), 1);
+        Ok(())
     }
 
     #[test]
-    fn should_not_add_self() {
+    fn should_not_add_self() -> Result<()> {
         let mut table = RoutingTable::new(Id::random());
         let node = Node::new(*table.id(), SocketAddrV4::new(0.into(), 0));
 
         table.add(node.clone());
 
         assert!(!table.add(node));
-        assert!(table.is_empty())
+        assert!(table.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn should_not_add_more_than_k() {
+    fn should_not_add_more_than_k() -> Result<()> {
         let mut bucket = KBucket::new();
 
         for i in 0..MAX_BUCKET_SIZE_K {
@@ -457,10 +465,11 @@ mod test {
         let node = Node::random();
 
         assert!(!bucket.add(node));
+        Ok(())
     }
 
     #[test]
-    fn should_update_existing_node() {
+    fn should_update_existing_node() -> Result<()> {
         // Same address
         {
             let mut bucket = KBucket::new();
@@ -501,7 +510,7 @@ mod test {
             let mut bucket = KBucket::new();
 
             let secure = Node(Arc::new(NodeInner {
-                id: Id::from_str("5a3ce9c14e7a08645677bbd1cfe7d8f956d53256").unwrap(),
+                id: Id::from_str("5a3ce9c14e7a08645677bbd1cfe7d8f956d53256")?,
                 address: SocketAddrV4::new([21, 75, 31, 124].into(), 0),
                 token: None,
                 last_seen: Instant::now(),
@@ -542,10 +551,11 @@ mod test {
             assert_ne!(bucket.nodes[1].id(), node1.id());
             assert_ne!(bucket.nodes[1].address(), node2.address());
         }
+        Ok(())
     }
 
     #[test]
-    fn closest() {
+    fn closest() -> Result<()> {
         let ids = [
             "fb449c17f6c34fadea26a5a83e1952e815e001ea",
             "e63b72f95aacee40ad087f83afb475645739f669",
@@ -652,18 +662,18 @@ mod test {
         let nodes: Vec<Node> = ids
             .iter()
             .enumerate()
-            .map(|(i, str)| {
-                let id = Id::from_str(str).unwrap();
-                Node(Arc::new(NodeInner {
+            .map(|(i, str)| -> Result<Node> {
+                let id = Id::from_str(str)?;
+                Ok(Node(Arc::new(NodeInner {
                     id,
                     address: SocketAddrV4::new((i as u32).into(), i as u16),
                     token: None,
                     last_seen: Instant::now(),
-                }))
+                })))
             })
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
 
-        let local_id = Id::from_str("ba3042eb2d373b19e7c411ce6826e31b37be0b2e").unwrap();
+        let local_id = Id::from_str("ba3042eb2d373b19e7c411ce6826e31b37be0b2e")?;
 
         let mut table = RoutingTable::new(local_id);
 
@@ -695,8 +705,8 @@ mod test {
                 "b61fbd992a13af05feba939f597b5f6ee61188e3",
             ]
             .iter()
-            .map(|id| Id::from_str(id).unwrap())
-            .collect();
+            .map(|id| -> Result<Id> { Ok(Id::from_str(id)?) })
+            .collect::<Result<Vec<_>>>()?;
 
             let target = local_id;
             let closest = table.closest(target);
@@ -731,10 +741,10 @@ mod test {
                 "fd042ff1404b495720ad8345404ff5f25acd02a8",
             ]
             .iter()
-            .map(|str| Id::from_str(str).unwrap())
-            .collect();
+            .map(|str| -> Result<Id> { Ok(Id::from_str(str)?) })
+            .collect::<Result<Vec<_>>>()?;
 
-            let target = Id::from_str("d1406a3d3a8354d566f21dba8bd06c537cde2a20").unwrap();
+            let target = Id::from_str("d1406a3d3a8354d566f21dba8bd06c537cde2a20")?;
             let closest = table.closest(target);
 
             let mut closest_ids: Vec<Id> = closest.iter().map(|n| *n.id()).collect();
@@ -742,5 +752,6 @@ mod test {
 
             assert_eq!(closest_ids, expected_closest_ids);
         }
+        Ok(())
     }
 }

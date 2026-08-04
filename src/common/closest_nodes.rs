@@ -1,4 +1,4 @@
-use std::{collections::HashSet, convert::TryInto};
+use std::collections::HashSet;
 
 use crate::{common::MAX_BUCKET_SIZE_K, Id, Node};
 
@@ -142,7 +142,7 @@ fn distance(target: &Id, node: &Node) -> u128 {
     let xor = node.id().xor(target);
 
     // Round up the lower 4 bytes to get a u128 from u160.
-    u128::from_be_bytes(xor.as_bytes()[0..16].try_into().expect("infallible"))
+    u128::from_be_bytes(std::array::from_fn(|i| xor.as_bytes()[i]))
 }
 
 fn dht_size_estimate<I>(distances: I) -> f64
@@ -172,12 +172,14 @@ where
 mod tests {
     use std::{collections::BTreeMap, net::SocketAddrV4, str::FromStr, sync::Arc, time::Instant};
 
+    use eyre::Result;
+
     use crate::common::NodeInner;
 
     use super::*;
 
     #[test]
-    fn add_sorted_by_id() {
+    fn add_sorted_by_id() -> Result<()> {
         let target = Id::random();
 
         let mut closest_nodes = ClosestNodes::new(target);
@@ -200,13 +202,14 @@ mod tests {
         sorted.sort();
 
         assert_eq!(sorted, distances);
+        Ok(())
     }
 
     #[test]
-    fn order_by_secure_id() {
+    fn order_by_secure_id() -> Result<()> {
         let unsecure = Node::random();
         let secure = Node(Arc::new(NodeInner {
-            id: Id::from_str("5a3ce9c14e7a08645677bbd1cfe7d8f956d53256").unwrap(),
+            id: Id::from_str("5a3ce9c14e7a08645677bbd1cfe7d8f956d53256")?,
             address: SocketAddrV4::new([21, 75, 31, 124].into(), 0),
             token: None,
             last_seen: Instant::now(),
@@ -217,11 +220,12 @@ mod tests {
         closest_nodes.add(unsecure.clone());
         closest_nodes.add(secure.clone());
 
-        assert_eq!(closest_nodes.nodes(), vec![secure, unsecure])
+        assert_eq!(closest_nodes.nodes(), vec![secure, unsecure]);
+        Ok(())
     }
 
     #[test]
-    fn take_until_expected_distance_to_20th_node() {
+    fn take_until_expected_distance_to_20th_node() -> Result<()> {
         let target = Id::random();
         let dht_size_estimate = 200;
 
@@ -248,10 +252,11 @@ mod tests {
         let closest = closest_nodes.take_until_secure(dht_size_estimate, 0);
 
         assert!((closest.len() - sybil.nodes().len()) > 10);
+        Ok(())
     }
 
     #[test]
-    fn simulation() {
+    fn simulation() -> Result<()> {
         let lookups = 4;
         let acceptable_margin = 0.2;
         let sims = 10;
@@ -265,6 +270,7 @@ mod tests {
         let margin = (mean - dht_size).abs() / dht_size;
 
         assert!(margin <= acceptable_margin);
+        Ok(())
     }
 
     fn simulate(dht_size: usize, lookups: usize) -> usize {

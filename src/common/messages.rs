@@ -866,12 +866,12 @@ fn bytes_to_signed_peer<T: AsRef<[u8]>>(
         return Err(DecodeMessageError::InvalidSignedPeersEncodingLength);
     }
 
-    let t: [u8; 8] = bytes[32..40].try_into().expect("infallible");
+    let t: [u8; 8] = std::array::from_fn(|i| bytes[32 + i]);
 
     Ok((
-        bytes[0..32].try_into().expect("infallible"),
+        std::array::from_fn(|i| bytes[i]),
         u64::from_be_bytes(t),
-        bytes[40..104].try_into().expect("infallible"),
+        std::array::from_fn(|i| bytes[40 + i]),
     ))
 }
 
@@ -932,9 +932,10 @@ pub enum DecodeMessageError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eyre::Result;
 
     #[test]
-    fn test_ping_request() {
+    fn test_ping_request() -> Result<()> {
         let original_msg = Message {
             transaction_id: 258,
             version: None,
@@ -947,18 +948,19 @@ mod tests {
         };
 
         let serde_msg = original_msg.clone().into_serde_message();
-        let bytes = serde_msg.to_bytes().unwrap();
-        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes).unwrap();
-        let parsed_msg = Message::from_serde_message(parsed_serde_msg).unwrap();
+        let bytes = serde_msg.to_bytes()?;
+        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes)?;
+        let parsed_msg = Message::from_serde_message(parsed_serde_msg)?;
         assert_eq!(parsed_msg, original_msg);
+        Ok(())
     }
 
     #[test]
-    fn test_ping_response() {
+    fn test_ping_response() -> Result<()> {
         let original_msg = Message {
             transaction_id: 258,
             version: Some([0xde, 0xad, 0, 1]),
-            requester_ip: Some("99.100.101.102:1030".parse().unwrap()),
+            requester_ip: Some("99.100.101.102:1030".parse()?),
             read_only: false,
             message_type: MessageType::Response(ResponseSpecific::Ping(PingResponseArguments {
                 responder_id: Id::random(),
@@ -966,14 +968,15 @@ mod tests {
         };
 
         let serde_msg = original_msg.clone().into_serde_message();
-        let bytes = serde_msg.to_bytes().unwrap();
-        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes).unwrap();
-        let parsed_msg = Message::from_serde_message(parsed_serde_msg).unwrap();
+        let bytes = serde_msg.to_bytes()?;
+        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes)?;
+        let parsed_msg = Message::from_serde_message(parsed_serde_msg)?;
         assert_eq!(parsed_msg, original_msg);
+        Ok(())
     }
 
     #[test]
-    fn test_find_node_request() {
+    fn test_find_node_request() -> Result<()> {
         let original_msg = Message {
             transaction_id: 258,
             version: Some([0x62, 0x61, 0x72, 0x66]),
@@ -988,14 +991,15 @@ mod tests {
         };
 
         let serde_msg = original_msg.clone().into_serde_message();
-        let bytes = serde_msg.to_bytes().unwrap();
-        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes).unwrap();
-        let parsed_msg = Message::from_serde_message(parsed_serde_msg).unwrap();
+        let bytes = serde_msg.to_bytes()?;
+        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes)?;
+        let parsed_msg = Message::from_serde_message(parsed_serde_msg)?;
         assert_eq!(parsed_msg, original_msg);
+        Ok(())
     }
 
     #[test]
-    fn test_find_node_request_read_only() {
+    fn test_find_node_request_read_only() -> Result<()> {
         let original_msg = Message {
             transaction_id: 258,
             version: Some([0x62, 0x61, 0x72, 0x66]),
@@ -1010,31 +1014,32 @@ mod tests {
         };
 
         let serde_msg = original_msg.clone().into_serde_message();
-        let bytes = serde_msg.to_bytes().unwrap();
-        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes).unwrap();
-        let parsed_msg = Message::from_serde_message(parsed_serde_msg).unwrap();
+        let bytes = serde_msg.to_bytes()?;
+        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes)?;
+        let parsed_msg = Message::from_serde_message(parsed_serde_msg)?;
         assert_eq!(parsed_msg, original_msg);
+        Ok(())
     }
 
     #[test]
-    fn test_find_node_response() {
+    fn test_find_node_response() -> Result<()> {
         let original_msg = Message {
             transaction_id: 258,
             version: Some([1, 2, 3, 4]),
-            requester_ip: Some("50.51.52.53:5455".parse().unwrap()),
+            requester_ip: Some("50.51.52.53:5455".parse()?),
             read_only: false,
             message_type: MessageType::Response(ResponseSpecific::FindNode(
                 FindNodeResponseArguments {
                     responder_id: Id::random(),
-                    nodes: [Node::new(Id::random(), "49.50.52.52:5354".parse().unwrap())].into(),
+                    nodes: [Node::new(Id::random(), "49.50.52.52:5354".parse()?)].into(),
                 },
             )),
         };
 
         let serde_msg = original_msg.clone().into_serde_message();
-        let bytes = serde_msg.to_bytes().unwrap();
-        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes).unwrap();
-        let parsed_msg = Message::from_serde_message(parsed_serde_msg).unwrap();
+        let bytes = serde_msg.to_bytes()?;
+        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes)?;
+        let parsed_msg = Message::from_serde_message(parsed_serde_msg)?;
         assert_eq!(parsed_msg.get_author_id(), original_msg.get_author_id());
         assert_eq!(
             parsed_msg.get_closer_nodes().map(|nodes| nodes
@@ -1046,10 +1051,11 @@ mod tests {
                 .map(|n| (n.id(), n.address()))
                 .collect::<Vec<_>>())
         );
+        Ok(())
     }
 
     #[test]
-    fn test_get_peers_request() {
+    fn test_get_peers_request() -> Result<()> {
         let original_msg = Message {
             transaction_id: 258,
             version: Some([72, 73, 0, 1]),
@@ -1064,34 +1070,33 @@ mod tests {
         };
 
         let serde_msg = original_msg.clone().into_serde_message();
-        let bytes = serde_msg.to_bytes().unwrap();
-        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes).unwrap();
-        let parsed_msg = Message::from_serde_message(parsed_serde_msg).unwrap();
+        let bytes = serde_msg.to_bytes()?;
+        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes)?;
+        let parsed_msg = Message::from_serde_message(parsed_serde_msg)?;
         assert_eq!(parsed_msg, original_msg);
+        Ok(())
     }
 
     #[test]
-    fn test_get_peers_response() {
+    fn test_get_peers_response() -> Result<()> {
         let original_msg = Message {
             transaction_id: 3,
             version: Some([1, 2, 3, 4]),
-            requester_ip: Some("50.51.52.53:5455".parse().unwrap()),
+            requester_ip: Some("50.51.52.53:5455".parse()?),
             read_only: true,
             message_type: MessageType::Response(ResponseSpecific::NoValues(
                 NoValuesResponseArguments {
                     responder_id: Id::random(),
                     token: [99, 100, 101, 102].into(),
-                    nodes: Some(
-                        [Node::new(Id::random(), "49.50.52.52:5354".parse().unwrap())].into(),
-                    ),
+                    nodes: Some([Node::new(Id::random(), "49.50.52.52:5354".parse()?)].into()),
                 },
             )),
         };
 
         let serde_msg = original_msg.clone().into_serde_message();
-        let bytes = serde_msg.to_bytes().unwrap();
-        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes).unwrap();
-        let parsed_msg = Message::from_serde_message(parsed_serde_msg).unwrap();
+        let bytes = serde_msg.to_bytes()?;
+        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes)?;
+        let parsed_msg = Message::from_serde_message(parsed_serde_msg)?;
 
         assert_eq!(parsed_msg.transaction_id, original_msg.transaction_id);
         assert_eq!(parsed_msg.version, original_msg.version);
@@ -1107,34 +1112,36 @@ mod tests {
                 .map(|n| (n.id(), n.address()))
                 .collect::<Vec<_>>())
         );
+        Ok(())
     }
 
     #[test]
-    fn test_get_peers_response_peers() {
+    fn test_get_peers_response_peers() -> Result<()> {
         let original_msg = Message {
             transaction_id: 3,
             version: Some([1, 2, 3, 4]),
-            requester_ip: Some("50.51.52.53:5455".parse().unwrap()),
+            requester_ip: Some("50.51.52.53:5455".parse()?),
             read_only: false,
             message_type: MessageType::Response(ResponseSpecific::GetPeers(
                 GetPeersResponseArguments {
                     responder_id: Id::random(),
                     token: vec![99, 100, 101, 102].into(),
                     nodes: None,
-                    values: ["123.123.123.123:123".parse().unwrap()].into(),
+                    values: ["123.123.123.123:123".parse()?].into(),
                 },
             )),
         };
 
         let serde_msg = original_msg.clone().into_serde_message();
-        let bytes = serde_msg.to_bytes().unwrap();
-        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes).unwrap();
-        let parsed_msg = Message::from_serde_message(parsed_serde_msg).unwrap();
+        let bytes = serde_msg.to_bytes()?;
+        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes)?;
+        let parsed_msg = Message::from_serde_message(parsed_serde_msg)?;
         assert_eq!(parsed_msg, original_msg);
+        Ok(())
     }
 
     #[test]
-    fn test_get_peers_response_neither() {
+    fn test_get_peers_response_neither() -> Result<()> {
         let serde_message = internal::DHTMessage {
             ip: None,
             read_only: None,
@@ -1150,15 +1157,16 @@ mod tests {
                 },
             ),
         };
-        let parsed_msg = Message::from_serde_message(serde_message).unwrap();
+        let parsed_msg = Message::from_serde_message(serde_message)?;
         assert!(matches!(
             parsed_msg.message_type,
             MessageType::Response(ResponseSpecific::NoValues(NoValuesResponseArguments { .. }))
         ));
+        Ok(())
     }
 
     #[test]
-    fn test_get_immutable_request() {
+    fn test_get_immutable_request() -> Result<()> {
         let original_msg = Message {
             transaction_id: 258,
             version: Some([72, 73, 0, 1]),
@@ -1175,18 +1183,19 @@ mod tests {
         };
 
         let serde_msg = original_msg.clone().into_serde_message();
-        let bytes = serde_msg.to_bytes().unwrap();
-        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes).unwrap();
-        let parsed_msg = Message::from_serde_message(parsed_serde_msg).unwrap();
+        let bytes = serde_msg.to_bytes()?;
+        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes)?;
+        let parsed_msg = Message::from_serde_message(parsed_serde_msg)?;
         assert_eq!(parsed_msg, original_msg);
+        Ok(())
     }
 
     #[test]
-    fn test_get_immutable_response() {
+    fn test_get_immutable_response() -> Result<()> {
         let original_msg = Message {
             transaction_id: 3,
             version: Some([1, 2, 3, 4]),
-            requester_ip: Some("50.51.52.53:5455".parse().unwrap()),
+            requester_ip: Some("50.51.52.53:5455".parse()?),
             read_only: false,
             message_type: MessageType::Response(ResponseSpecific::GetImmutable(
                 GetImmutableResponseArguments {
@@ -1199,18 +1208,19 @@ mod tests {
         };
 
         let serde_msg = original_msg.clone().into_serde_message();
-        let bytes = serde_msg.to_bytes().unwrap();
-        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes).unwrap();
-        let parsed_msg = Message::from_serde_message(parsed_serde_msg).unwrap();
+        let bytes = serde_msg.to_bytes()?;
+        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes)?;
+        let parsed_msg = Message::from_serde_message(parsed_serde_msg)?;
         assert_eq!(parsed_msg, original_msg);
+        Ok(())
     }
 
     #[test]
-    fn test_put_immutable_request() {
+    fn test_put_immutable_request() -> Result<()> {
         let original_msg = Message {
             transaction_id: 3,
             version: Some([1, 2, 3, 4]),
-            requester_ip: Some("50.51.52.53:5455".parse().unwrap()),
+            requester_ip: Some("50.51.52.53:5455".parse()?),
             read_only: false,
             message_type: MessageType::Request(RequestSpecific {
                 requester_id: Id::random(),
@@ -1227,18 +1237,19 @@ mod tests {
         };
 
         let serde_msg = original_msg.clone().into_serde_message();
-        let bytes = serde_msg.to_bytes().unwrap();
-        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes).unwrap();
-        let parsed_msg = Message::from_serde_message(parsed_serde_msg).unwrap();
+        let bytes = serde_msg.to_bytes()?;
+        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes)?;
+        let parsed_msg = Message::from_serde_message(parsed_serde_msg)?;
         assert_eq!(parsed_msg, original_msg);
+        Ok(())
     }
 
     #[test]
-    fn test_put_mutable_request() {
+    fn test_put_mutable_request() -> Result<()> {
         let original_msg = Message {
             transaction_id: 3,
             version: Some([1, 2, 3, 4]),
-            requester_ip: Some("50.51.52.53:5455".parse().unwrap()),
+            requester_ip: Some("50.51.52.53:5455".parse()?),
             read_only: false,
             message_type: MessageType::Request(RequestSpecific {
                 requester_id: Id::random(),
@@ -1258,10 +1269,11 @@ mod tests {
         };
 
         let serde_msg = original_msg.clone().into_serde_message();
-        let bytes = serde_msg.to_bytes().unwrap();
-        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes).unwrap();
-        let parsed_msg = Message::from_serde_message(parsed_serde_msg).unwrap();
+        let bytes = serde_msg.to_bytes()?;
+        let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes)?;
+        let parsed_msg = Message::from_serde_message(parsed_serde_msg)?;
         assert_eq!(parsed_msg, original_msg);
+        Ok(())
     }
 
     /// A `put` query with a public key `k` but no `seq`/`sig` (an unsolicited,
@@ -1271,7 +1283,7 @@ mod tests {
     ///
     /// Thanks to daniel@makrotopia.org for disclosure.
     #[test]
-    fn test_put_with_key_but_no_seq_does_not_panic() {
+    fn test_put_with_key_but_no_seq_does_not_panic() -> Result<()> {
         let msg = internal::DHTMessage {
             transaction_id: vec![0, 0, 0, 0],
             version: None,
@@ -1292,7 +1304,8 @@ mod tests {
             read_only: None,
         };
 
-        let bytes = msg.to_bytes().unwrap();
+        let bytes = msg.to_bytes()?;
         assert!(Message::from_bytes(&bytes).is_err());
+        Ok(())
     }
 }

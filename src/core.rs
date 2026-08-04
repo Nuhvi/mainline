@@ -33,6 +33,9 @@ pub const PING_TABLE_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 pub const MAX_CACHED_ITERATIVE_QUERIES: usize = 1000;
 
+const MAX_CACHED_ITERATIVE_QUERIES_NONZERO: NonZeroUsize =
+    NonZeroUsize::new(MAX_CACHED_ITERATIVE_QUERIES).unwrap();
+
 pub const VERSION: [u8; 4] = [82, 83, 0, 6]; // "RS" version 06
                                              //
 pub const VERSIONS_SUPPORTING_SIGNED_PEERS: &[[u8; 4]] = &[
@@ -89,10 +92,7 @@ impl Core {
             signed_peers_routing_table: RoutingTable::new(id),
             iterative_queries: HashMap::new(),
             put_queries: HashMap::new(),
-            cached_iterative_queries: LruCache::new(
-                NonZeroUsize::new(MAX_CACHED_ITERATIVE_QUERIES)
-                    .expect("MAX_CACHED_BUCKETS is NonZeroUsize"),
-            ),
+            cached_iterative_queries: LruCache::new(MAX_CACHED_ITERATIVE_QUERIES_NONZERO),
             last_table_refresh: Instant::now(),
             last_table_ping: Instant::now(),
             server: Server::new(server_settings),
@@ -378,14 +378,9 @@ impl Core {
         query: &IterativeQuery,
     ) -> Option<SocketAddrV4> {
         if let Some(new_address) = query.best_address() {
-            self.public_address = Some(new_address);
+            if self.public_address != Some(new_address) {
+                self.public_address = Some(new_address);
 
-            if self.public_address.is_none()
-                || new_address
-                    != self
-                        .public_address
-                        .expect("self.public_address is not None")
-            {
                 trace!(
                     ?new_address,
                     "Query responses suggest a different public_address, trying to confirm.."

@@ -17,3 +17,12 @@ pub use mutable::*;
 pub use node::*;
 pub use routing_table::*;
 pub use signed_announce::*;
+
+/// Fill `bytes` with cryptographically random data.
+///
+/// Panics if the operating system random number generator fails,
+/// which is not expected to happen on supported platforms.
+#[allow(clippy::expect_used)]
+pub(crate) fn fill_random(bytes: &mut [u8]) {
+    getrandom::fill(bytes).expect("OS random number generator failed")
+}

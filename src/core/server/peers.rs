@@ -58,7 +58,7 @@ impl PeersStore {
             let mut results = Vec::with_capacity(20);
 
             let mut chunk = vec![0_u8; info_hash_lru.iter().len() * 4];
-            getrandom::fill(chunk.as_mut_slice()).expect("getrandom");
+            crate::common::fill_random(chunk.as_mut_slice());
 
             for (index, (_, addr)) in info_hash_lru.iter().enumerate() {
                 // Calculate the chance of adding the current item based on remaining items and slots
@@ -68,8 +68,7 @@ impl PeersStore {
                     ((remaining_slots as f32 / remaining_items as f32) * CHANCE_SCALE) as u32;
 
                 // Get random integer from the chunk
-                let rand_int =
-                    u32::from_le_bytes(chunk[index..index + 4].try_into().expect("infallible"));
+                let rand_int = u32::from_le_bytes(std::array::from_fn(|i| chunk[index + i]));
 
                 // Randomly decide to add the item based on the current chance
                 if rand_int < current_chance {
@@ -89,13 +88,15 @@ impl PeersStore {
 
 #[cfg(test)]
 mod test {
+    use eyre::{OptionExt, Result};
+
     use super::*;
 
     #[test]
-    fn max_info_hashes() {
+    fn max_info_hashes() -> Result<()> {
         let mut store = PeersStore::new(
-            NonZeroUsize::new(1).unwrap(),
-            NonZeroUsize::new(100).unwrap(),
+            NonZeroUsize::new(1).ok_or_eyre("non-zero value")?,
+            NonZeroUsize::new(100).ok_or_eyre("non-zero value")?,
         );
 
         let info_hash_a = Id::random();
@@ -115,12 +116,15 @@ mod test {
             store.get_random_peers(&info_hash_b),
             Some([SocketAddrV4::new([127, 0, 1, 1].into(), 0)].into())
         );
+        Ok(())
     }
 
     #[test]
-    fn all_peers() {
-        let mut store =
-            PeersStore::new(NonZeroUsize::new(1).unwrap(), NonZeroUsize::new(2).unwrap());
+    fn all_peers() -> Result<()> {
+        let mut store = PeersStore::new(
+            NonZeroUsize::new(1).ok_or_eyre("non-zero value")?,
+            NonZeroUsize::new(2).ok_or_eyre("non-zero value")?,
+        );
 
         let info_hash = Id::random();
 
@@ -147,13 +151,14 @@ mod test {
                 .into()
             )
         );
+        Ok(())
     }
 
     #[test]
-    fn random_peers_subset() {
+    fn random_peers_subset() -> Result<()> {
         let mut store = PeersStore::new(
-            NonZeroUsize::new(1).unwrap(),
-            NonZeroUsize::new(200).unwrap(),
+            NonZeroUsize::new(1).ok_or_eyre("non-zero value")?,
+            NonZeroUsize::new(200).ok_or_eyre("non-zero value")?,
         );
 
         let info_hash = Id::random();
@@ -165,10 +170,20 @@ mod test {
             )
         }
 
-        assert_eq!(store.info_hashes.get(&info_hash).unwrap().len(), 200);
+        assert_eq!(
+            store
+                .info_hashes
+                .get(&info_hash)
+                .ok_or_eyre("info hash not found")?
+                .len(),
+            200
+        );
 
-        let sample = store.get_random_peers(&info_hash).unwrap();
+        let sample = store
+            .get_random_peers(&info_hash)
+            .ok_or_eyre("expected peers")?;
 
         assert_eq!(sample.len(), 20);
+        Ok(())
     }
 }

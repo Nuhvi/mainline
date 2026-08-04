@@ -97,7 +97,7 @@ impl Default for Tokens {
 
 fn random() -> [u8; SECRET_SIZE] {
     let mut bytes = [0_u8; SECRET_SIZE];
-    getrandom::fill(&mut bytes).expect("getrandom");
+    crate::common::fill_random(&mut bytes);
 
     bytes
 }

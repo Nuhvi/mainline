@@ -352,16 +352,9 @@ impl Actor {
         done_iterative_queries: &[(Id, Box<[Node]>)],
         done_put_queries: &mut Vec<(Id, Option<PutError>)>,
     ) {
-        for (id, _) in done_iterative_queries {
+        for (id, closest_nodes) in done_iterative_queries {
             if let Some(put_query) = self.core.put_queries.get_mut(id) {
-                if let Err(error) = put_query.start(
-                    &mut self.socket,
-                    done_iterative_queries
-                        .iter()
-                        .find(|(this_id, _)| this_id == id)
-                        .map(|(_, closest_nodes)| closest_nodes)
-                        .expect("done_iterative_queries"),
-                ) {
+                if let Err(error) = put_query.start(&mut self.socket, closest_nodes) {
                     done_put_queries.push((*id, Some(error)))
                 }
             }
