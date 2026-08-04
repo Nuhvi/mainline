@@ -124,7 +124,7 @@ impl Dht {
     /// port or other io errors while binding the udp socket.
     pub fn new(config: Config) -> Result<Self, std::io::Error> {
         let (sender, rx) = Dht::setup(config)?;
-        rx.recv().expect("actor thread unexpectedly shutdown")?;
+        receive(rx)?;
 
         Ok(Dht(sender))
     }
@@ -187,7 +187,7 @@ impl Dht {
         let (tx, rx) = flume::bounded::<Info>(1);
         self.send(ActorMessage::Info(tx));
 
-        rx.recv().expect("actor thread unexpectedly shutdown")
+        receive(rx)
     }
 
     /// Turn this node's routing table to a list of bootstrapping nodes.   
@@ -195,7 +195,7 @@ impl Dht {
         let (tx, rx) = flume::bounded::<Vec<String>>(1);
         self.send(ActorMessage::ToBootstrap(tx));
 
-        rx.recv().expect("actor thread unexpectedly shutdown")
+        receive(rx)
     }
 
     // === Public Methods ===
@@ -233,8 +233,7 @@ impl Dht {
             ResponseSender::ClosestNodes(tx),
         ));
 
-        rx.recv()
-            .expect("Query was dropped before sending a response, please open an issue.")
+        receive(rx)
     }
 
     // === Peers ===
@@ -367,7 +366,7 @@ impl Dht {
             ResponseSender::Immutable(tx),
         ));
 
-        rx.recv().map(Some).unwrap_or(None)
+        Some(receive(rx))
     }
 
     /// Put an immutable data to the DHT.
@@ -521,8 +520,7 @@ impl Dht {
             ResponseSender::ClosestNodes(tx),
         ));
 
-        rx.recv()
-            .expect("Query was dropped before sending a response, please open an issue.")
+        receive(rx)
     }
 
     /// Send a PUT request to the closest nodes, and optionally some extra nodes.
@@ -539,9 +537,7 @@ impl Dht {
         request: PutRequestSpecific,
         extra_nodes: Option<Box<[Node]>>,
     ) -> Result<Id, PutError> {
-        self.put_inner(request, extra_nodes)
-            .recv()
-            .expect("Query was dropped before sending a response, please open an issue.")
+        receive(self.put_inner(request, extra_nodes))
     }
 
     // === Private Methods ===
@@ -560,8 +556,13 @@ impl Dht {
     pub(crate) fn send(&self, message: ActorMessage) {
         self.0
             .send(message)
-            .expect("actor thrread unexpectedly shutdown");
+            .expect("actor thread unexpectedly shutdown");
     }
+}
+
+#[allow(clippy::expect_used)]
+fn receive<T>(rx: Receiver<T>) -> T {
+    rx.recv().expect("actor thread unexpectedly shutdown")
 }
 
 pub struct GetIterator<T>(flume::IntoIter<T>);
