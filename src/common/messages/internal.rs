@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct DHTMessage {
+pub(crate) struct DHTMessage {
     #[serde(rename = "t", with = "serde_bytes")]
     pub transaction_id: Vec<u8>,
 
@@ -24,19 +24,19 @@ pub struct DHTMessage {
 }
 
 impl DHTMessage {
-    pub fn from_bytes(bytes: &[u8]) -> Result<DHTMessage, serde_bencode::Error> {
+    pub(crate) fn from_bytes(bytes: &[u8]) -> Result<DHTMessage, serde_bencode::Error> {
         let obj = serde_bencode::from_bytes(bytes)?;
         Ok(obj)
     }
 
-    pub fn to_bytes(&self) -> Result<Vec<u8>, serde_bencode::Error> {
+    pub(crate) fn to_bytes(&self) -> Result<Vec<u8>, serde_bencode::Error> {
         serde_bencode::to_bytes(self)
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "y")]
-pub enum DHTMessageVariant {
+pub(crate) enum DHTMessageVariant {
     #[serde(rename = "q")]
     Request(DHTRequestSpecific),
 
@@ -49,7 +49,7 @@ pub enum DHTMessageVariant {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "q")]
-pub enum DHTRequestSpecific {
+pub(crate) enum DHTRequestSpecific {
     #[serde(rename = "ping")]
     Ping {
         #[serde(rename = "a")]
@@ -101,7 +101,7 @@ pub enum DHTRequestSpecific {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(untagged)] // This means order matters! Order these from most to least detailed
-pub enum DHTResponseSpecific {
+pub(crate) enum DHTResponseSpecific {
     GetMutable {
         #[serde(rename = "r")]
         arguments: DHTGetMutableResponseArguments,
@@ -144,7 +144,7 @@ pub enum DHTResponseSpecific {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct DHTErrorSpecific {
+pub(crate) struct DHTErrorSpecific {
     #[serde(rename = "e")]
     pub error_info: (i32, String),
 }
@@ -152,13 +152,13 @@ pub struct DHTErrorSpecific {
 // === PING ===
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct DHTPingRequestArguments {
+pub(crate) struct DHTPingRequestArguments {
     #[serde(with = "serde_bytes")]
     pub id: [u8; 20],
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct DHTPingResponseArguments {
+pub(crate) struct DHTPingResponseArguments {
     #[serde(with = "serde_bytes")]
     pub id: [u8; 20],
 }
@@ -166,7 +166,7 @@ pub struct DHTPingResponseArguments {
 // === FIND NODE ===
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct DHTFindNodeRequestArguments {
+pub(crate) struct DHTFindNodeRequestArguments {
     #[serde(with = "serde_bytes")]
     pub id: [u8; 20],
 
@@ -175,7 +175,7 @@ pub struct DHTFindNodeRequestArguments {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct DHTFindNodeResponseArguments {
+pub(crate) struct DHTFindNodeResponseArguments {
     #[serde(with = "serde_bytes")]
     pub id: [u8; 20],
 
@@ -184,7 +184,7 @@ pub struct DHTFindNodeResponseArguments {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct DHTNoValuesResponseArguments {
+pub(crate) struct DHTNoValuesResponseArguments {
     #[serde(with = "serde_bytes")]
     pub id: [u8; 20],
 
@@ -199,7 +199,7 @@ pub struct DHTNoValuesResponseArguments {
 // === Get Peers ===
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct DHTGetPeersRequestArguments {
+pub(crate) struct DHTGetPeersRequestArguments {
     #[serde(with = "serde_bytes")]
     pub id: [u8; 20],
 
@@ -208,7 +208,7 @@ pub struct DHTGetPeersRequestArguments {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct DHTGetPeersResponseArguments {
+pub(crate) struct DHTGetPeersResponseArguments {
     #[serde(with = "serde_bytes")]
     pub id: [u8; 20],
 
@@ -227,7 +227,7 @@ pub struct DHTGetPeersResponseArguments {
 // === Get Signed Peers ===
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct DHTGetSignedPeersResponseArguments {
+pub(crate) struct DHTGetSignedPeersResponseArguments {
     #[serde(with = "serde_bytes")]
     pub id: [u8; 20],
 
@@ -246,7 +246,7 @@ pub struct DHTGetSignedPeersResponseArguments {
 // === Announce Peer ===
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct DHTAnnouncePeerRequestArguments {
+pub(crate) struct DHTAnnouncePeerRequestArguments {
     #[serde(with = "serde_bytes")]
     pub id: [u8; 20],
 
@@ -265,7 +265,7 @@ pub struct DHTAnnouncePeerRequestArguments {
 /// === Announce Signed Peer ===
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct DHTAnnounceSignedPeerRequestArguments {
+pub(crate) struct DHTAnnounceSignedPeerRequestArguments {
     #[serde(with = "serde_bytes")]
     pub id: [u8; 20],
 
@@ -287,7 +287,7 @@ pub struct DHTAnnounceSignedPeerRequestArguments {
 // === Get Value ===
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct DHTGetValueRequestArguments {
+pub(crate) struct DHTGetValueRequestArguments {
     #[serde(with = "serde_bytes")]
     pub id: [u8; 20],
 
@@ -299,7 +299,7 @@ pub struct DHTGetValueRequestArguments {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct DHTGetImmutableResponseArguments {
+pub(crate) struct DHTGetImmutableResponseArguments {
     #[serde(with = "serde_bytes")]
     pub id: [u8; 20],
 
@@ -315,7 +315,7 @@ pub struct DHTGetImmutableResponseArguments {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct DHTNoMoreRecentValueResponseArguments {
+pub(crate) struct DHTNoMoreRecentValueResponseArguments {
     #[serde(with = "serde_bytes")]
     pub id: [u8; 20],
 
@@ -330,7 +330,7 @@ pub struct DHTNoMoreRecentValueResponseArguments {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct DHTGetMutableResponseArguments {
+pub(crate) struct DHTGetMutableResponseArguments {
     #[serde(with = "serde_bytes")]
     pub id: [u8; 20],
 
@@ -356,7 +356,7 @@ pub struct DHTGetMutableResponseArguments {
 // === Put Value ===
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct DHTPutValueRequestArguments {
+pub(crate) struct DHTPutValueRequestArguments {
     #[serde(with = "serde_bytes")]
     pub id: [u8; 20],
 

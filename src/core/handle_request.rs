@@ -9,7 +9,7 @@ use crate::{core::Core, MessageType};
 use crate::common::{Id, Node, RequestTypeSpecific};
 
 impl Core {
-    pub fn handle_request(
+    pub(crate) fn handle_request(
         &mut self,
         from: SocketAddrV4,
         request_from_read_only_node: bool,

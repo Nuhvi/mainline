@@ -1,6 +1,6 @@
 use std::net::Ipv4Addr;
 
-pub const DEFAULT_BOOTSTRAP_NODES: [&str; 4] = [
+pub(crate) const DEFAULT_BOOTSTRAP_NODES: [&str; 4] = [
     "router.bittorrent.com:6881",
     "dht.transmissionbt.com:6881",
     "dht.libtorrent.org:25401",

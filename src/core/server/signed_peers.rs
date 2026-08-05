@@ -12,14 +12,14 @@ const CHANCE_SCALE: f32 = 2.0 * (1u32 << 31) as f32;
 /// An LRU cache of signed peers announced per info hashes.
 ///
 /// Read [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst) for more information.
-pub struct SignedPeersStore {
+pub(crate) struct SignedPeersStore {
     info_hashes: LruCache<Id, LruCache<[u8; 32], SignedAnnounce>>,
     max_peers: NonZeroUsize,
 }
 
 impl SignedPeersStore {
     /// Create a new store of peers announced on info hashes.
-    pub fn new(max_info_hashes: NonZeroUsize, max_peers: NonZeroUsize) -> Self {
+    pub(crate) fn new(max_info_hashes: NonZeroUsize, max_peers: NonZeroUsize) -> Self {
         Self {
             info_hashes: LruCache::new(max_info_hashes),
             max_peers,
@@ -27,7 +27,7 @@ impl SignedPeersStore {
     }
 
     /// Add a peer for an info hash.
-    pub fn add_peer(&mut self, info_hash: Id, peer: SignedAnnounce) {
+    pub(crate) fn add_peer(&mut self, info_hash: Id, peer: SignedAnnounce) {
         if let Some(info_hash_lru) = self.info_hashes.get_mut(&info_hash) {
             info_hash_lru.put(*peer.key(), peer);
         } else {
@@ -38,7 +38,7 @@ impl SignedPeersStore {
     }
 
     /// Returns a random set of peers per an info hash.
-    pub fn get_random_peers(&mut self, info_hash: &Id) -> Option<Vec<SignedAnnounce>> {
+    pub(crate) fn get_random_peers(&mut self, info_hash: &Id) -> Option<Vec<SignedAnnounce>> {
         if let Some(info_hash_lru) = self.info_hashes.get(info_hash) {
             let size = info_hash_lru.len();
             let target_size = 10;

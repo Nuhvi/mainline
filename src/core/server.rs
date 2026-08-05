@@ -1,8 +1,8 @@
 //! Modules needed only for nodes running in server mode (not read-only).
 
-pub mod peers;
-pub mod signed_peers;
-pub mod tokens;
+pub(crate) mod peers;
+pub(crate) mod signed_peers;
+pub(crate) mod tokens;
 
 use std::{fmt::Debug, net::SocketAddrV4, num::NonZeroUsize};
 
@@ -25,7 +25,7 @@ use peers::PeersStore;
 use signed_peers::SignedPeersStore;
 use tokens::Tokens;
 
-pub use crate::common::{MessageType, RequestSpecific};
+pub(crate) use crate::common::{MessageType, RequestSpecific};
 
 /// Default maximum number of info_hashes for which to store peers.
 pub const MAX_INFO_HASHES: usize = 2000;
@@ -63,7 +63,7 @@ impl RequestFilter for DefaultFilter {
 /// Supports [BEP_005](https://www.bittorrent.org/beps/bep_0005.html) and [BEP_0044](https://www.bittorrent.org/beps/bep_0044.html).
 ///
 /// But it doesn't implement any rate-limiting or blocking.
-pub struct Server {
+pub(crate) struct Server {
     /// Tokens generator
     tokens: Tokens,
     /// Peers store
@@ -124,7 +124,7 @@ impl Default for ServerSettings {
 
 impl Server {
     /// Creates a new [Server]
-    pub fn new(settings: ServerSettings) -> Self {
+    pub(crate) fn new(settings: ServerSettings) -> Self {
         let tokens = Tokens::new();
 
         Self {
@@ -151,7 +151,7 @@ impl Server {
     /// Returns an optional response or an error for a request.
     ///
     /// Passed to the Rpc to send back to the requester.
-    pub fn handle_request(
+    pub(crate) fn handle_request(
         &mut self,
         routing_table: &RoutingTable,
         signing_peers_routing_table: &RoutingTable,

@@ -5,11 +5,11 @@ use sha1_smol::Sha1;
 use super::ID_SIZE;
 use crate::Id;
 
-pub fn validate_immutable(v: &[u8], target: Id) -> bool {
+pub(crate) fn validate_immutable(v: &[u8], target: Id) -> bool {
     hash_immutable(v) == *target.as_bytes()
 }
 
-pub fn hash_immutable(v: &[u8]) -> [u8; ID_SIZE] {
+pub(crate) fn hash_immutable(v: &[u8]) -> [u8; ID_SIZE] {
     let mut encoded = Vec::with_capacity(v.len() + 3);
     encoded.extend(format!("{}:", v.len()).bytes());
     encoded.extend_from_slice(v);

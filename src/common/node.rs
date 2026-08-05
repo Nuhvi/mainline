@@ -10,9 +10,9 @@ use crate::common::Id;
 
 /// The age of a node's last_seen time before it is considered stale and removed from a full bucket
 /// on inserting a new node.
-pub const STALE_TIME: Duration = Duration::from_secs(15 * 60);
+pub(crate) const STALE_TIME: Duration = Duration::from_secs(15 * 60);
 const MIN_PING_BACKOFF_INTERVAL: Duration = Duration::from_secs(10);
-pub const TOKEN_ROTATE_INTERVAL: Duration = Duration::from_secs(60 * 5);
+pub(crate) const TOKEN_ROTATE_INTERVAL: Duration = Duration::from_secs(60 * 5);
 
 #[derive(PartialEq)]
 pub(crate) struct NodeInner {
@@ -23,7 +23,7 @@ pub(crate) struct NodeInner {
 }
 
 impl NodeInner {
-    pub fn random() -> Self {
+    pub(crate) fn random() -> Self {
         Self {
             id: Id::random(),
             address: SocketAddrV4::new(0.into(), 0),

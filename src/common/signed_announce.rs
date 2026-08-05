@@ -115,7 +115,7 @@ fn system_time() -> u64 {
         .as_micros() as u64
 }
 
-pub fn encode_signable(info_hash: &Id, timestamp: u64) -> Box<[u8]> {
+pub(crate) fn encode_signable(info_hash: &Id, timestamp: u64) -> Box<[u8]> {
     let mut signable = vec![];
 
     signable.extend(info_hash.as_bytes());
@@ -126,7 +126,7 @@ pub fn encode_signable(info_hash: &Id, timestamp: u64) -> Box<[u8]> {
 
 #[derive(thiserror::Error, Debug)]
 /// Mainline crate error enum.
-pub enum SignedAnnounceError {
+pub(crate) enum SignedAnnounceError {
     #[error("Invalid signed announce signature")]
     /// Invalid signed announce signature
     Signature,

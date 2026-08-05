@@ -7,7 +7,7 @@ use crate::common::ClosestNodes;
 use crate::common::{Id, Node};
 
 /// K = the default maximum size of a k-bucket.
-pub const MAX_BUCKET_SIZE_K: usize = 20;
+pub(crate) const MAX_BUCKET_SIZE_K: usize = 20;
 
 #[derive(Debug, Clone)]
 /// Simplified Kademlia routing table
@@ -284,13 +284,13 @@ impl Iterator for RoutingTableIterator<'_> {
 /// Kbuckets are similar to LRU caches that checks and evicts unresponsive nodes,
 /// without dropping any responsive nodes in the process.
 #[derive(Debug, Clone)]
-pub struct KBucket {
+pub(crate) struct KBucket {
     /// Nodes in the k-bucket, sorted by the least recently seen.
     nodes: Vec<Node>,
 }
 
 impl KBucket {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         KBucket {
             nodes: Vec::with_capacity(MAX_BUCKET_SIZE_K),
         }
@@ -300,7 +300,7 @@ impl KBucket {
 
     // === Public Methods ===
 
-    pub fn add(&mut self, incoming: Node) -> bool {
+    pub(crate) fn add(&mut self, incoming: Node) -> bool {
         if let Some(index) = self.iter().position(|n| n.id() == incoming.id()) {
             let Some(existing) = self.nodes.get(index) else {
                 return false;
@@ -339,15 +339,15 @@ impl KBucket {
         }
     }
 
-    pub fn remove(&mut self, node_id: &Id) {
+    pub(crate) fn remove(&mut self, node_id: &Id) {
         self.nodes.retain(|node| node.id() != node_id);
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
 
-    pub fn iter(&self) -> Iter<'_, Node> {
+    pub(crate) fn iter(&self) -> Iter<'_, Node> {
         self.nodes.iter()
     }
 

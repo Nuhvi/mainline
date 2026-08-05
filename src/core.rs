@@ -17,28 +17,28 @@ use crate::common::{
 use crate::core::iterative_query::GetRequestSpecific;
 use crate::{MutableItem, PutRequestSpecific};
 
-pub mod handle_request;
-pub mod handle_response;
-pub mod iterative_query;
-pub mod put_query;
-pub mod server;
+pub(crate) mod handle_request;
+pub(crate) mod handle_response;
+pub(crate) mod iterative_query;
+pub(crate) mod put_query;
+pub(crate) mod server;
 
 use server::Server;
 use server::ServerSettings;
 
 pub use put_query::{ConcurrencyError, PutError, PutQueryError};
 
-pub const REFRESH_TABLE_INTERVAL: Duration = Duration::from_secs(15 * 60);
-pub const PING_TABLE_INTERVAL: Duration = Duration::from_secs(5 * 60);
+pub(crate) const REFRESH_TABLE_INTERVAL: Duration = Duration::from_secs(15 * 60);
+pub(crate) const PING_TABLE_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
-pub const MAX_CACHED_ITERATIVE_QUERIES: usize = 1000;
+pub(crate) const MAX_CACHED_ITERATIVE_QUERIES: usize = 1000;
 
 const MAX_CACHED_ITERATIVE_QUERIES_NONZERO: NonZeroUsize =
     NonZeroUsize::new(MAX_CACHED_ITERATIVE_QUERIES).unwrap();
 
-pub const VERSION: [u8; 4] = [82, 83, 0, 6]; // "RS" version 06
-                                             //
-pub const VERSIONS_SUPPORTING_SIGNED_PEERS: &[[u8; 4]] = &[
+pub(crate) const VERSION: [u8; 4] = [82, 83, 0, 6]; // "RS" version 06
+                                                    //
+pub(crate) const VERSIONS_SUPPORTING_SIGNED_PEERS: &[[u8; 4]] = &[
     // This node
     VERSION,
     // Add more nodes as we learn about supporting clients
@@ -48,7 +48,7 @@ pub const VERSIONS_SUPPORTING_SIGNED_PEERS: &[[u8; 4]] = &[
 #[derive(Debug)]
 /// Side effect free Core, containing all the state and methods necessary
 /// for comprehensive and deterministic testing.
-pub struct Core {
+pub(crate) struct Core {
     // Options
     pub bootstrap: Box<[SocketAddrV4]>,
 
@@ -80,7 +80,7 @@ pub struct Core {
 }
 
 impl Core {
-    pub fn new(
+    pub(crate) fn new(
         id: Id,
         bootstrap: Vec<SocketAddrV4>,
         server_mode: bool,
@@ -106,23 +106,23 @@ impl Core {
         self.routing_table.id()
     }
 
-    pub fn should_ping_table(&self) -> bool {
+    pub(crate) fn should_ping_table(&self) -> bool {
         self.last_table_ping.elapsed() > PING_TABLE_INTERVAL
     }
 
-    pub fn update_last_table_ping(&mut self) {
+    pub(crate) fn update_last_table_ping(&mut self) {
         self.last_table_ping = Instant::now();
     }
 
-    pub fn should_refresh_table(&self) -> bool {
+    pub(crate) fn should_refresh_table(&self) -> bool {
         self.last_table_refresh.elapsed() > REFRESH_TABLE_INTERVAL
     }
 
-    pub fn update_last_table_refresh(&mut self) {
+    pub(crate) fn update_last_table_refresh(&mut self) {
         self.last_table_refresh = Instant::now();
     }
 
-    pub fn get_cached_closest_nodes(&mut self, target: &Id) -> Option<Box<[Node]>> {
+    pub(crate) fn get_cached_closest_nodes(&mut self, target: &Id) -> Option<Box<[Node]>> {
         self.cached_iterative_queries
             .get(target)
             .map(|cached| cached.closest_responding_nodes.clone())
@@ -132,7 +132,10 @@ impl Core {
     }
 
     /// Check if the query is either successfully done, in which case return the closest nodes.
-    pub fn closest_nodes_from_done_iterative_query(&self, query: &IterativeQuery) -> Box<[Node]> {
+    pub(crate) fn closest_nodes_from_done_iterative_query(
+        &self,
+        query: &IterativeQuery,
+    ) -> Box<[Node]> {
         let self_id = self.id();
         let table_size = self.routing_table.size();
 
@@ -180,7 +183,7 @@ impl Core {
     /// Remove done [IterativeQuery]s, return the [Id]s of [PutQuery] ready to start,
     /// and if done queries contained votes for new public address, return the address
     /// to be pinged.
-    pub fn cleanup_done_queries(
+    pub(crate) fn cleanup_done_queries(
         &mut self,
         done_get_queries: &[(Id, Box<[Node]>)],
         done_put_queries: &[(Id, Option<PutError>)],
@@ -203,7 +206,7 @@ impl Core {
         should_ping_alleged_new_address
     }
 
-    pub fn check_nodes_to_ping_and_remove_stale_nodes(&mut self) -> Vec<SocketAddrV4> {
+    pub(crate) fn check_nodes_to_ping_and_remove_stale_nodes(&mut self) -> Vec<SocketAddrV4> {
         let mut to_ping = vec![];
 
         for routing_table in [
@@ -228,7 +231,7 @@ impl Core {
         to_ping
     }
 
-    pub fn check_concurrency_errors(
+    pub(crate) fn check_concurrency_errors(
         &mut self,
         request: &PutRequestSpecific,
     ) -> Result<(), ConcurrencyError> {
@@ -272,7 +275,7 @@ impl Core {
 
     /// If we are already announcing a signed peer or a mutable item, might as well
     /// return it to the request asking for the same target.
-    pub fn check_outgoing_put_request(&self, target: &Id) -> Option<Response> {
+    pub(crate) fn check_outgoing_put_request(&self, target: &Id) -> Option<Response> {
         self.put_queries
             .get(target)
             .and_then(|existing| match existing.request.clone() {
@@ -290,7 +293,7 @@ impl Core {
     }
 
     /// If query is still active, no need to create a new one.
-    pub fn check_responses_from_active_query(&self, target: &Id) -> Option<&[Response]> {
+    pub(crate) fn check_responses_from_active_query(&self, target: &Id) -> Option<&[Response]> {
         self.iterative_queries
             .get(target)
             .map(|query| query.responses())
@@ -303,7 +306,7 @@ impl Core {
     /// to visit to start the query.
     ///
     /// Returns `None` if there is an already active query.
-    pub fn create_iterative_query(
+    pub(crate) fn create_iterative_query(
         &mut self,
         request: GetRequestSpecific,
         extra_nodes: Option<&[SocketAddrV4]>,

@@ -8,8 +8,8 @@ use std::{
 };
 
 /// The size of node IDs in bits.
-pub const ID_SIZE: usize = 20;
-pub const MAX_DISTANCE: u8 = ID_SIZE as u8 * 8;
+pub(crate) const ID_SIZE: usize = 20;
+pub(crate) const MAX_DISTANCE: u8 = ID_SIZE as u8 * 8;
 
 const IPV4_MASK: u32 = 0x030f3fff;
 const CASTAGNOLI: Crc<u32> = Crc::<u32>::new(&CRC_32_ISCSI);

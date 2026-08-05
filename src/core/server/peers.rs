@@ -12,14 +12,14 @@ const CHANCE_SCALE: f32 = 2.0 * (1u32 << 31) as f32;
 /// An LRU cache of "Peers" per info hashes.
 ///
 /// Read [BEP_0005](https://www.bittorrent.org/beps/bep_0005.html) for more information.
-pub struct PeersStore {
+pub(crate) struct PeersStore {
     info_hashes: LruCache<Id, LruCache<Id, SocketAddrV4>>,
     max_peers: NonZeroUsize,
 }
 
 impl PeersStore {
     /// Create a new store of peers announced on info hashes.
-    pub fn new(max_info_hashes: NonZeroUsize, max_peers: NonZeroUsize) -> Self {
+    pub(crate) fn new(max_info_hashes: NonZeroUsize, max_peers: NonZeroUsize) -> Self {
         Self {
             info_hashes: LruCache::new(max_info_hashes),
             max_peers,
@@ -27,7 +27,7 @@ impl PeersStore {
     }
 
     /// Add a peer for an info hash.
-    pub fn add_peer(&mut self, info_hash: Id, peer: (&Id, SocketAddrV4)) {
+    pub(crate) fn add_peer(&mut self, info_hash: Id, peer: (&Id, SocketAddrV4)) {
         if let Some(info_hash_lru) = self.info_hashes.get_mut(&info_hash) {
             info_hash_lru.put(*peer.0, peer.1);
         } else {
@@ -38,7 +38,7 @@ impl PeersStore {
     }
 
     /// Returns a random set of peers per an info hash.
-    pub fn get_random_peers(&mut self, info_hash: &Id) -> Option<Vec<SocketAddrV4>> {
+    pub(crate) fn get_random_peers(&mut self, info_hash: &Id) -> Option<Vec<SocketAddrV4>> {
         if let Some(info_hash_lru) = self.info_hashes.get(info_hash) {
             let size = info_hash_lru.len();
             let target_size = 20;

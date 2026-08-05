@@ -14,15 +14,15 @@ use super::config::Config;
 
 const MTU: usize = 2048;
 
-pub const DEFAULT_PORT: u16 = 6881;
+pub(crate) const DEFAULT_PORT: u16 = 6881;
 
 /// Minimum interval between polling udp socket, lower latency, higher cpu usage.
 /// Useful for checking for expected responses.
-pub const MIN_POLL_INTERVAL: Duration = Duration::from_micros(100);
+pub(crate) const MIN_POLL_INTERVAL: Duration = Duration::from_micros(100);
 /// Maximum interval between polling udp socket, higher latency, lower cpu usage.
 /// Useful for waiting for incoming requests, and [super::Actor::periodic_node_maintaenance].
-pub const MAX_POLL_INTERVAL: Duration = Duration::from_millis(500);
-pub const MIN_REQUEST_TIMEOUT: Duration = Duration::from_millis(500);
+pub(crate) const MAX_POLL_INTERVAL: Duration = Duration::from_millis(500);
+pub(crate) const MIN_REQUEST_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// Version before supporting `announce_signed_peers`
 #[cfg(test)]
@@ -30,7 +30,7 @@ const LEGACY_VERSION: [u8; 4] = [82, 83, 0, 5]; // "RS" version 05
 
 /// A UdpSocket wrapper that formats and correlates DHT requests and responses.
 #[derive(Debug)]
-pub struct KrpcSocket {
+pub(crate) struct KrpcSocket {
     socket: UdpSocket,
     pub(crate) server_mode: bool,
     local_addr: SocketAddrV4,
@@ -95,19 +95,19 @@ impl KrpcSocket {
 
     /// Returns the address the server is listening to.
     #[inline]
-    pub fn local_addr(&self) -> SocketAddrV4 {
+    pub(crate) fn local_addr(&self) -> SocketAddrV4 {
         self.local_addr
     }
 
     // === Public Methods ===
 
     /// Returns true if this message's transaction_id is still inflight
-    pub fn inflight(&self, transaction_id: &u32) -> bool {
+    pub(crate) fn inflight(&self, transaction_id: &u32) -> bool {
         self.inflight_requests.get(*transaction_id).is_some()
     }
 
     /// Send a request to the given address and return the transaction_id
-    pub fn request(&mut self, address: SocketAddrV4, request: RequestSpecific) -> u32 {
+    pub(crate) fn request(&mut self, address: SocketAddrV4, request: RequestSpecific) -> u32 {
         let transaction_id = self.inflight_requests.add(address);
 
         let message = self.request_message(transaction_id, request);
@@ -125,7 +125,7 @@ impl KrpcSocket {
     }
 
     /// Send a response to the given address.
-    pub fn response(
+    pub(crate) fn response(
         &mut self,
         address: SocketAddrV4,
         transaction_id: u32,
@@ -140,7 +140,12 @@ impl KrpcSocket {
     }
 
     /// Send an error to the given address.
-    pub fn error(&mut self, address: SocketAddrV4, transaction_id: u32, error: ErrorSpecific) {
+    pub(crate) fn error(
+        &mut self,
+        address: SocketAddrV4,
+        transaction_id: u32,
+        error: ErrorSpecific,
+    ) {
         let message = self.response_message(MessageType::Error(error), address, transaction_id);
         let _ = self.send(address, message).map_err(|e| {
             debug!(?e, "Error sending error message");
@@ -149,7 +154,7 @@ impl KrpcSocket {
 
     /// Receives a single krpc message on the socket.
     /// On success, returns the dht message and the origin.
-    pub fn recv_from(&mut self) -> Option<(Message, SocketAddrV4)> {
+    pub(crate) fn recv_from(&mut self) -> Option<(Message, SocketAddrV4)> {
         let mut buf = [0u8; MTU];
 
         self.inflight_requests.cleanup();
@@ -322,7 +327,7 @@ impl KrpcSocket {
 
 #[derive(thiserror::Error, Debug)]
 /// Mainline crate error enum.
-pub enum SendMessageError {
+pub(crate) enum SendMessageError {
     /// Errors related to parsing DHT messages.
     #[error("Failed to parse packet bytes: {0}")]
     BencodeError(#[from] serde_bencode::Error),
@@ -345,7 +350,7 @@ fn compare_socket_addr(a: &SocketAddrV4, b: &SocketAddrV4) -> bool {
     a.ip() == b.ip()
 }
 
-pub struct InflightRequest {
+pub(crate) struct InflightRequest {
     tid: u32,
     to: SocketAddrV4,
     sent_at: Instant,

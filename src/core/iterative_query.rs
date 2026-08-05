@@ -78,7 +78,7 @@ impl From<&PutRequestSpecific> for GetRequestSpecific {
 }
 
 impl IterativeQuery {
-    pub fn new(requester_id: Id, target: Id, request: GetRequestSpecific) -> Self {
+    pub(crate) fn new(requester_id: Id, target: Id, request: GetRequestSpecific) -> Self {
         let request_type = match request {
             GetRequestSpecific::FindNode(s) => RequestTypeSpecific::FindNode(s),
             GetRequestSpecific::GetPeers(s) => RequestTypeSpecific::GetPeers(s),
@@ -108,25 +108,25 @@ impl IterativeQuery {
 
     // === Getters ===
 
-    pub fn target(&self) -> Id {
+    pub(crate) fn target(&self) -> Id {
         self.responders.target()
     }
 
     /// Closest nodes according to other nodes.
-    pub fn closest(&self) -> &ClosestNodes {
+    pub(crate) fn closest(&self) -> &ClosestNodes {
         &self.closest
     }
 
     /// Return the closest responding nodes after the query is done.
-    pub fn responders(&self) -> &ClosestNodes {
+    pub(crate) fn responders(&self) -> &ClosestNodes {
         &self.responders
     }
 
-    pub fn responses(&self) -> &[Response] {
+    pub(crate) fn responses(&self) -> &[Response] {
         &self.responses
     }
 
-    pub fn best_address(&self) -> Option<SocketAddrV4> {
+    pub(crate) fn best_address(&self) -> Option<SocketAddrV4> {
         let mut max = 0_u32;
         let mut best_addr = None;
 
@@ -143,13 +143,13 @@ impl IterativeQuery {
     // === Public Methods ===
 
     /// Add a candidate node to query on next tick if it is among the closest nodes.
-    pub fn add_candidate(&mut self, node: Node) {
+    pub(crate) fn add_candidate(&mut self, node: Node) {
         // ready for a ipv6 routing table?
         self.closest.add(node);
     }
 
     /// Add a vote for this node's address.
-    pub fn add_address_vote(&mut self, address: SocketAddrV4) {
+    pub(crate) fn add_address_vote(&mut self, address: SocketAddrV4) {
         self.public_address_votes
             .entry(address)
             .and_modify(|counter| *counter += 1)
@@ -158,24 +158,24 @@ impl IterativeQuery {
 
     /// Visit explicitly given addresses, and add them to the visited set.
     /// only used from the Rpc when calling bootstrapping nodes.
-    pub fn visit(&mut self, socket: &mut KrpcSocket, address: SocketAddrV4) {
+    pub(crate) fn visit(&mut self, socket: &mut KrpcSocket, address: SocketAddrV4) {
         let tid = socket.request(address, self.request.clone());
         self.inflight_requests.push(tid);
         self.visited.insert(address);
     }
 
     /// Return true if a response (by transaction_id) is expected by this query.
-    pub fn inflight(&self, tid: u32) -> bool {
+    pub(crate) fn inflight(&self, tid: u32) -> bool {
         self.inflight_requests.contains(&tid)
     }
 
     /// Add a node that responded with a token as a probable storage node.
-    pub fn add_responding_node(&mut self, node: Node) {
+    pub(crate) fn add_responding_node(&mut self, node: Node) {
         self.responders.add(node)
     }
 
     /// Store received response.
-    pub fn response(&mut self, from: SocketAddrV4, response: Response) {
+    pub(crate) fn response(&mut self, from: SocketAddrV4, response: Response) {
         let target = self.target();
 
         trace!(?target, ?response, ?from, "Query got response");
@@ -183,7 +183,7 @@ impl IterativeQuery {
         self.responses.push(response.to_owned());
     }
 
-    pub fn visit_closest(&mut self, socket: &mut KrpcSocket) {
+    pub(crate) fn visit_closest(&mut self, socket: &mut KrpcSocket) {
         let to_visit = self.closest_candidates();
 
         for address in to_visit {
@@ -191,7 +191,7 @@ impl IterativeQuery {
         }
     }
 
-    pub fn closest_candidates(&self) -> Vec<SocketAddrV4> {
+    pub(crate) fn closest_candidates(&self) -> Vec<SocketAddrV4> {
         self.closest
             .nodes()
             .iter()
@@ -202,7 +202,7 @@ impl IterativeQuery {
     }
 
     /// Returns true if it is done.
-    pub fn is_done(&self, socket: &KrpcSocket) -> bool {
+    pub(crate) fn is_done(&self, socket: &KrpcSocket) -> bool {
         // If no more inflight_requests are inflight in the socket (not timed out),
         // then the query is done.
         let done = !self

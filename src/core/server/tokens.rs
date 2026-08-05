@@ -17,7 +17,7 @@ const CASTAGNOLI: Crc<u32> = Crc::<u32>::new(&CRC_32_ISCSI);
 ///
 /// Read [BEP_0005](https://www.bittorrent.org/beps/bep_0005.html) for more information.
 #[derive(Clone)]
-pub struct Tokens {
+pub(crate) struct Tokens {
     prev_secret: [u8; SECRET_SIZE],
     curr_secret: [u8; SECRET_SIZE],
     last_updated: Instant,
@@ -31,7 +31,7 @@ impl Debug for Tokens {
 
 impl Tokens {
     /// Create a Tokens generator.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Tokens {
             prev_secret: random(),
             curr_secret: random(),
@@ -42,12 +42,12 @@ impl Tokens {
     // === Public Methods ===
 
     /// Returns `true` if the current secret needs to be updated after an interval.
-    pub fn should_update(&self) -> bool {
+    pub(crate) fn should_update(&self) -> bool {
         self.last_updated.elapsed() > crate::common::TOKEN_ROTATE_INTERVAL
     }
 
     /// Validate that the token was generated within the past 10 minutes
-    pub fn validate(&mut self, address: SocketAddrV4, token: &[u8]) -> bool {
+    pub(crate) fn validate(&mut self, address: SocketAddrV4, token: &[u8]) -> bool {
         let prev = self.internal_generate_token(address, self.prev_secret);
         let curr = self.internal_generate_token(address, self.curr_secret);
 
@@ -55,7 +55,7 @@ impl Tokens {
     }
 
     /// Rotate the tokens secret.
-    pub fn rotate(&mut self) {
+    pub(crate) fn rotate(&mut self) {
         trace!("Rotating secrets");
 
         self.prev_secret = self.curr_secret;
@@ -65,7 +65,7 @@ impl Tokens {
     }
 
     /// Generates a new token for a remote peer.
-    pub fn generate_token(&mut self, address: SocketAddrV4) -> [u8; 4] {
+    pub(crate) fn generate_token(&mut self, address: SocketAddrV4) -> [u8; 4] {
         self.internal_generate_token(address, self.curr_secret)
     }
 

@@ -24,7 +24,7 @@ use config::Config;
 
 use socket::KrpcSocket;
 
-pub use info::Info;
+pub(crate) use info::Info;
 
 #[derive(Debug)]
 /// Internal Rpc called in the Dht thread loop, useful to create your own actor setup.
@@ -391,7 +391,7 @@ impl Actor {
     }
 }
 
-pub fn run(config: Config, receiver: Receiver<ActorMessage>) {
+pub(crate) fn run(config: Config, receiver: Receiver<ActorMessage>) {
     match Actor::new(config) {
         Ok(mut actor) => {
             loop {
@@ -486,7 +486,7 @@ pub(crate) enum ActorMessage {
 }
 
 #[derive(Debug, Clone)]
-pub enum ResponseSender {
+pub(crate) enum ResponseSender {
     ClosestNodes(Sender<Box<[Node]>>),
     Peers(Sender<Vec<SocketAddrV4>>),
     SignedPeers(Sender<Vec<SignedAnnounce>>),

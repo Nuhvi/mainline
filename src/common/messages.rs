@@ -684,11 +684,11 @@ impl Message {
         })
     }
 
-    pub fn to_bytes(&self) -> Result<Vec<u8>, serde_bencode::Error> {
+    pub(crate) fn to_bytes(&self) -> Result<Vec<u8>, serde_bencode::Error> {
         self.clone().into_serde_message().to_bytes()
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<Message, DecodeMessageError> {
+    pub(crate) fn from_bytes(bytes: &[u8]) -> Result<Message, DecodeMessageError> {
         if bytes.len() < 15 {
             return Err(DecodeMessageError::TooShort);
         } else if bytes.first() != Some(&100) {
@@ -705,7 +705,7 @@ impl Message {
     /// of DHT Messages, and makes it a bit annoying to learn the sender's Id without
     /// unraveling the entire message. This method is a convenience method to extract
     /// the sender (or "author") Id from the guts of any Message.
-    pub fn get_author_id(&self) -> Option<Id> {
+    pub(crate) fn get_author_id(&self) -> Option<Id> {
         let id = match &self.message_type {
             MessageType::Request(arguments) => arguments.requester_id,
             MessageType::Response(response_variant) => match response_variant {
@@ -727,7 +727,7 @@ impl Message {
     }
 
     /// If the response contains a closer nodes to the target, return that!
-    pub fn get_closer_nodes(&self) -> Option<&[Node]> {
+    pub(crate) fn get_closer_nodes(&self) -> Option<&[Node]> {
         match &self.message_type {
             MessageType::Response(response_variant) => match response_variant {
                 ResponseSpecific::Ping(_) => None,
@@ -743,7 +743,7 @@ impl Message {
         }
     }
 
-    pub fn get_token(&self) -> Option<(Id, &[u8])> {
+    pub(crate) fn get_token(&self) -> Option<(Id, &[u8])> {
         match &self.message_type {
             MessageType::Response(response_variant) => match response_variant {
                 ResponseSpecific::Ping(_) => None,
@@ -795,7 +795,7 @@ fn bytes_to_sockaddr<T: AsRef<[u8]>>(bytes: T) -> Result<SocketAddrV4, DecodeMes
     }
 }
 
-pub fn sockaddr_to_bytes(sockaddr: &SocketAddrV4) -> [u8; 6] {
+pub(crate) fn sockaddr_to_bytes(sockaddr: &SocketAddrV4) -> [u8; 6] {
     let mut bytes = [0u8; 6];
 
     bytes[0..4].copy_from_slice(&sockaddr.ip().octets());
@@ -908,7 +908,7 @@ fn signed_peer_to_bytes(peer: &([u8; 32], u64, [u8; 64])) -> [u8; 104] {
 
 #[derive(thiserror::Error, Debug)]
 /// Mainline crate error enum.
-pub enum DecodeMessageError {
+pub(crate) enum DecodeMessageError {
     #[error("Expected message to be longer than 15 characters")]
     TooShort,
 

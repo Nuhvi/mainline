@@ -142,7 +142,7 @@ impl MutableItem {
     }
 }
 
-pub fn encode_signable(seq: i64, value: &[u8], salt: Option<&[u8]>) -> Box<[u8]> {
+pub(crate) fn encode_signable(seq: i64, value: &[u8], salt: Option<&[u8]>) -> Box<[u8]> {
     let mut signable = vec![];
 
     if let Some(salt) = salt {

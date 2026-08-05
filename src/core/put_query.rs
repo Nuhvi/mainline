@@ -13,7 +13,7 @@ use crate::actor::socket::KrpcSocket;
 /// Once an [super::IterativeQuery] is done, or if a previous cached one was a available,
 /// we can store data at the closest nodes using this PutQuery, that keeps track of
 /// acknowledging nodes, and or errors.
-pub struct PutQuery {
+pub(crate) struct PutQuery {
     pub target: Id,
     /// Nodes that confirmed success
     stored_at: u8,
@@ -24,7 +24,7 @@ pub struct PutQuery {
 }
 
 impl PutQuery {
-    pub fn new(request: PutRequestSpecific, extra_nodes: Option<Box<[Node]>>) -> Self {
+    pub(crate) fn new(request: PutRequestSpecific, extra_nodes: Option<Box<[Node]>>) -> Self {
         Self {
             target: *request.target(),
             stored_at: 0,
@@ -35,7 +35,7 @@ impl PutQuery {
         }
     }
 
-    pub fn start(
+    pub(crate) fn start(
         &mut self,
         socket: &mut KrpcSocket,
         closest_nodes: &[Node],
@@ -76,20 +76,20 @@ impl PutQuery {
         Ok(())
     }
 
-    pub fn started(&self) -> bool {
+    pub(crate) fn started(&self) -> bool {
         !self.inflight_requests.is_empty()
     }
 
-    pub fn inflight(&self, tid: u32) -> bool {
+    pub(crate) fn inflight(&self, tid: u32) -> bool {
         self.inflight_requests.contains(&tid)
     }
 
-    pub fn success(&mut self) {
+    pub(crate) fn success(&mut self) {
         trace!(target = ?self.target, "PutQuery got success response");
         self.stored_at += 1
     }
 
-    pub fn error(&mut self, error: ErrorSpecific) {
+    pub(crate) fn error(&mut self, error: ErrorSpecific) {
         debug!(target = ?self.target, ?error, "PutQuery got error");
 
         if let Some(pos) = self
@@ -121,7 +121,7 @@ impl PutQuery {
     }
 
     /// Check if the query is either successfully done, or terminated with an error.
-    pub fn check(&self, socket: &KrpcSocket) -> Result<bool, PutError> {
+    pub(crate) fn check(&self, socket: &KrpcSocket) -> Result<bool, PutError> {
         // And all queries got responses or timedout
         if self.is_done(socket) {
             let target = self.target;
