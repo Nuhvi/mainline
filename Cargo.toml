@@ -38,7 +38,7 @@ ctrlc = "3.4.5"
 histo = "1.0.0"
 rayon = "1.10"
 dashmap = "6.1"
-flume = "0.11.1"
+flume = { version = "0.11.1", features = ["async"], default-features = false }
 colored = "3.0.0"
 chrono = "0.4"
 eyre = "0.6.12"
@@ -55,16 +55,19 @@ default = ["full"]
 all-features = true
 
 [lints.rust]
-missing_docs              = "deny"
-unused_must_use           = "deny"
+missing_docs = "deny"
+unused_must_use = "deny"
+unsafe_code = "forbid"
 
 [lints.rustdoc]
 broken_intra_doc_links    = "deny"
 
 [lints.clippy]
-panic                     = "deny"
-unwrap_used               = "deny"
-expect_used               = "deny"
-await_holding_lock        = "deny"
+cargo = "deny"
+panic = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+await_holding_lock = "deny"
 await_holding_refcell_ref = "deny"
-indexing_slicing          = "deny"
+undocumented_unsafe_blocks = "deny"
