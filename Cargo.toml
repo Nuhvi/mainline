@@ -68,6 +68,12 @@ panic = "deny"
 unwrap_used = "deny"
 expect_used = "deny"
 indexing_slicing = "deny"
+undocumented_unsafe_blocks = "deny"
+
+# pedantic = "deny"
+# nursery = { level = "deny", priority = -1 }
+# integer_division = "deny"
+
 await_holding_lock = "deny"
 await_holding_refcell_ref = "deny"
-undocumented_unsafe_blocks = "deny"
+# panic_in_result_fn = "deny"

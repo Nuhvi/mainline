@@ -13,7 +13,7 @@ use eyre::Result;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// info_hash to lookup peers for
+    /// `info_hash` to lookup peers for
     infohash: String,
 }
 
@@ -31,14 +31,14 @@ fn main() -> Result<()> {
 
     let dht = Dht::client()?;
 
-    dht.bootstrapped();
+    let _ = dht.bootstrapped();
 
-    println!("Looking up peers for info_hash: {} ...", info_hash);
+    println!("Looking up peers for info_hash: {info_hash} ...");
     println!("\n=== COLD QUERY ===");
     get_peers(&dht, &info_hash);
 
     println!("\n=== SUBSEQUENT QUERY ===");
-    println!("Looking up peers for info_hash: {} ...", info_hash);
+    println!("Looking up peers for info_hash: {info_hash} ...");
     get_peers(&dht, &info_hash);
 
     Ok(())
@@ -79,7 +79,7 @@ fn get_peers(dht: &Dht, info_hash: &Id) {
     );
 }
 fn to_hex(bytes: &[u8]) -> String {
-    let hex_chars: String = bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
+    let hex_chars: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
 
     hex_chars
 }

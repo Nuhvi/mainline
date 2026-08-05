@@ -30,7 +30,7 @@ fn main() -> Result<()> {
 
     let client = builder.build()?;
 
-    client.bootstrapped();
+    let _ = client.bootstrapped();
 
     let bootstrap = client.to_bootstrap();
 
@@ -51,7 +51,7 @@ fn load() -> Result<Vec<String>> {
         for line in content.lines() {
             cached_nodes.push(line.to_string());
         }
-    };
+    }
 
     Ok(cached_nodes)
 }

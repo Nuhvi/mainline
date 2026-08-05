@@ -1,7 +1,7 @@
 //! Shows how to customise DHT logging with a custom tracing formatter and a
 //! long-running server node.
 
-use colored::*;
+use colored::{ColoredString, Colorize};
 use dht::Dht;
 use eyre::Result;
 use std::{
@@ -63,7 +63,7 @@ where
             .unwrap_or_default()
             .as_secs();
 
-        writeln!(writer, "{} {} {}", level_color, timestamp, formatted)
+        writeln!(writer, "{level_color} {timestamp} {formatted}")
     }
 }
 
@@ -76,11 +76,11 @@ impl<'a> StringVisitor<'a> {
     }
 }
 
-impl<'a> tracing::field::Visit for StringVisitor<'a> {
+impl tracing::field::Visit for StringVisitor<'_> {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         self.0.push_str(field.name());
         self.0.push('=');
-        self.0.push_str(&format!("{:?} ", value));
+        self.0.push_str(&format!("{value:?} "));
     }
 
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
@@ -170,13 +170,13 @@ fn format_socket_error(msg: &str) -> String {
         let hex_dump = message
             .as_bytes()
             .iter()
-            .map(|b| format!("{:02x}", b))
+            .map(|b| format!("{b:02x}"))
             .collect::<Vec<_>>()
             .chunks(16)
             .map(|chunk| chunk.join(" "))
             .collect::<Vec<_>>()
             .join("\n");
-        details.push_str(&format!("    {}\n", hex_dump));
+        details.push_str(&format!("    {hex_dump}\n"));
     }
 
     format!("[{}]\n{}", SOCKET_ERROR.red().bold(), details)
@@ -216,11 +216,11 @@ fn format_socket_message(msg: &str) -> String {
                 // First line contains main error
                 let error = first.replace("Failed to parse packet bytes: ", "");
                 details.push_str(&format!("  Error Type: {}\n", "Parse Error"));
-                details.push_str(&format!("  Details: {}\n", error));
+                details.push_str(&format!("  Details: {error}\n"));
 
                 // Second line contains address
                 if let Some(addr) = second.strip_prefix("From: ") {
-                    details.push_str(&format!("  Remote Addr: {}\n", addr));
+                    details.push_str(&format!("  Remote Addr: {addr}\n"));
                 }
 
                 // Extract transaction ID if present
@@ -234,13 +234,13 @@ fn format_socket_message(msg: &str) -> String {
                     let hex_dump = raw
                         .as_bytes()
                         .iter()
-                        .map(|b| format!("{:02x}", b))
+                        .map(|b| format!("{b:02x}"))
                         .collect::<Vec<_>>()
                         .chunks(16)
                         .map(|chunk| chunk.join(" "))
                         .collect::<Vec<_>>()
                         .join("\n");
-                    details.push_str(&format!("    {}\n", hex_dump));
+                    details.push_str(&format!("    {hex_dump}\n"));
                 }
             }
         }
@@ -286,7 +286,7 @@ fn format_socket_message(msg: &str) -> String {
         } else {
             "Unknown Message Type".red()
         };
-        details.push_str(&format!("  Message Type: {}\n", type_str));
+        details.push_str(&format!("  Message Type: {type_str}\n"));
 
         // Extract IDs (both requester and responder)
         if let Some(id) = extract_field(msg_type, "requester_id: Id(")
@@ -310,7 +310,7 @@ fn format_socket_message(msg: &str) -> String {
             if let Some(version_end) = version.split("])").next() {
                 let version_nums: Vec<&str> = version_end
                     .split(',')
-                    .map(|s| s.trim()) // Remove whitespace
+                    .map(str::trim) // Remove whitespace
                     .collect();
 
                 if let [v0, v1, v2, v3, ..] = version_nums.as_slice() {
@@ -376,7 +376,7 @@ fn format_socket_message(msg: &str) -> String {
     details.push_str("\n  Raw Log:\n");
     details.push_str(&format!("    {}\n", msg.bright_black()));
 
-    format!("[{}]\n{}", direction, details)
+    format!("[{direction}]\n{details}")
 }
 
 /// Format outgoing messages
@@ -394,11 +394,11 @@ fn format_incoming_message(msg: &str) -> String {
 /// Common message formatting logic
 fn format_message(msg: &str, direction: ColoredString) -> String {
     let msg_type = match () {
-        _ if msg.contains("find_node") => "FIND_NODE".yellow(),
-        _ if msg.contains("get_peers") => "GET_PEERS".purple(),
-        _ if msg.contains("announce_peer") => "ANNOUNCE".cyan(),
-        _ if msg.contains("ping") => "PING".bright_black(),
-        _ => "OTHER".white(),
+        () if msg.contains("find_node") => "FIND_NODE".yellow(),
+        () if msg.contains("get_peers") => "GET_PEERS".purple(),
+        () if msg.contains("announce_peer") => "ANNOUNCE".cyan(),
+        () if msg.contains("ping") => "PING".bright_black(),
+        () => "OTHER".white(),
     };
 
     format!(
@@ -424,7 +424,7 @@ fn format_message_details(msg: &str) -> String {
         ("transaction_id=", "Transaction ID", "bright_yellow"),
     ];
 
-    for (field, label, color) in fields.iter() {
+    for (field, label, color) in &fields {
         if let Some(value) = extract_field(msg, field) {
             if *field == "nodes=" {
                 details.push_str(&format!("  {}:\n{}\n", label, format_nodes(value)));
@@ -435,7 +435,7 @@ fn format_message_details(msg: &str) -> String {
                     "bright_magenta" => value.bright_magenta(),
                     _ => value.normal(),
                 };
-                details.push_str(&format!("  {}: {}\n", label, colored_value));
+                details.push_str(&format!("  {label}: {colored_value}\n"));
             }
         }
     }
@@ -464,7 +464,7 @@ fn extract_error_field<'a>(msg: &'a str, field: &str) -> Option<&'a str> {
         // Define delimitadores que indicam o final do valor do campo.
         let delimiters = [" from=", " transaction_id:", " message=", "\n"];
         let mut end = s.len();
-        for delim in delimiters.iter() {
+        for delim in &delimiters {
             if let Some(idx) = s.find(delim) {
                 end = end.min(idx);
             }
@@ -491,9 +491,9 @@ fn format_nodes(msg: &str) -> String {
                 if let Some(value) = last_seen_str
                     .split([',', '}', ']', ')']) // Split on any of these characters
                     .next()
-                    .map(|s| s.trim())
+                    .map(str::trim)
                 {
-                    format!(", {}", format!("last_seen: {}", value).bright_magenta())
+                    format!(", {}", format!("last_seen: {value}").bright_magenta())
                 } else {
                     String::new()
                 }
@@ -534,7 +534,7 @@ fn main() -> Result<()> {
     DhtLogger::info("DHT server node is running! Press Ctrl+C to stop.");
     // Wait for bootstrap to complete
     DhtLogger::info("Waiting for bootstrap...");
-    dht.bootstrapped();
+    let _ = dht.bootstrapped();
     DhtLogger::info("Bootstrap complete!");
 
     // Keep the program running and show periodic information
@@ -604,7 +604,7 @@ fn main() -> Result<()> {
 
         // Debug info in compact format
         if enabled!(Level::DEBUG) {
-            DhtLogger::debug(&format!("    Raw DHT Info: {:#?}", info));
+            DhtLogger::debug(&format!("    Raw DHT Info: {info:#?}"));
         }
 
         DhtLogger::info(""); // Blank line to separate updates

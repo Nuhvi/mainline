@@ -13,7 +13,7 @@ fn main() -> Result<()> {
 
     let client = Dht::server()?;
 
-    client.bootstrapped();
+    let _ = client.bootstrapped();
 
     let info = client.info();
 
@@ -23,7 +23,7 @@ fn main() -> Result<()> {
         .bootstrap(&[client.info().local_addr()])
         .build()?;
 
-    client.bootstrapped();
+    let _ = client.bootstrapped();
 
     let info = client.info();
 

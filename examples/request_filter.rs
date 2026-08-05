@@ -32,11 +32,11 @@ fn main() -> Result<()> {
         })
         .build()?;
 
-    client.bootstrapped();
+    let _ = client.bootstrapped();
 
     let info = client.info();
 
-    println!("{:?}", info);
+    println!("{info:?}");
 
     loop {
         std::thread::park();
