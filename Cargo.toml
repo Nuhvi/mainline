@@ -65,10 +65,13 @@ broken_intra_doc_links    = "deny"
 
 [lints.clippy]
 # groups
+perf = { level = "deny", priority = -1 }
+style = { level = "deny", priority = -1 }
 cargo = { level = "deny", priority = -1 }
-pedantic = { level = "deny", priority = -1 }
-too_many_lines = "allow"
-# nursery = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+complexity = { level = "deny", priority = -1 }
+
+# pedantic = { level = "warn", priority = -1 }
 
 # restriction
 panic = "deny"
@@ -76,7 +79,3 @@ unwrap_used = "deny"
 expect_used = "deny"
 indexing_slicing = "deny"
 undocumented_unsafe_blocks = "deny"
-
-# suspicious
-await_holding_lock = "deny"
-await_holding_refcell_ref = "deny"

@@ -163,7 +163,6 @@ fn distance(target: &Id, node: &Node) -> u128 {
     u128::from_be_bytes(low.try_into().unwrap_or_default())
 }
 
-#[allow(clippy::cast_precision_loss)]
 fn dht_size_estimate<I>(distances: I) -> f64
 where
     I: IntoIterator<Item = u128>,
@@ -189,12 +188,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    #![allow(
-        clippy::unnecessary_wraps,
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        clippy::cast_precision_loss
-    )]
     use std::{collections::BTreeMap, net::SocketAddrV4, str::FromStr, sync::Arc, time::Instant};
 
     use eyre::Result;

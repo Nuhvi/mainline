@@ -24,7 +24,6 @@ pub(crate) struct Message {
     /// This should be set only on response, but is defined at this level with the other common fields to avoid defining yet another layer on the response objects.
     pub requester_ip: Option<SocketAddrV4>,
 
-    #[allow(clippy::struct_field_names)]
     pub message_type: MessageType,
 
     /// For bep0043. When set true on a request, indicates that the requester can't reply to requests and that responders should not add requester to their routing tables.

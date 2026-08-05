@@ -312,7 +312,6 @@ impl KrpcSocket {
         }
     }
 
-    #[allow(clippy::unused_self)]
     fn version(&self) -> [u8; 4] {
         #[cfg(test)]
         return self.version;

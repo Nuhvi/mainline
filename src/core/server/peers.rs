@@ -38,11 +38,6 @@ impl PeersStore {
     }
 
     /// Returns a random set of peers per an info hash.
-    #[allow(
-        clippy::cast_precision_loss,
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss
-    )]
     pub(crate) fn get_random_peers(&mut self, info_hash: &Id) -> Option<Vec<SocketAddrV4>> {
         if let Some(info_hash_lru) = self.info_hashes.get(info_hash) {
             let size = info_hash_lru.len();

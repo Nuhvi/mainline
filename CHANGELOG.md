@@ -2,15 +2,21 @@
 
 All notable changes to mainline dht will be documented in this file.
 
-## [6.3.0](https://github.com/Nuhvi/mainline/compare/v6.4.0...v6.4.1) - 2026-08-03
+## [7.0.0](https://github.com/Nuhvi/mainline/compare/v6.4.1...v7.0.0) - 2026-08-05
+
+### Changed
+
+- Remove unnecessary async for `AsyncDht::get_peers()`.
+
+## [6.4.1](https://github.com/Nuhvi/mainline/compare/v6.4.0...v6.4.1) - 2026-08-03
 
 ## Fixed
 
-- security issues in BEP 44 mutable message handling.
+- Security issues in BEP 44 mutable message handling.
 
-## [6.3.0](https://github.com/Nuhvi/mainline/compare/v6.3.0...v6.4.0) - 2026-02-26
+## [6.4.0](https://github.com/Nuhvi/mainline/compare/v6.3.0...v6.4.0) - 2026-02-26
 
-## Added
+### Added
 
 - `AsyncDht::as_sync()` to get a reference to the inner synchronous `Dht`.
 

@@ -1,7 +1,5 @@
 //! Estimates the DHT size by sampling random lookup queries.
 
-#![allow(clippy::cast_precision_loss)]
-
 use dht::{Dht, Id};
 use eyre::Result;
 

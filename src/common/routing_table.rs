@@ -207,11 +207,6 @@ impl RoutingTable {
     ///  2. Standard deviaiton as a function of the number of samples used in this estimate.
     ///
     /// [Read more](https://github.com/nuhvi/mainline/blob/main/docs/dht_size_estimate.md)
-    #[allow(
-        clippy::cast_possible_truncation,
-        clippy::cast_precision_loss,
-        clippy::cast_sign_loss
-    )]
     pub(crate) fn dht_size_estimate(&self) -> (usize, f64) {
         let normal = self.dht_size_estimates_sum as usize / self.dht_size_estimates_count.max(1);
 
@@ -225,7 +220,6 @@ impl RoutingTable {
         self.responders_subnets_sum / self.responders_samples_count.max(1)
     }
 
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub(crate) fn responders_based_dht_size_estimate(&self) -> usize {
         self.responders_size_estimates_sum as usize / self.responders_samples_count.max(1)
     }
@@ -379,12 +373,6 @@ impl Default for KBucket {
 
 #[cfg(test)]
 mod test {
-    #![allow(
-        clippy::unnecessary_wraps,
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        clippy::cast_precision_loss
-    )]
     use std::net::SocketAddrV4;
     use std::str::FromStr;
     use std::sync::Arc;

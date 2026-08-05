@@ -37,6 +37,8 @@ pub struct Dht(pub(crate) Sender<ActorMessage>);
 /// A builder for the [Dht] node.
 pub struct DhtBuilder(Config);
 
+type SetupResult = (Sender<ActorMessage>, Receiver<Result<(), std::io::Error>>);
+
 impl DhtBuilder {
     /// Set this node's `server_mode`.
     pub fn server_mode(&mut self) -> &mut Self {
@@ -139,7 +141,7 @@ impl Dht {
     /// Returns an [`std::io::Error`] if the node fails to bind to the UDP socket.
     pub fn new(config: Config) -> Result<Self, std::io::Error> {
         let (sender, rx) = Dht::setup(config)?;
-        receive(rx)?;
+        receive(&rx)?;
 
         Ok(Dht(sender))
     }
@@ -157,10 +159,7 @@ impl Dht {
         AsyncDht::new(config).await
     }
 
-    #[allow(clippy::type_complexity, clippy::expect_used)]
-    fn setup(
-        config: Config,
-    ) -> Result<(Sender<ActorMessage>, Receiver<Result<(), std::io::Error>>), std::io::Error> {
+    fn setup(config: Config) -> Result<SetupResult, std::io::Error> {
         let (sender, receiver) = flume::unbounded();
 
         thread::Builder::new()
@@ -171,7 +170,7 @@ impl Dht {
 
         sender
             .send(ActorMessage::Check(tx))
-            .expect("actor thread unexpectedly shutdown");
+            .map_err(|_| std::io::Error::other("actor thread unexpectedly shutdown"))?;
 
         Ok((sender, rx))
     }
@@ -216,7 +215,7 @@ impl Dht {
         let (tx, rx) = flume::bounded::<Info>(1);
         self.send(ActorMessage::Info(tx));
 
-        receive(rx)
+        receive(&rx)
     }
 
     /// Turn this node's routing table to a list of bootstrapping nodes.   
@@ -225,7 +224,7 @@ impl Dht {
         let (tx, rx) = flume::bounded::<Vec<String>>(1);
         self.send(ActorMessage::ToBootstrap(tx));
 
-        receive(rx)
+        receive(&rx)
     }
 
     // === Public Methods ===
@@ -265,7 +264,7 @@ impl Dht {
             ResponseSender::ClosestNodes(tx),
         ));
 
-        receive(rx)
+        receive(&rx)
     }
 
     // === Peers ===
@@ -409,7 +408,7 @@ impl Dht {
             ResponseSender::Immutable(tx),
         ));
 
-        receive(rx)
+        receive(&rx)
     }
 
     /// Put an immutable data to the DHT.
@@ -570,7 +569,7 @@ impl Dht {
             ResponseSender::ClosestNodes(tx),
         ));
 
-        receive(rx)
+        receive(&rx)
     }
 
     /// Send a PUT request to the closest nodes, and optionally some extra nodes.
@@ -591,7 +590,7 @@ impl Dht {
         request: PutRequestSpecific,
         extra_nodes: Option<Box<[Node]>>,
     ) -> Result<Id, PutError> {
-        receive(self.put_inner(request, extra_nodes))
+        receive(&self.put_inner(request, extra_nodes))
     }
 
     // === Private Methods ===
@@ -615,8 +614,8 @@ impl Dht {
     }
 }
 
-#[allow(clippy::expect_used, clippy::needless_pass_by_value)]
-fn receive<T>(rx: Receiver<T>) -> T {
+#[allow(clippy::expect_used)]
+fn receive<T>(rx: &Receiver<T>) -> T {
     rx.recv().expect("actor thread unexpectedly shutdown")
 }
 

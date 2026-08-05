@@ -60,7 +60,6 @@ impl Id {
 
     /// Returns the number of leading zeros in the binary representation of `self`.
     #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
     pub fn leading_zeros(&self) -> u8 {
         for (i, byte) in self.0.iter().enumerate() {
             if *byte != 0 {
@@ -257,7 +256,6 @@ pub enum DecodeIdError {
 
 #[cfg(test)]
 mod test {
-    #![allow(clippy::unnecessary_wraps, clippy::items_after_statements)]
     use super::*;
     use eyre::Result;
 

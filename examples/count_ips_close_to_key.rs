@@ -104,10 +104,8 @@ fn main() -> Result<()> {
         let overlap_with_last_lookup: HashSet<Ipv4Addr> =
             sockets.intersection(&last_nodes).copied().collect();
 
-        #[allow(clippy::cast_precision_loss)]
         let overlap = overlap_with_last_lookup.len() as f64 / K as f64;
         last_nodes = sockets;
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let overlap_percent = (overlap * 100_f64) as usize;
         println!(
             "lookup={:02} Ips found {}. Closest node distance: {}, furthest node distance: {}, overlap with previous lookup {}%",
@@ -134,9 +132,7 @@ fn print_histogram(hits: HashMap<Ipv4Addr, u16>, lookup_count: usize) {
     let percents: HashMap<Ipv4Addr, u64> = hits
         .into_iter()
         .map(|(ip, hits)| {
-            #[allow(clippy::cast_precision_loss)]
             let percent = (f32::from(hits) / lookup_count as f32) * 100_f32;
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             (ip, percent as u64)
         })
         .collect();

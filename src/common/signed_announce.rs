@@ -107,7 +107,7 @@ impl SignedAnnounce {
 ///
 /// Panics if the system clock is set before the UNIX epoch,
 /// which is not expected to happen.
-#[allow(clippy::expect_used, clippy::cast_possible_truncation)]
+#[allow(clippy::expect_used)]
 fn system_time() -> u64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)

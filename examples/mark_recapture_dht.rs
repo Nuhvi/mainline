@@ -45,13 +45,6 @@
 //! - More efficient methods exist for measuring DHT size, and this method may not be suitable
 //!   for large-scale or time-sensitive applications.
 
-#![allow(
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::needless_pass_by_value
-)]
-
 use dashmap::DashSet;
 use dht::{Dht, Id};
 use eyre::Result;

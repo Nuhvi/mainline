@@ -1,7 +1,5 @@
 //! A command-line tool that announces a signed peer on the DHT for a given info-hash.
 
-#![allow(clippy::format_collect)]
-
 use std::{str::FromStr, time::Instant};
 
 use clap::Parser;
