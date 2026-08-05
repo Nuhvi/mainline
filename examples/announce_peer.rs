@@ -13,7 +13,7 @@ use eyre::Result;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// The 20‑byte SHA‑1 info_hash of the torrent to announce a peer on.
+    /// The 20‑byte SHA‑1 `info_hash` of the torrent to announce a peer on.
     /// It can be passed as a hexadecimal string or as a URL‑encoded string.
     infohash: String,
 }

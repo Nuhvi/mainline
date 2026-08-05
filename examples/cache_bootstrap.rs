@@ -34,7 +34,7 @@ fn main() -> Result<()> {
 
     let bootstrap = client.to_bootstrap();
 
-    save(bootstrap)
+    save(&bootstrap)
 }
 
 fn load() -> Result<Vec<String>> {
@@ -56,7 +56,7 @@ fn load() -> Result<Vec<String>> {
     Ok(cached_nodes)
 }
 
-fn save(bootstrap: Vec<String>) -> Result<()> {
+fn save(bootstrap: &[String]) -> Result<()> {
     let bootstrap_content = bootstrap.join("\n");
     let mut file = fs::File::create(nodes_file()).wrap_err("Failed to save bootstrapping nodes")?;
     file.write_all(bootstrap_content.as_bytes())

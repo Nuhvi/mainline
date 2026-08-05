@@ -24,5 +24,5 @@ pub(crate) use signed_announce::*;
 /// which is not expected to happen on supported platforms.
 #[allow(clippy::expect_used)]
 pub(crate) fn fill_random(bytes: &mut [u8]) {
-    getrandom::fill(bytes).expect("OS random number generator failed")
+    getrandom::fill(bytes).expect("OS random number generator failed");
 }

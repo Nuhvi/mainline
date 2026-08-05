@@ -53,10 +53,7 @@ fn put(dht: &Dht, signer: &SigningKey, value: &[u8], salt: Option<&[u8]>) -> Res
         // 1. Optionally Create a new value to take the most recent's value in consideration.
         let mut new_value = most_recent.value().to_vec();
 
-        println!(
-            "Found older value {:?}, appending new value to the old...",
-            new_value
-        );
+        println!("Found older value {new_value:?}, appending new value to the old...");
 
         new_value.extend_from_slice(value);
 
@@ -103,7 +100,10 @@ fn from_hex(s: &str) -> Result<SigningKey> {
 }
 
 fn to_hex(bytes: &[u8]) -> String {
-    let hex_chars: String = bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
+    use std::fmt::Write;
 
-    hex_chars
+    bytes.iter().fold(String::new(), |mut acc, byte| {
+        let _ = write!(acc, "{byte:02x}");
+        acc
+    })
 }

@@ -65,8 +65,9 @@ broken_intra_doc_links    = "deny"
 
 [lints.clippy]
 # groups
-cargo = "deny"
-# pedantic = "deny"
+cargo = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+too_many_lines = "allow"
 # nursery = { level = "deny", priority = -1 }
 
 # restriction

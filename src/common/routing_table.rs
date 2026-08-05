@@ -39,7 +39,8 @@ pub struct RoutingTable {
 }
 
 impl RoutingTable {
-    /// Create a new [RoutingTable] with a given id.
+    /// Create a new [`RoutingTable`] with a given id.
+    #[must_use]
     pub fn new(id: Id) -> Self {
         let buckets = BTreeMap::new();
 
@@ -57,11 +58,12 @@ impl RoutingTable {
     }
 
     /// Returns the [Id] of this node, where the distance is measured from.
+    #[must_use]
     pub fn id(&self) -> &Id {
         &self.id
     }
 
-    /// Returns the map of distances and their [KBucket]
+    /// Returns the map of distances and their [`KBucket`]
     pub(crate) fn buckets(&self) -> &BTreeMap<u8, KBucket> {
         &self.buckets
     }
@@ -70,7 +72,7 @@ impl RoutingTable {
 
     pub(crate) fn reset_id(&mut self, id: Id) {
         let old_nodes = self.to_owned_nodes();
-        self.buckets = Default::default();
+        self.buckets = BTreeMap::default();
         self.id = id;
 
         for node in old_nodes {
@@ -93,7 +95,7 @@ impl RoutingTable {
             .any(|bucket| node.already_exists(&bucket.nodes))
         {
             return false;
-        };
+        }
 
         let bucket = self.buckets.entry(distance).or_default();
 
@@ -105,12 +107,13 @@ impl RoutingTable {
         let distance = self.id.distance(node_id);
 
         if let Some(bucket) = self.buckets.get_mut(&distance) {
-            bucket.remove(node_id)
+            bucket.remove(node_id);
         }
     }
 
     /// Return the closest nodes to the target while prioritizing secure nodes,
     /// as defined in [BEP_0042](https://www.bittorrent.org/beps/bep_0042.html)
+    #[must_use]
     pub fn closest(&self, target: Id) -> Box<[Node]> {
         let mut closest = ClosestNodes::new(target);
 
@@ -128,7 +131,7 @@ impl RoutingTable {
             .collect()
     }
 
-    /// Secure version of [Self::closest] that tries to circumvent sybil attacks.
+    /// Secure version of [`Self::closest`] that tries to circumvent sybil attacks.
     pub(crate) fn closest_secure(&self, target: Id) -> Vec<Node> {
         let mut closest = ClosestNodes::new(target);
 
@@ -145,11 +148,13 @@ impl RoutingTable {
     }
 
     /// Returns `true` if this routing table is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.buckets.values().all(|bucket| bucket.is_empty())
+        self.buckets.values().all(KBucket::is_empty)
     }
 
     /// Return the number of nodes in this routing table.
+    #[must_use]
     pub fn size(&self) -> usize {
         self.buckets
             .values()
@@ -157,6 +162,7 @@ impl RoutingTable {
     }
 
     /// Returns an iterator over the nodes in this routing table.
+    #[must_use]
     pub fn nodes(&self) -> RoutingTableIterator<'_> {
         RoutingTableIterator {
             bucket_index: 1,
@@ -166,11 +172,13 @@ impl RoutingTable {
     }
 
     /// Export an owned vector of nodes from this routing table.
+    #[must_use]
     pub fn to_owned_nodes(&self) -> Vec<Node> {
         self.nodes().collect()
     }
 
     /// Turn this routing table to a list of bootstrapping nodes.   
+    #[must_use]
     pub fn to_bootstrap(&self) -> Vec<String> {
         self.nodes()
             .filter(|n| !n.is_stale())
@@ -199,6 +207,11 @@ impl RoutingTable {
     ///  2. Standard deviaiton as a function of the number of samples used in this estimate.
     ///
     /// [Read more](https://github.com/nuhvi/mainline/blob/main/docs/dht_size_estimate.md)
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )]
     pub(crate) fn dht_size_estimate(&self) -> (usize, f64) {
         let normal = self.dht_size_estimates_sum as usize / self.dht_size_estimates_count.max(1);
 
@@ -212,6 +225,7 @@ impl RoutingTable {
         self.responders_subnets_sum / self.responders_samples_count.max(1)
     }
 
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub(crate) fn responders_based_dht_size_estimate(&self) -> usize {
         self.responders_size_estimates_sum as usize / self.responders_samples_count.max(1)
     }
@@ -272,7 +286,7 @@ impl Iterator for RoutingTableIterator<'_> {
 
                     return Some(current_node.clone());
                 }
-            };
+            }
 
             self.bucket_index += 1;
         }
@@ -328,7 +342,7 @@ impl KBucket {
         } else if self.nodes.len() < MAX_BUCKET_SIZE_K {
             self.nodes.push(incoming);
             true
-        } else if self.nodes.first().is_some_and(|n| n.is_stale()) {
+        } else if self.nodes.first().is_some_and(super::node::Node::is_stale) {
             // Remove the least recently seen node and add the new one
             self.nodes.remove(0);
             self.nodes.push(incoming);
@@ -365,6 +379,12 @@ impl Default for KBucket {
 
 #[cfg(test)]
 mod test {
+    #![allow(
+        clippy::unnecessary_wraps,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     use std::net::SocketAddrV4;
     use std::str::FromStr;
     use std::sync::Arc;
@@ -401,7 +421,7 @@ mod test {
         let mut sorted_table = table.nodes().collect::<Vec<_>>();
         sorted_table.sort_by(|a, b| a.id().cmp(b.id()));
 
-        let mut sorted_expected = expected_nodes.to_vec();
+        let mut sorted_expected = expected_nodes.clone();
         sorted_expected.sort_by(|a, b| a.id().cmp(b.id()));
 
         assert_eq!(sorted_table, sorted_expected);
@@ -488,12 +508,18 @@ mod test {
             bucket.add(node1.clone());
             bucket.add(Node::random());
 
-            assert_ne!(bucket.nodes.get(1).map(|n| n.id()), Some(node1.id()));
+            assert_ne!(
+                bucket.nodes.get(1).map(super::super::node::Node::id),
+                Some(node1.id())
+            );
 
             bucket.add(node2);
 
             assert_eq!(bucket.nodes.len(), 2);
-            assert_eq!(bucket.nodes.get(1).map(|n| n.id()), Some(node1.id()));
+            assert_eq!(
+                bucket.nodes.get(1).map(super::super::node::Node::id),
+                Some(node1.id())
+            );
         }
 
         // Different port
@@ -506,12 +532,18 @@ mod test {
             bucket.add(node1.clone());
             bucket.add(Node::random());
 
-            assert_ne!(bucket.nodes.get(1).map(|n| n.id()), Some(node1.id()));
+            assert_ne!(
+                bucket.nodes.get(1).map(super::super::node::Node::id),
+                Some(node1.id())
+            );
 
             bucket.add(node2.clone());
 
             assert_eq!(bucket.nodes.len(), 2);
-            assert_eq!(bucket.nodes.get(1).map(|n| n.id()), Some(node1.id()));
+            assert_eq!(
+                bucket.nodes.get(1).map(super::super::node::Node::id),
+                Some(node1.id())
+            );
         }
 
         {
@@ -531,9 +563,9 @@ mod test {
                 bucket.add(secure.clone());
 
                 assert_eq!(
-                    bucket.nodes.first().map(|n| n.address()),
+                    bucket.nodes.first().map(super::super::node::Node::address),
                     Some(secure.address())
-                )
+                );
             }
 
             {
@@ -541,9 +573,9 @@ mod test {
                 bucket.add(unsecure.clone());
 
                 assert_eq!(
-                    bucket.nodes.first().map(|n| n.address()),
+                    bucket.nodes.first().map(super::super::node::Node::address),
                     Some(secure.address())
-                )
+                );
             }
         }
 
@@ -557,14 +589,20 @@ mod test {
             bucket.add(node1.clone());
             bucket.add(Node::random());
 
-            assert_ne!(bucket.nodes.get(1).map(|n| n.id()), Some(node1.id()));
+            assert_ne!(
+                bucket.nodes.get(1).map(super::super::node::Node::id),
+                Some(node1.id())
+            );
 
             bucket.add(node2.clone());
 
             assert_eq!(bucket.nodes.len(), 2);
-            assert_ne!(bucket.nodes.get(1).map(|n| n.id()), Some(node1.id()));
             assert_ne!(
-                bucket.nodes.get(1).map(|n| n.address()),
+                bucket.nodes.get(1).map(super::super::node::Node::id),
+                Some(node1.id())
+            );
+            assert_ne!(
+                bucket.nodes.get(1).map(super::super::node::Node::address),
                 Some(node2.address())
             );
         }
@@ -683,7 +721,10 @@ mod test {
                 let id = Id::from_str(str)?;
                 Ok(Node(Arc::new(NodeInner {
                     id,
-                    address: SocketAddrV4::new((i as u32).into(), i as u16),
+                    address: SocketAddrV4::new(
+                        u32::try_from(i).unwrap_or_default().into(),
+                        u16::try_from(i).unwrap_or_default(),
+                    ),
                     token: None,
                     last_seen: Instant::now(),
                 })))

@@ -29,6 +29,7 @@ pub struct MutableItem {
 
 impl MutableItem {
     /// Create a new mutable item from a signing key, value, sequence number and optional salt.
+    #[must_use]
     pub fn new(signer: &SigningKey, value: &[u8], seq: i64, salt: Option<&[u8]>) -> Self {
         let signable = encode_signable(seq, value, salt);
         let signature = signer.sign(&signable);
@@ -42,7 +43,8 @@ impl MutableItem {
         )
     }
 
-    /// Return the target of a [MutableItem] by hashing its `public_key` and an optional `salt`
+    /// Return the target of a [`MutableItem`] by hashing its `public_key` and an optional `salt`
+    #[must_use]
     pub fn target_from_key(public_key: &[u8; 32], salt: Option<&[u8]>) -> Id {
         let mut encoded = vec![];
 
@@ -60,6 +62,7 @@ impl MutableItem {
     }
 
     /// Create a new mutable item from an already signed value.
+    #[must_use]
     pub fn new_signed_unchecked(
         key: [u8; 32],
         signature: [u8; 64],
@@ -73,7 +76,7 @@ impl MutableItem {
             value: value.into(),
             seq,
             signature,
-            salt: salt.map(|s| s.into()),
+            salt: salt.map(std::convert::Into::into),
         }
     }
 
@@ -111,32 +114,38 @@ impl MutableItem {
     // === Getters ===
 
     /// Returns the target (info hash) of this item.
+    #[must_use]
     pub fn target(&self) -> &Id {
         &self.target
     }
 
     /// Returns a reference to the 32 bytes Ed25519 public key of this item.
+    #[must_use]
     pub fn key(&self) -> &[u8; 32] {
         &self.key
     }
 
     /// Returns a byte slice of the value of this item.
+    #[must_use]
     pub fn value(&self) -> &[u8] {
         &self.value
     }
 
     /// Returns the `seq` (sequence) number of this item.
+    #[must_use]
     pub fn seq(&self) -> i64 {
         self.seq
     }
 
     /// Returns the signature over this item.
+    #[must_use]
     pub fn signature(&self) -> &[u8; 64] {
         &self.signature
     }
 
     /// Returns the `Salt` value used for generating the
-    /// [Self::target] if any.
+    /// [`Self::target`] if any.
+    #[must_use]
     pub fn salt(&self) -> Option<&[u8]> {
         self.salt.as_deref()
     }
@@ -173,9 +182,9 @@ pub enum MutableError {
 }
 
 impl PutMutableRequestArguments {
-    /// Create a [PutMutableRequestArguments] from a [MutableItem],
-    /// and an optional CAS condition, which is usually the [MutableItem::seq]
-    /// of the most recent known [MutableItem]
+    /// Create a [`PutMutableRequestArguments`] from a [`MutableItem`],
+    /// and an optional CAS condition, which is usually the [`MutableItem::seq`]
+    /// of the most recent known [`MutableItem`]
     pub fn from(item: MutableItem, cas: Option<i64>) -> Self {
         Self {
             target: item.target,
@@ -224,7 +233,7 @@ mod tests {
     /// stored/served at `target_from_key(K, salt)`. we used to accept an
     /// item at any target as long as its signature verified against its own
     /// `k`, letting an attacker substitute a record they signed with their own
-    /// key at a victim's target (see the mainline "record substitution" PoC).
+    /// key at a victim's target (see the mainline "record substitution" `PoC`).
     ///
     /// Thanks to daniel@makrotopia.org for disclosure.
     #[test]

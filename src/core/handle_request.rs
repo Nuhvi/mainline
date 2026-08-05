@@ -36,7 +36,7 @@ impl Core {
             );
 
             match response {
-                Some(MessageType::Error(_)) | Some(MessageType::Response(_)) => response,
+                Some(MessageType::Error(_) | MessageType::Response(_)) => response,
                 _ => None,
             }
         } else {
@@ -54,7 +54,7 @@ impl Core {
     ///
     /// 1. first node creating the DHT;
     ///    without this exception, the bootstrapping node's routing table will never be populated.
-    /// 2. Bootstrapping signed_peers_routing_table requires that we latch to any node
+    /// 2. Bootstrapping `signed_peers_routing_table` requires that we latch to any node
     ///    that claims to support it.
     ///    In `periodic_node_maintaenance` fake unresponsive nodes will be removed.
     ///    And either way we prioritize secure nodes, so making up nodes from same

@@ -5,6 +5,7 @@ use colored::{ColoredString, Colorize};
 use dht::Dht;
 use eyre::Result;
 use std::{
+    fmt::Write,
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -80,7 +81,7 @@ impl tracing::field::Visit for StringVisitor<'_> {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         self.0.push_str(field.name());
         self.0.push('=');
-        self.0.push_str(&format!("{value:?} "));
+        let _ = write!(self.0, "{value:?} ");
     }
 
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
@@ -151,17 +152,17 @@ fn format_socket_error(msg: &str) -> String {
 
     // Extract error details using the new extractor para capturar erros com espaços completos
     if let Some(error) = extract_error_field(msg, "error=") {
-        details.push_str(&format!("  Error: {}\n", error.red()));
+        let _ = writeln!(details, "  Error: {}", error.red());
     }
 
     // Extract from address
     if let Some(from) = extract_field(msg, "from=") {
-        details.push_str(&format!("  From: {}\n", from.bright_blue()));
+        let _ = writeln!(details, "  From: {}", from.bright_blue());
     }
 
     // Extract transaction ID
     if let Some(tid) = extract_field(msg, "transaction_id:") {
-        details.push_str(&format!("  Transaction ID: {}\n", tid.bright_yellow()));
+        let _ = writeln!(details, "  Transaction ID: {}", tid.bright_yellow());
     }
 
     // Extract message content
@@ -176,7 +177,7 @@ fn format_socket_error(msg: &str) -> String {
             .map(|chunk| chunk.join(" "))
             .collect::<Vec<_>>()
             .join("\n");
-        details.push_str(&format!("    {hex_dump}\n"));
+        let _ = writeln!(details, "    {hex_dump}");
     }
 
     format!("[{}]\n{}", SOCKET_ERROR.red().bold(), details)
@@ -215,17 +216,17 @@ fn format_socket_message(msg: &str) -> String {
             if let [first, second, third, ..] = parts.as_slice() {
                 // First line contains main error
                 let error = first.replace("Failed to parse packet bytes: ", "");
-                details.push_str(&format!("  Error Type: {}\n", "Parse Error"));
-                details.push_str(&format!("  Details: {error}\n"));
+                let _ = writeln!(details, "  Error Type: Parse Error");
+                let _ = writeln!(details, "  Details: {error}");
 
                 // Second line contains address
                 if let Some(addr) = second.strip_prefix("From: ") {
-                    details.push_str(&format!("  Remote Addr: {addr}\n"));
+                    let _ = writeln!(details, "  Remote Addr: {addr}");
                 }
 
                 // Extract transaction ID if present
                 if let Some(tid) = extract_field(msg, "transaction_id:") {
-                    details.push_str(&format!("  Transaction ID: {}\n", tid.bright_yellow()));
+                    let _ = writeln!(details, "  Transaction ID: {}", tid.bright_yellow());
                 }
 
                 // Third line contains raw message
@@ -240,7 +241,7 @@ fn format_socket_message(msg: &str) -> String {
                         .map(|chunk| chunk.join(" "))
                         .collect::<Vec<_>>()
                         .join("\n");
-                    details.push_str(&format!("    {hex_dump}\n"));
+                    let _ = writeln!(details, "    {hex_dump}");
                 }
             }
         }
@@ -286,18 +287,18 @@ fn format_socket_message(msg: &str) -> String {
         } else {
             "Unknown Message Type".red()
         };
-        details.push_str(&format!("  Message Type: {type_str}\n"));
+        let _ = writeln!(details, "  Message Type: {type_str}");
 
         // Extract IDs (both requester and responder)
         if let Some(id) = extract_field(msg_type, "requester_id: Id(")
             .or_else(|| extract_field(msg_type, "requester_id: "))
         {
-            details.push_str(&format!("  Requester ID: {}\n", &id[..40].bright_yellow()));
+            let _ = writeln!(details, "  Requester ID: {}", &id[..40].bright_yellow());
         }
         if let Some(id) = extract_field(msg_type, "responder_id: Id(")
             .or_else(|| extract_field(msg_type, "responder_id: "))
         {
-            details.push_str(&format!("  Responder ID: {}\n", &id[..40].bright_yellow()));
+            let _ = writeln!(details, "  Responder ID: {}", &id[..40].bright_yellow());
         }
 
         // Extract version if present (format it nicely)
@@ -321,14 +322,14 @@ fn format_socket_message(msg: &str) -> String {
                         v2,
                         v3.trim_end_matches(']') // Remove extra bracket if present
                     );
-                    details.push_str(&format!("  Version: {}\n", formatted_version.bright_cyan()));
+                    let _ = writeln!(details, "  Version: {}", formatted_version.bright_cyan());
                 }
             }
         }
 
         // Extract read_only flag
         if let Some(read_only) = extract_field(msg, "read_only: ") {
-            details.push_str(&format!("  Read Only: {}\n", read_only.yellow()));
+            let _ = writeln!(details, "  Read Only: {}", read_only.yellow());
         }
 
         // Extract token if present
@@ -338,7 +339,7 @@ fn format_socket_message(msg: &str) -> String {
                 .trim_end_matches(']')
                 .trim_end_matches(',')
                 .trim();
-            details.push_str(&format!("  Token: {}\n", clean_token.bright_yellow()));
+            let _ = writeln!(details, "  Token: {}", clean_token.bright_yellow());
         }
 
         // Extract and format nodes if present
@@ -354,10 +355,11 @@ fn format_socket_message(msg: &str) -> String {
 
     // Transaction ID
     if let Some(tid) = extract_field(msg, "transaction_id:") {
-        details.push_str(&format!(
-            "  Transaction ID: {}\n",
+        let _ = writeln!(
+            details,
+            "  Transaction ID: {}",
             tid.trim_end_matches(',').bright_yellow()
-        ));
+        );
     }
 
     // Context
@@ -369,12 +371,12 @@ fn format_socket_message(msg: &str) -> String {
             "socket_validation" => "Socket validation",
             _ => context,
         };
-        details.push_str(&format!("  Context: {}\n", context_str.bright_black()));
+        let _ = writeln!(details, "  Context: {}", context_str.bright_black());
     }
 
     // Raw message at the end for debugging
     details.push_str("\n  Raw Log:\n");
-    details.push_str(&format!("    {}\n", msg.bright_black()));
+    let _ = writeln!(details, "    {}", msg.bright_black());
 
     format!("[{direction}]\n{details}")
 }
@@ -382,17 +384,17 @@ fn format_socket_message(msg: &str) -> String {
 /// Format outgoing messages
 #[inline]
 fn format_outgoing_message(msg: &str) -> String {
-    format_message(msg, SOCKET_OUT.bright_blue())
+    format_message(msg, &SOCKET_OUT.bright_blue())
 }
 
 /// Format incoming messages
 #[inline]
 fn format_incoming_message(msg: &str) -> String {
-    format_message(msg, SOCKET_IN.bright_green())
+    format_message(msg, &SOCKET_IN.bright_green())
 }
 
 /// Common message formatting logic
-fn format_message(msg: &str, direction: ColoredString) -> String {
+fn format_message(msg: &str, direction: &ColoredString) -> String {
     let msg_type = match () {
         () if msg.contains("find_node") => "FIND_NODE".yellow(),
         () if msg.contains("get_peers") => "GET_PEERS".purple(),
@@ -427,7 +429,7 @@ fn format_message_details(msg: &str) -> String {
     for (field, label, color) in &fields {
         if let Some(value) = extract_field(msg, field) {
             if *field == "nodes=" {
-                details.push_str(&format!("  {}:\n{}\n", label, format_nodes(value)));
+                let _ = write!(details, "  {}:\n{}\n", label, format_nodes(value));
             } else {
                 let colored_value = match *color {
                     "bright_yellow" => value.bright_yellow(),
@@ -435,7 +437,7 @@ fn format_message_details(msg: &str) -> String {
                     "bright_magenta" => value.bright_magenta(),
                     _ => value.normal(),
                 };
-                details.push_str(&format!("  {label}: {colored_value}\n"));
+                let _ = writeln!(details, "  {label}: {colored_value}");
             }
         }
     }

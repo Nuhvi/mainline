@@ -44,7 +44,13 @@
 //! - The method assumes that the DHT is stable during the sampling period.
 //! - More efficient methods exist for measuring DHT size, and this method may not be suitable
 //!   for large-scale or time-sensitive applications.
-//!
+
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::needless_pass_by_value
+)]
 
 use dashmap::DashSet;
 use dht::{Dht, Id};
@@ -204,8 +210,8 @@ fn collect_samples(
 ///
 /// # Arguments
 ///
-/// * `marked_sample` - The marked sample as a DashSet.
-/// * `recapture_sample` - The recapture sample as a DashSet.
+/// * `marked_sample` - The marked sample as a `DashSet`.
+/// * `recapture_sample` - The recapture sample as a `DashSet`.
 ///
 /// # Returns
 ///

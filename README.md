@@ -1,11 +1,11 @@
 # Mainline
 
-Simple, robust, BitTorrent's [Mainline DHT](https://en.wikipedia.org/wiki/Mainline_DHT) implementation.
+Simple, robust, `BitTorrent`'s [Mainline DHT](https://en.wikipedia.org/wiki/Mainline_DHT) implementation.
 
 This library is focused on being the best and simplest Rust client for Mainline, especially focused on reliable and fast time-to-first-response.
 
 It should work as a routing / storing node (server mode) as well, and has been running in production for many months without an issue. 
-However if you are concerned about spam or DoS, you should consider implementing [rate limiting](#rate-limiting).
+However if you are concerned about spam or `DoS`, you should consider implementing [rate limiting](#rate-limiting).
 
 **[API Docs](https://docs.rs/dht/latest/dht/)**
 

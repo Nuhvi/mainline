@@ -14,21 +14,29 @@ impl Testnet {
     ///
     /// Note: this network will be shutdown as soon as this struct
     /// gets dropped, if you want the network to be `'static`, then
-    /// you should call [Self::leak].
+    /// you should call [`Self::leak`].
     ///
     /// This will block until all nodes are [bootstrapped][Dht::bootstrapped],
-    /// if you are using an async runtime, consider using [Self::new_async].
+    /// if you are using an async runtime, consider using [`Self::new_async`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`std::io::Error`] if any node fails to bind to a UDP socket.
     pub fn new(count: usize) -> Result<Testnet, std::io::Error> {
         let testnet = Testnet::new_inner(count, false, None)?;
 
         for node in &testnet.nodes {
-            node.bootstrapped();
+            let _ = node.bootstrapped();
         }
 
         Ok(testnet)
     }
 
-    /// Similar to [Self::new] but awaits all nodes to bootstrap instead of blocking.
+    /// Similar to [`Self::new`] but awaits all nodes to bootstrap instead of blocking.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`std::io::Error`] if any node fails to bind to a UDP socket.
     #[cfg(feature = "async")]
     pub async fn new_async(count: usize) -> Result<Testnet, std::io::Error> {
         let testnet = Testnet::new_inner(count, false, None)?;
@@ -45,7 +53,7 @@ impl Testnet {
         let testnet = Testnet::new_inner(count, true, None)?;
 
         for node in &testnet.nodes {
-            node.bootstrapped();
+            let _ = node.bootstrapped();
         }
 
         Ok(testnet)
@@ -59,7 +67,7 @@ impl Testnet {
         let testnet = Testnet::new_inner(count, false, Some(bootstrap.to_vec()))?;
 
         for node in &testnet.nodes {
-            node.bootstrapped();
+            let _ = node.bootstrapped();
         }
 
         Ok(testnet)
@@ -101,7 +109,7 @@ impl Testnet {
     /// By default as soon as this testnet gets dropped,
     /// all the nodes get dropped and the entire network is shutdown.
     ///
-    /// This method uses [Box::leak] to keep nodes running, which is
+    /// This method uses [`Box::leak`] to keep nodes running, which is
     /// useful if you need to keep running the testnet in the process
     /// even if this struct gets dropped.
     pub fn leak(&self) {

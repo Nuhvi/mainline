@@ -21,7 +21,7 @@ pub struct SignedAnnounce {
 }
 
 impl SignedAnnounce {
-    /// Create a new SignedAnnounce for a info_hash.
+    /// Create a new `SignedAnnounce` for a `info_hash`.
     pub fn new(signer: &SigningKey, info_hash: &Id) -> Self {
         let timestamp = system_time();
 
@@ -107,7 +107,7 @@ impl SignedAnnounce {
 ///
 /// Panics if the system clock is set before the UNIX epoch,
 /// which is not expected to happen.
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::cast_possible_truncation)]
 fn system_time() -> u64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)

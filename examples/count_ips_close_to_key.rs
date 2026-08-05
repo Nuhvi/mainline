@@ -81,7 +81,7 @@ fn main() -> Result<()> {
             .iter()
             .map(|node| *node.address().ip())
             .collect();
-        for socket in sockets.iter() {
+        for socket in &sockets {
             let previous = ip_hits.get(socket);
             match previous {
                 Some(val) => {
@@ -90,7 +90,7 @@ fn main() -> Result<()> {
                 None => {
                     ip_hits.insert(*socket, 1);
                 }
-            };
+            }
         }
 
         let (Some(closest_node), Some(furthest_node)) =
@@ -104,15 +104,18 @@ fn main() -> Result<()> {
         let overlap_with_last_lookup: HashSet<Ipv4Addr> =
             sockets.intersection(&last_nodes).copied().collect();
 
+        #[allow(clippy::cast_precision_loss)]
         let overlap = overlap_with_last_lookup.len() as f64 / K as f64;
         last_nodes = sockets;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let overlap_percent = (overlap * 100_f64) as usize;
         println!(
             "lookup={:02} Ips found {}. Closest node distance: {}, furthest node distance: {}, overlap with previous lookup {}%",
             lookup_count,
             ip_hits.len(),
             closest_distance,
             furthest_distance,
-            (overlap * 100_f64) as usize
+            overlap_percent
         );
     }
 
@@ -131,16 +134,18 @@ fn print_histogram(hits: HashMap<Ipv4Addr, u16>, lookup_count: usize) {
     let percents: HashMap<Ipv4Addr, u64> = hits
         .into_iter()
         .map(|(ip, hits)| {
-            let percent = (hits as f32 / lookup_count as f32) * 100_f32;
+            #[allow(clippy::cast_precision_loss)]
+            let percent = (f32::from(hits) / lookup_count as f32) * 100_f32;
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             (ip, percent as u64)
         })
         .collect();
 
-    for (_, percent) in percents.iter() {
+    for percent in percents.values() {
         histogram.add(*percent);
     }
 
-    println!("{}", histogram);
+    println!("{histogram}");
 }
 
 fn get_random_bootstrap_nodes2() -> Result<Vec<String>> {

@@ -48,9 +48,8 @@ impl Tokens {
 
     /// Validate that the token was generated within the past 10 minutes
     pub(crate) fn validate(&mut self, address: SocketAddrV4, token: &[u8]) -> bool {
-        let prev = self.internal_generate_token(address, self.prev_secret);
-        let curr = self.internal_generate_token(address, self.curr_secret);
-
+        let prev = generate_token(address, self.prev_secret);
+        let curr = generate_token(address, self.curr_secret);
         token == curr || token == prev
     }
 
@@ -66,27 +65,21 @@ impl Tokens {
 
     /// Generates a new token for a remote peer.
     pub(crate) fn generate_token(&mut self, address: SocketAddrV4) -> [u8; 4] {
-        self.internal_generate_token(address, self.curr_secret)
+        generate_token(address, self.curr_secret)
     }
+}
 
-    // === Private Methods ===
+fn generate_token(address: SocketAddrV4, secret: [u8; SECRET_SIZE]) -> [u8; TOKEN_SIZE] {
+    let mut digest = CASTAGNOLI.digest();
 
-    fn internal_generate_token(
-        &mut self,
-        address: SocketAddrV4,
-        secret: [u8; SECRET_SIZE],
-    ) -> [u8; TOKEN_SIZE] {
-        let mut digest = CASTAGNOLI.digest();
+    let octets: Box<[u8]> = address.ip().octets().into();
 
-        let octets: Box<[u8]> = address.ip().octets().into();
+    digest.update(&octets);
+    digest.update(&secret);
 
-        digest.update(&octets);
-        digest.update(&secret);
+    let checksum = digest.finalize();
 
-        let checksum = digest.finalize();
-
-        checksum.to_be_bytes()
-    }
+    checksum.to_be_bytes()
 }
 
 impl Default for Tokens {
@@ -114,6 +107,6 @@ mod test {
         let address = SocketAddrV4::new([127, 0, 0, 1].into(), 6881);
         let token = tokens.generate_token(address);
 
-        assert!(tokens.validate(address, &token))
+        assert!(tokens.validate(address, &token));
     }
 }

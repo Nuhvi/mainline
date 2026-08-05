@@ -9,9 +9,11 @@ use std::{
 
 /// The size of node IDs in bits.
 pub(crate) const ID_SIZE: usize = 20;
-pub(crate) const MAX_DISTANCE: u8 = ID_SIZE as u8 * 8;
 
-const IPV4_MASK: u32 = 0x030f3fff;
+const ID_SIZE_U8: u8 = 20;
+pub(crate) const MAX_DISTANCE: u8 = ID_SIZE_U8 * 8;
+
+const IPV4_MASK: u32 = 0x030f_3fff;
 const CASTAGNOLI: Crc<u32> = Crc::<u32>::new(&CRC_32_ISCSI);
 
 #[derive(Clone, Copy, PartialEq, Ord, PartialOrd, Eq, Hash, Serialize, Deserialize)]
@@ -20,6 +22,7 @@ pub struct Id([u8; ID_SIZE]);
 
 impl Id {
     /// Generate a random Id
+    #[must_use]
     pub fn random() -> Id {
         let mut bytes: [u8; 20] = [0; 20];
         super::fill_random(&mut bytes);
@@ -28,6 +31,10 @@ impl Id {
     }
 
     /// Create a new Id from some bytes. Returns Err if the input is not 20 bytes long.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidIdSize`] if `bytes` is not exactly 20 bytes long.
     pub fn from_bytes<T: AsRef<[u8]>>(bytes: T) -> Result<Id, InvalidIdSize> {
         let bytes = bytes.as_ref();
         if bytes.len() != ID_SIZE {
@@ -46,11 +53,14 @@ impl Id {
     /// Distance to self is 0
     /// Distance to the furthest Id is 160
     /// Distance to an Id with 5 leading matching bits is 155
+    #[must_use]
     pub fn distance(&self, other: &Id) -> u8 {
         MAX_DISTANCE - self.xor(other).leading_zeros()
     }
 
     /// Returns the number of leading zeros in the binary representation of `self`.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
     pub fn leading_zeros(&self) -> u8 {
         for (i, byte) in self.0.iter().enumerate() {
             if *byte != 0 {
@@ -63,6 +73,7 @@ impl Id {
     }
 
     /// Performs bitwise XOR between two Ids
+    #[must_use]
     pub fn xor(&self, other: &Id) -> Id {
         let mut result = [0_u8; 20];
 
@@ -74,11 +85,13 @@ impl Id {
     }
 
     /// Returns a byte slice of this Id.
+    #[must_use]
     pub fn as_bytes(&self) -> &[u8; 20] {
         &self.0
     }
 
     /// Create a new Id according to [BEP_0042](http://bittorrent.org/beps/bep_0042.html).
+    #[must_use]
     pub fn from_addr(addr: &SocketAddr) -> Id {
         let ip = addr.ip();
 
@@ -86,6 +99,7 @@ impl Id {
     }
 
     /// Create a new Id from an Ipv4 address according to [BEP_0042](http://bittorrent.org/beps/bep_0042.html).
+    #[must_use]
     pub fn from_ip(ip: IpAddr) -> Id {
         match ip {
             IpAddr::V4(addr) => Id::from_ipv4(addr),
@@ -94,6 +108,7 @@ impl Id {
     }
 
     /// Create a new Id from an Ipv4 address according to [BEP_0042](http://bittorrent.org/beps/bep_0042.html).
+    #[must_use]
     pub fn from_ipv4(ipv4: Ipv4Addr) -> Id {
         let mut bytes = [0_u8; 21];
         super::fill_random(&mut bytes);
@@ -104,6 +119,7 @@ impl Id {
     }
 
     /// Validate that this Id is valid with respect to [BEP_0042](http://bittorrent.org/beps/bep_0042.html).
+    #[must_use]
     pub fn is_valid_for_ip(&self, ipv4: Ipv4Addr) -> bool {
         if ipv4.is_private() || ipv4.is_link_local() || ipv4.is_loopback() {
             return true;
@@ -158,10 +174,10 @@ fn id_prefix_ipv4(ip: Ipv4Addr, r: u8) -> [u8; 3] {
 
 impl Display for Id {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        #[allow(clippy::format_collect)]
-        let hex_chars: String = self.0.iter().map(|byte| format!("{byte:02x}")).collect();
-
-        write!(f, "{hex_chars}")
+        for byte in self.0 {
+            write!(f, "{byte:02x}")?;
+        }
+        Ok(())
     }
 }
 
@@ -241,6 +257,7 @@ pub enum DecodeIdError {
 
 #[cfg(test)]
 mod test {
+    #![allow(clippy::unnecessary_wraps, clippy::items_after_statements)]
     use super::*;
     use eyre::Result;
 

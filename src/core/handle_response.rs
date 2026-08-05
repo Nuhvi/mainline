@@ -24,7 +24,7 @@ impl Core {
         // If someone claims to be readonly, then let's not store anything even if they respond.
         if message.read_only {
             return None;
-        };
+        }
 
         // If the response looks like a Ping response, check StoreQueries for the transaction_id.
         if let Some(query) = self
@@ -39,14 +39,14 @@ impl Core {
                 }
                 MessageType::Error(error) => query.error(error),
                 _ => {}
-            };
+            }
 
             return None;
         }
 
         let mut should_add_node = false;
         let author_id = message.get_author_id();
-        let from_version = message.version.to_owned();
+        let from_version = message.version;
 
         // Get corresponding query for message.transaction_id
         if let Some(query) = self
@@ -79,7 +79,7 @@ impl Core {
                     ..
                 })) => {
                     let response = Response::Peers(values);
-                    query.response(from, response.clone());
+                    query.response(from, &response);
 
                     return Some((target, response));
                 }
@@ -93,8 +93,15 @@ impl Core {
                     let mut verified_peers = vec![];
                     let mut malicious = false;
 
-                    for (k, t, sig) in peers {
-                        if let Ok(peer) = SignedAnnounce::from_dht_response(&target, &k, t, &sig) {
+                    for SignedAnnounce {
+                        key,
+                        timestamp,
+                        signature,
+                    } in peers
+                    {
+                        if let Ok(peer) =
+                            SignedAnnounce::from_dht_response(&target, &key, timestamp, &signature)
+                        {
                             verified_peers.push(peer);
                         } else {
                             malicious = true;
@@ -113,7 +120,7 @@ impl Core {
                         should_add_node = false;
                     } else {
                         let response = Response::SignedPeers(verified_peers);
-                        query.response(from, response.clone());
+                        query.response(from, &response);
 
                         return Some((target, response));
                     }
@@ -125,7 +132,7 @@ impl Core {
                 )) => {
                     if validate_immutable(&v, query.target()) {
                         let response = Response::Immutable(v);
-                        query.response(from, response.clone());
+                        query.response(from, &response);
 
                         return Some((target, response));
                     }
@@ -159,7 +166,7 @@ impl Core {
                     match MutableItem::from_dht_message(query.target(), &k, v, seq, &sig, salt) {
                         Ok(item) => {
                             let response = Response::Mutable(item);
-                            query.response(from, response.clone());
+                            query.response(from, &response);
 
                             return Some((target, response));
                         }
@@ -214,11 +221,12 @@ impl Core {
                 // Ping response is already handled in add_node()
                 // FindNode response is already handled in query.add_candidate()
                 // Requests are handled elsewhere
-                MessageType::Response(ResponseSpecific::Ping(_))
-                | MessageType::Response(ResponseSpecific::FindNode(_))
+                MessageType::Response(
+                    ResponseSpecific::Ping(_) | ResponseSpecific::FindNode(_),
+                )
                 | MessageType::Request(_) => {}
-            };
-        };
+            }
+        }
 
         if should_add_node {
             // Add a node to our routing table on any expected incoming response.

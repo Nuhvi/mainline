@@ -27,9 +27,9 @@ use tokens::Tokens;
 
 pub(crate) use crate::common::{MessageType, RequestSpecific};
 
-/// Default maximum number of info_hashes for which to store peers.
+/// Default maximum number of `info_hashes` for which to store peers.
 pub const MAX_INFO_HASHES: usize = 2000;
-/// Default maximum number of peers to store per info_hash.
+/// Default maximum number of peers to store per `info_hash`.
 pub const MAX_PEERS: usize = 500;
 /// Default maximum number of Immutable and Mutable items to store.
 pub const MAX_VALUES: usize = 1000;
@@ -87,21 +87,21 @@ impl Default for Server {
 #[derive(Debug, Clone)]
 /// Settings for the default dht server.
 pub struct ServerSettings {
-    /// The maximum info_hashes for which to store peers.
+    /// The maximum `info_hashes` for which to store peers.
     ///
-    /// Defaults to [MAX_INFO_HASHES]
+    /// Defaults to [`MAX_INFO_HASHES`]
     pub max_info_hashes: usize,
-    /// The maximum peers to store per info_hash.
+    /// The maximum peers to store per `info_hash`.
     ///
-    /// Defaults to [MAX_PEERS]
+    /// Defaults to [`MAX_PEERS`]
     pub max_peers_per_info_hash: usize,
     /// Maximum number of immutable values to store.
     ///
-    /// Defaults to [MAX_VALUES]
+    /// Defaults to [`MAX_VALUES`]
     pub max_immutable_values: usize,
     /// Maximum number of mutable values to store.
     ///
-    /// Defaults to [MAX_VALUES]
+    /// Defaults to [`MAX_VALUES`]
     pub max_mutable_values: usize,
     /// Filter requests before handling them.
     ///
@@ -164,7 +164,7 @@ impl Server {
 
         // Lazily rotate secrets before handling a request
         if self.tokens.should_update() {
-            self.tokens.rotate()
+            self.tokens.rotate();
         }
 
         let requester_id = request.requester_id;
@@ -216,10 +216,7 @@ impl Server {
                             responder_id: *signing_peers_routing_table.id(),
                             token: self.tokens.generate_token(from).into(),
                             nodes: Some(signing_peers_routing_table.closest(info_hash)),
-                            peers: peers
-                                .iter()
-                                .map(|p| (*p.key(), p.timestamp(), *p.signature()))
-                                .collect(),
+                            peers,
                         })
                     }
                     None => ResponseSpecific::NoValues(NoValuesResponseArguments {
@@ -431,7 +428,7 @@ impl Server {
                                         .to_string(),
                                 }));
                             }
-                        };
+                        }
 
                         if seq < previous.seq() {
                             debug!(

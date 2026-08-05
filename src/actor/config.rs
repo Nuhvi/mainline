@@ -14,7 +14,7 @@ use crate::ServerSettings;
 pub struct Config {
     /// Bootstrap nodes
     ///
-    /// Defaults to [DEFAULT_BOOTSTRAP_NODES]
+    /// Defaults to [`DEFAULT_BOOTSTRAP_NODES`]
     pub bootstrap: Vec<String>,
     /// Explicit port to listen on.
     ///
@@ -44,10 +44,10 @@ impl Default for Config {
         Self {
             bootstrap: DEFAULT_BOOTSTRAP_NODES
                 .iter()
-                .map(|s| s.to_string())
+                .map(std::string::ToString::to_string)
                 .collect(),
             port: None,
-            server_settings: Default::default(),
+            server_settings: ServerSettings::default(),
             server_mode: false,
             public_ip: None,
             #[cfg(test)]

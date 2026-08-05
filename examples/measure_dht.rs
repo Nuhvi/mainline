@@ -1,5 +1,7 @@
 //! Estimates the DHT size by sampling random lookup queries.
 
+#![allow(clippy::cast_precision_loss)]
+
 use dht::{Dht, Id};
 use eyre::Result;
 
@@ -13,7 +15,7 @@ fn main() -> Result<()> {
 
     let dht = Dht::client()?;
 
-    println!("Calculating Dht size by sampling random lookup queries..",);
+    println!("Calculating Dht size by sampling random lookup queries..");
 
     for lookups in 1.. {
         let _ = dht.find_node(Id::random());

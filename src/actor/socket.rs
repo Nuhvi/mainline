@@ -20,7 +20,7 @@ pub(crate) const DEFAULT_PORT: u16 = 6881;
 /// Useful for checking for expected responses.
 pub(crate) const MIN_POLL_INTERVAL: Duration = Duration::from_micros(100);
 /// Maximum interval between polling udp socket, higher latency, lower cpu usage.
-/// Useful for waiting for incoming requests, and [super::Actor::periodic_node_maintaenance].
+/// Useful for waiting for incoming requests, and [`super::Actor::periodic_node_maintaenance`].
 pub(crate) const MAX_POLL_INTERVAL: Duration = Duration::from_millis(500);
 pub(crate) const MIN_REQUEST_TIMEOUT: Duration = Duration::from_millis(500);
 
@@ -28,7 +28,7 @@ pub(crate) const MIN_REQUEST_TIMEOUT: Duration = Duration::from_millis(500);
 #[cfg(test)]
 const LEGACY_VERSION: [u8; 4] = [82, 83, 0, 5]; // "RS" version 05
 
-/// A UdpSocket wrapper that formats and correlates DHT requests and responses.
+/// A `UdpSocket` wrapper that formats and correlates DHT requests and responses.
 #[derive(Debug)]
 pub(crate) struct KrpcSocket {
     socket: UdpSocket,
@@ -101,12 +101,12 @@ impl KrpcSocket {
 
     // === Public Methods ===
 
-    /// Returns true if this message's transaction_id is still inflight
-    pub(crate) fn inflight(&self, transaction_id: &u32) -> bool {
-        self.inflight_requests.get(*transaction_id).is_some()
+    /// Returns true if this message's `transaction_id` is still inflight
+    pub(crate) fn inflight(&self, transaction_id: u32) -> bool {
+        self.inflight_requests.get(transaction_id).is_some()
     }
 
-    /// Send a request to the given address and return the transaction_id
+    /// Send a request to the given address and return the `transaction_id`
     pub(crate) fn request(&mut self, address: SocketAddrV4, request: RequestSpecific) -> u32 {
         let transaction_id = self.inflight_requests.add(address);
 
@@ -114,7 +114,7 @@ impl KrpcSocket {
         trace!(context = "socket_message_sending", message = ?message);
 
         let tid = message.transaction_id;
-        let _ = self.send(address, message).map_err(|e| {
+        let _ = self.send(address, &message).map_err(|e| {
             debug!(?e, "Error sending request message");
         });
 
@@ -134,7 +134,7 @@ impl KrpcSocket {
         let message =
             self.response_message(MessageType::Response(response), address, transaction_id);
         trace!(context = "socket_message_sending", message = ?message);
-        let _ = self.send(address, message).map_err(|e| {
+        let _ = self.send(address, &message).map_err(|e| {
             debug!(?e, "Error sending response message");
         });
     }
@@ -147,7 +147,7 @@ impl KrpcSocket {
         error: ErrorSpecific,
     ) {
         let message = self.response_message(MessageType::Error(error), address, transaction_id);
-        let _ = self.send(address, message).map_err(|e| {
+        let _ = self.send(address, &message).map_err(|e| {
             debug!(?e, "Error sending error message");
         });
     }
@@ -185,13 +185,16 @@ impl KrpcSocket {
                     Ok(message) => {
                         // Parsed correctly.
                         let should_return = match message.message_type {
-                            MessageType::Request(ref _request_specific) => {
+                            MessageType::Request(ref request_specific) => {
                                 // simulate legacy nodes not supporting `announce_signed_peers` and `get_signed_peers`
                                 #[cfg(test)]
                                 let should_return =
-                                    supports_request(&self.version, _request_specific);
+                                    supports_request(self.version, request_specific);
                                 #[cfg(not(test))]
-                                let should_return = true;
+                                let should_return = {
+                                    let _ = request_specific;
+                                    true
+                                };
 
                                 trace!(
                                     context = "socket_message_receiving",
@@ -210,7 +213,7 @@ impl KrpcSocket {
                                     "Received response message"
                                 );
 
-                                self.is_expected_response(&message, &from)
+                                self.is_expected_response(&message, from)
                             }
                             MessageType::Error(_) => {
                                 trace!(
@@ -220,7 +223,7 @@ impl KrpcSocket {
                                     "Received error message"
                                 );
 
-                                self.is_expected_response(&message, &from)
+                                self.is_expected_response(&message, from)
                             }
                         };
 
@@ -231,7 +234,7 @@ impl KrpcSocket {
                     Err(error) => {
                         trace!(context = "socket_error", ?error, ?from, message = ?String::from_utf8_lossy(bytes), "Received invalid Bencode message.");
                     }
-                };
+                }
             }
             Ok((_, SocketAddr::V6(_))) => {
                 // Ignore unsupported Ipv6 messages
@@ -248,28 +251,27 @@ impl KrpcSocket {
                     }
                 }
                 _ => {
-                    warn!("IO error {error}")
+                    warn!("IO error {error}");
                 }
             },
-        };
+        }
 
         None
     }
 
     // === Private Methods ===
 
-    fn is_expected_response(&mut self, message: &Message, from: &SocketAddrV4) -> bool {
+    fn is_expected_response(&mut self, message: &Message, from: SocketAddrV4) -> bool {
         // Positive or an error response or to an inflight request.
         match self.inflight_requests.remove(message.transaction_id) {
             Some(request) => {
-                if compare_socket_addr(&request.to, from) {
+                if compare_socket_addr(request.to, from) {
                     return true;
-                } else {
-                    trace!(
-                        context = "socket_validation",
-                        message = "Response from wrong address"
-                    );
                 }
+                trace!(
+                    context = "socket_validation",
+                    message = "Response from wrong address"
+                );
             }
             None => {
                 trace!(
@@ -282,7 +284,7 @@ impl KrpcSocket {
         false
     }
 
-    /// Set transactin_id, version and read_only
+    /// Set `transactin_id`, version and `read_only`
     fn request_message(&mut self, transaction_id: u32, message: RequestSpecific) -> Message {
         Message {
             transaction_id,
@@ -293,7 +295,7 @@ impl KrpcSocket {
         }
     }
 
-    /// Same as request_message but with request transaction_id and the requester_ip.
+    /// Same as `request_message` but with request `transaction_id` and the `requester_ip`.
     fn response_message(
         &mut self,
         message: MessageType,
@@ -310,6 +312,7 @@ impl KrpcSocket {
         }
     }
 
+    #[allow(clippy::unused_self)]
     fn version(&self) -> [u8; 4] {
         #[cfg(test)]
         return self.version;
@@ -318,7 +321,7 @@ impl KrpcSocket {
     }
 
     /// Send a raw dht message
-    fn send(&mut self, address: SocketAddrV4, message: Message) -> Result<(), SendMessageError> {
+    fn send(&mut self, address: SocketAddrV4, message: &Message) -> Result<(), SendMessageError> {
         self.socket.send_to(&message.to_bytes()?, address)?;
         trace!(context = "socket_message_sending", message = ?message);
         Ok(())
@@ -333,12 +336,12 @@ pub(crate) enum SendMessageError {
     BencodeError(#[from] serde_bencode::Error),
 
     #[error(transparent)]
-    /// Transparent [std::io::Error]
+    /// Transparent [`std::io::Error`]
     IO(#[from] std::io::Error),
 }
 
 // Same as SocketAddr::eq but ignores the ip if it is unspecified for testing reasons.
-fn compare_socket_addr(a: &SocketAddrV4, b: &SocketAddrV4) -> bool {
+fn compare_socket_addr(a: SocketAddrV4, b: SocketAddrV4) -> bool {
     if a.port() != b.port() {
         return false;
     }
@@ -367,7 +370,7 @@ impl Debug for InflightRequest {
 }
 
 /// We don't need a map, since we know the maximum size is `65536` requests.
-/// Requests are also ordered by their transaction_id and thus sent_at, so lookup is fast.
+/// Requests are also ordered by their `transaction_id` and thus `sent_at`, so lookup is fast.
 struct InflightRequests {
     next_tid: u32,
     requests: Vec<InflightRequest>,
@@ -385,7 +388,7 @@ impl InflightRequests {
         }
     }
 
-    /// Increments self.next_tid and returns the previous value.
+    /// Increments `self.next_tid` and returns the previous value.
     fn tid(&mut self) -> u32 {
         // We don't reuse freed transaction ids, to preserve the sortablitiy
         // of both `tid`s and `sent_at`.
@@ -408,13 +411,13 @@ impl InflightRequests {
                 if request.sent_at.elapsed() < self.request_timeout() {
                     return Some(request);
                 }
-            };
+            }
         }
 
         None
     }
 
-    /// Adds a [InflightRequest] with new transaction_id, and returns that id.
+    /// Adds a [`InflightRequest`] with new `transaction_id`, and returns that id.
     fn add(&mut self, to: SocketAddrV4) -> u32 {
         let tid = self.tid();
         self.requests.push(InflightRequest {
@@ -480,8 +483,7 @@ impl InflightRequests {
             .requests
             .binary_search_by(|request| self.request_timeout().cmp(&request.sent_at.elapsed()))
         {
-            Ok(index) => index,
-            Err(index) => index,
+            Ok(i) | Err(i) => i,
         };
 
         self.requests.drain(0..index);
@@ -508,7 +510,7 @@ impl Debug for InflightRequests {
 }
 
 #[cfg(test)]
-fn supports_request(version: &[u8; 4], request_specific: &crate::common::RequestSpecific) -> bool {
+fn supports_request(version: [u8; 4], request_specific: &crate::common::RequestSpecific) -> bool {
     use crate::{
         common::{PutRequest, RequestTypeSpecific},
         PutRequestSpecific,
@@ -518,7 +520,7 @@ fn supports_request(version: &[u8; 4], request_specific: &crate::common::Request
         | RequestTypeSpecific::Put(PutRequest {
             put_request_type: PutRequestSpecific::AnnounceSignedPeer(_),
             ..
-        }) => version != &LEGACY_VERSION,
+        }) => version != LEGACY_VERSION,
         _ => true,
     }
 }
@@ -689,7 +691,7 @@ mod test {
 
         std::thread::sleep(server.inflight_requests.request_timeout());
 
-        assert!(!server.inflight(&tid));
+        assert!(!server.inflight(tid));
         Ok(())
     }
 }

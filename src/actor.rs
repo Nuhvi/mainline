@@ -54,7 +54,7 @@ impl Actor {
                     addrs
                         .filter_map(|addr| match addr {
                             SocketAddr::V4(addr_v4) => Some(addr_v4),
-                            _ => None,
+                            SocketAddr::V6(_) => None,
                         })
                         .collect::<Box<[_]>>()
                 })
@@ -125,7 +125,7 @@ impl Actor {
 
         let mut done_put_queries = self.check_done_put_queries();
 
-        for (_, query) in self.core.iterative_queries.iter_mut() {
+        for query in self.core.iterative_queries.values_mut() {
             query.visit_closest(&mut self.socket);
         }
 
@@ -177,22 +177,22 @@ impl Actor {
     }
 
     /// Store a value in the closest nodes, optionally trigger a lookup query if
-    /// the cached closest_nodes aren't fresh enough.
+    /// the cached `closest_nodes` aren't fresh enough.
     pub fn put(
         &mut self,
-        request: PutRequestSpecific,
+        request: &PutRequestSpecific,
         extra_nodes: Option<Box<[Node]>>,
     ) -> Result<(), PutError> {
-        self.core.check_concurrency_errors(&request)?;
+        self.core.check_concurrency_errors(request)?;
 
         let mut query = PutQuery::new(request.clone(), extra_nodes);
 
         let target = request.target();
         if let Some(closest_nodes) = self.core.get_cached_closest_nodes(target) {
-            query.start(&mut self.socket, &closest_nodes)?
+            query.start(&mut self.socket, &closest_nodes)?;
         } else {
-            self.get(GetRequestSpecific::from(&request), None);
-        };
+            self.get(GetRequestSpecific::from(request), None);
+        }
 
         self.core.put_queries.insert(*target, query);
 
@@ -202,14 +202,14 @@ impl Actor {
     /// Send a message to closer and closer nodes until we can't find any more nodes.
     ///
     /// Queries take few seconds to fully traverse the network, once it is done, it will be removed from
-    /// self.iterative_queries. But until then, calling [Actor::get] multiple times, will just return the list
+    /// `self.iterative_queries`. But until then, calling [`Actor::get`] multiple times, will just return the list
     /// of responses seen so far.
     ///
     /// Effectively, we are caching responses and backing off the network for the duration it takes
     /// to traverse it.
     ///
-    /// - `request` [RequestTypeSpecific], except [RequestTypeSpecific::Ping] and
-    ///   [RequestTypeSpecific::Put] which will be ignored.
+    /// - `request` [`RequestTypeSpecific`], except [`RequestTypeSpecific::Ping`] and
+    ///   [`RequestTypeSpecific::Put`] which will be ignored.
     /// - `extra_nodes` option allows the query to visit specific nodes, that won't necessesarily be visited
     ///   through the query otherwise.
     pub fn get(
@@ -233,7 +233,7 @@ impl Actor {
 
             // Terminate, no need to create another query.
             return responses;
-        };
+        }
 
         if let Some((mut query, to_visit)) = self.core.create_iterative_query(request, extra_nodes)
         {
@@ -301,10 +301,10 @@ impl Actor {
 
                 match response {
                     Some(MessageType::Error(error)) => {
-                        self.socket.error(from, message.transaction_id, error)
+                        self.socket.error(from, message.transaction_id, error);
                     }
                     Some(MessageType::Response(response)) => {
-                        self.socket.response(from, message.transaction_id, response)
+                        self.socket.response(from, message.transaction_id, response);
                     }
                     _ => {}
                 }
@@ -362,7 +362,7 @@ impl Actor {
         for (id, closest_nodes) in done_iterative_queries {
             if let Some(put_query) = self.core.put_queries.get_mut(id) {
                 if let Err(error) = put_query.start(&mut self.socket, closest_nodes) {
-                    done_put_queries.push((*id, Some(error)))
+                    done_put_queries.push((*id, Some(error)));
                 }
             }
         }
@@ -391,7 +391,7 @@ impl Actor {
     }
 }
 
-pub(crate) fn run(config: Config, receiver: Receiver<ActorMessage>) {
+pub(crate) fn run(config: Config, receiver: &Receiver<ActorMessage>) {
     match Actor::new(config) {
         Ok(mut actor) => {
             loop {
@@ -406,7 +406,7 @@ pub(crate) fn run(config: Config, receiver: Receiver<ActorMessage>) {
                         ActorMessage::Put(request, sender, extra_nodes) => {
                             let target = *request.target();
 
-                            match actor.put(request, extra_nodes) {
+                            match actor.put(&request, extra_nodes) {
                                 Ok(()) => {
                                     let senders = actor.put_senders.entry(target).or_insert(vec![]);
 
@@ -415,7 +415,7 @@ pub(crate) fn run(config: Config, receiver: Receiver<ActorMessage>) {
                                 Err(error) => {
                                     let _ = sender.send(Err(error));
                                 }
-                            };
+                            }
                         }
                         ActorMessage::Get(request, sender) => {
                             let target = request.target();
@@ -451,7 +451,7 @@ pub(crate) fn run(config: Config, receiver: Receiver<ActorMessage>) {
                 let _ = sender.send(Err(err));
             }
         }
-    };
+    }
 }
 
 fn send(sender: &ResponseSender, response: Response) {

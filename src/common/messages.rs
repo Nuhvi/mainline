@@ -9,7 +9,7 @@ mod internal;
 use std::convert::TryInto;
 use std::net::{Ipv4Addr, SocketAddrV4};
 
-use crate::common::{Id, Node, ID_SIZE};
+use crate::common::{Id, Node, SignedAnnounce, ID_SIZE};
 
 use super::InvalidIdSize;
 
@@ -20,10 +20,11 @@ pub(crate) struct Message {
     /// The version of the requester or responder.
     pub version: Option<[u8; 4]>,
 
-    /// The IP address and port ("SocketAddr") of the requester as seen from the responder's point of view.
+    /// The IP address and port ("`SocketAddr`") of the requester as seen from the responder's point of view.
     /// This should be set only on response, but is defined at this level with the other common fields to avoid defining yet another layer on the response objects.
     pub requester_ip: Option<SocketAddrV4>,
 
+    #[allow(clippy::struct_field_names)]
     pub message_type: MessageType,
 
     /// For bep0043. When set true on a request, indicates that the requester can't reply to requests and that responders should not add requester to their routing tables.
@@ -78,17 +79,20 @@ pub enum PutRequestSpecific {
 }
 
 impl PutRequestSpecific {
+    #[must_use]
     pub fn target(&self) -> &Id {
         match self {
             PutRequestSpecific::AnnouncePeer(AnnouncePeerRequestArguments {
                 info_hash, ..
-            }) => info_hash,
-            PutRequestSpecific::AnnounceSignedPeer(AnnounceSignedPeerRequestArguments {
+            })
+            | PutRequestSpecific::AnnounceSignedPeer(AnnounceSignedPeerRequestArguments {
                 info_hash,
                 ..
             }) => info_hash,
-            PutRequestSpecific::PutMutable(PutMutableRequestArguments { target, .. }) => target,
-            PutRequestSpecific::PutImmutable(PutImmutableRequestArguments { target, .. }) => target,
+            PutRequestSpecific::PutMutable(PutMutableRequestArguments { target, .. })
+            | PutRequestSpecific::PutImmutable(PutImmutableRequestArguments { target, .. }) => {
+                target
+            }
         }
     }
 }
@@ -161,7 +165,7 @@ pub struct GetPeersResponseArguments {
 pub struct GetSignedPeersResponseArguments {
     pub responder_id: Id,
     pub token: Box<[u8]>,
-    pub peers: Vec<([u8; 32], u64, [u8; 64])>,
+    pub peers: Vec<SignedAnnounce>,
     pub nodes: Option<Box<[Node]>>,
 }
 
@@ -239,9 +243,7 @@ impl Message {
         internal::DHTMessage {
             transaction_id: self.transaction_id.to_be_bytes().to_vec(),
             version: self.version,
-            ip: self
-                .requester_ip
-                .map(|sockaddr| sockaddr_to_bytes(&sockaddr)),
+            ip: self.requester_ip.map(sockaddr_to_bytes),
             read_only: if self.read_only { Some(1) } else { Some(0) },
             variant: match self.message_type {
                 MessageType::Request(RequestSpecific {
@@ -313,7 +315,7 @@ impl Message {
                                     token,
 
                                     info_hash: announce_signed_peer_args.info_hash.into(),
-                                    t: announce_signed_peer_args.t as i64,
+                                    t: announce_signed_peer_args.t.cast_signed(),
                                     k: announce_signed_peer_args.k,
                                     sig: announce_signed_peer_args.sig,
                                 },
@@ -459,7 +461,7 @@ impl Message {
     fn from_serde_message(msg: internal::DHTMessage) -> Result<Message, DecodeMessageError> {
         Ok(Message {
             transaction_id: match *msg.transaction_id.as_slice() {
-                [a, b] => u16::from_be_bytes([a, b]) as u32,
+                [a, b] => u32::from(u16::from_be_bytes([a, b])),
                 [a, b, c, d] => u32::from_be_bytes([a, b, c, d]),
                 _ => return Err(DecodeMessageError::InvalidTransactionIdSize),
             },
@@ -538,7 +540,7 @@ impl Message {
                                     put_request_type: PutRequestSpecific::AnnounceSignedPeer(
                                         AnnounceSignedPeerRequestArguments {
                                             info_hash: Id::from_bytes(arguments.info_hash)?,
-                                            t: arguments.t as u64,
+                                            t: arguments.t.cast_unsigned(),
                                             k: arguments.k,
                                             sig: arguments.sig,
                                         },
@@ -746,8 +748,7 @@ impl Message {
     pub(crate) fn get_token(&self) -> Option<(Id, &[u8])> {
         match &self.message_type {
             MessageType::Response(response_variant) => match response_variant {
-                ResponseSpecific::Ping(_) => None,
-                ResponseSpecific::FindNode(_) => None,
+                ResponseSpecific::Ping(_) | ResponseSpecific::FindNode(_) => None,
                 ResponseSpecific::GetPeers(arguments) => {
                     Some((arguments.responder_id, &arguments.token))
                 }
@@ -795,7 +796,7 @@ fn bytes_to_sockaddr<T: AsRef<[u8]>>(bytes: T) -> Result<SocketAddrV4, DecodeMes
     }
 }
 
-pub(crate) fn sockaddr_to_bytes(sockaddr: &SocketAddrV4) -> [u8; 6] {
+pub(crate) fn sockaddr_to_bytes(sockaddr: SocketAddrV4) -> [u8; 6] {
     let mut bytes = [0u8; 6];
 
     bytes[0..4].copy_from_slice(&sockaddr.ip().octets());
@@ -812,7 +813,7 @@ fn nodes4_to_bytes(nodes: &[Node]) -> Box<[u8]> {
 
     for node in nodes {
         bytes.extend_from_slice(node.id().as_bytes());
-        bytes.extend_from_slice(&sockaddr_to_bytes(&node.address()));
+        bytes.extend_from_slice(&sockaddr_to_bytes(node.address()));
     }
 
     bytes.into_boxed_slice()
@@ -841,7 +842,7 @@ fn bytes_to_nodes4<T: AsRef<[u8]>>(bytes: T) -> Result<Box<[Node]>, DecodeMessag
 fn peers_to_bytes(peers: &[SocketAddrV4]) -> Vec<serde_bytes::ByteBuf> {
     peers
         .iter()
-        .map(|p| serde_bytes::ByteBuf::from(sockaddr_to_bytes(p)))
+        .map(|p| serde_bytes::ByteBuf::from(sockaddr_to_bytes(*p)))
         .collect()
 }
 
@@ -852,18 +853,15 @@ fn bytes_to_peers<T: AsRef<[serde_bytes::ByteBuf]>>(
     bytes.iter().map(bytes_to_sockaddr).collect()
 }
 
-#[allow(clippy::type_complexity)]
 fn bytes_to_signed_peers<T: AsRef<[serde_bytes::ByteBuf]>>(
     bytes: T,
-) -> Result<Vec<([u8; 32], u64, [u8; 64])>, DecodeMessageError> {
+) -> Result<Vec<SignedAnnounce>, DecodeMessageError> {
     let bytes = bytes.as_ref();
 
     bytes.iter().map(bytes_to_signed_peer).collect()
 }
 
-fn bytes_to_signed_peer<T: AsRef<[u8]>>(
-    bytes: T,
-) -> Result<([u8; 32], u64, [u8; 64]), DecodeMessageError> {
+fn bytes_to_signed_peer<T: AsRef<[u8]>>(bytes: T) -> Result<SignedAnnounce, DecodeMessageError> {
     let bytes = bytes.as_ref();
 
     if !bytes.len().is_multiple_of(104) {
@@ -886,22 +884,26 @@ fn bytes_to_signed_peer<T: AsRef<[u8]>>(
         .try_into()
         .map_err(|_| DecodeMessageError::InvalidSignedPeersEncodingLength)?;
 
-    Ok((key, u64::from_be_bytes(t), signature))
+    Ok(SignedAnnounce {
+        key,
+        timestamp: u64::from_be_bytes(t),
+        signature,
+    })
 }
 
-fn signed_peers_to_bytes(peers: &[([u8; 32], u64, [u8; 64])]) -> Vec<serde_bytes::ByteBuf> {
+fn signed_peers_to_bytes(peers: &[SignedAnnounce]) -> Vec<serde_bytes::ByteBuf> {
     peers
         .iter()
         .map(|p| serde_bytes::ByteBuf::from(signed_peer_to_bytes(p)))
         .collect()
 }
 
-fn signed_peer_to_bytes(peer: &([u8; 32], u64, [u8; 64])) -> [u8; 104] {
+fn signed_peer_to_bytes(peer: &SignedAnnounce) -> [u8; 104] {
     let mut bytes = [0; 104];
 
-    bytes[0..32].copy_from_slice(&peer.0);
-    bytes[32..40].copy_from_slice(&peer.1.to_be_bytes());
-    bytes[40..].copy_from_slice(&peer.2);
+    bytes[0..32].copy_from_slice(&peer.key);
+    bytes[32..40].copy_from_slice(&peer.timestamp.to_be_bytes());
+    bytes[40..].copy_from_slice(&peer.signature);
 
     bytes
 }

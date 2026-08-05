@@ -1,5 +1,7 @@
 //! A command-line tool that announces a signed peer on the DHT for a given info-hash.
 
+#![allow(clippy::format_collect)]
+
 use std::{str::FromStr, time::Instant};
 
 use clap::Parser;
@@ -9,7 +11,7 @@ use eyre::{eyre, Result};
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// info_hash to announce a peer on
+    /// `info_hash` to announce a peer on
     infohash: String,
     /// Mutable data public key.
     secret_key: String,
@@ -80,7 +82,7 @@ fn from_hex(s: &str) -> Result<SigningKey> {
 }
 
 fn to_hex(bytes: &[u8]) -> String {
-    let hex_chars: String = bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
+    let hex_chars: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
 
     hex_chars
 }

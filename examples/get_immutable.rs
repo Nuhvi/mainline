@@ -55,7 +55,7 @@ fn get_immutable(dht: &Dht, info_hash: Id) -> Result<()> {
         start.elapsed().as_millis()
     );
 
-    println!("Got immutable data: {:?}", string);
+    println!("Got immutable data: {string:?}");
 
     println!(
         "\nQuery exhausted in {:?} milliseconds",

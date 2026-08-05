@@ -38,7 +38,7 @@ pub struct Dht(pub(crate) Sender<ActorMessage>);
 pub struct DhtBuilder(Config);
 
 impl DhtBuilder {
-    /// Set this node's server_mode.
+    /// Set this node's `server_mode`.
     pub fn server_mode(&mut self) -> &mut Self {
         self.0.server_mode = true;
 
@@ -47,7 +47,7 @@ impl DhtBuilder {
 
     /// Set a custom settings for the node to use at server mode.
     ///
-    /// Defaults to [ServerSettings::default]
+    /// Defaults to [`ServerSettings::default`]
     pub fn server_settings(&mut self, server_settings: ServerSettings) -> &mut Self {
         self.0.server_settings = server_settings;
 
@@ -56,7 +56,10 @@ impl DhtBuilder {
 
     /// Set bootstrapping nodes.
     pub fn bootstrap<T: ToString>(&mut self, bootstrap: &[T]) -> &mut Self {
-        self.0.bootstrap = bootstrap.iter().map(|b| b.to_string()).collect();
+        self.0.bootstrap = bootstrap
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect();
 
         self
     }
@@ -106,11 +109,19 @@ impl DhtBuilder {
     }
 
     /// Create a [Dht] node.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the node fails to bind to a UDP socket.
     pub fn build(&self) -> Result<Dht, std::io::Error> {
         Dht::new(self.0.clone())
     }
 
-    /// Create a [AsyncDht] node, without blocking on initial dns queries.
+    /// Create a [`AsyncDht`] node, without blocking on initial dns queries.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the node fails to bind to a UDP socket.
     #[cfg(feature = "async")]
     pub async fn build_async(&self) -> Result<AsyncDht, std::io::Error> {
         AsyncDht::new(self.0.clone()).await
@@ -122,6 +133,10 @@ impl Dht {
     ///
     /// Could return an error if it failed to bind to the specified
     /// port or other io errors while binding the udp socket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`std::io::Error`] if the node fails to bind to the UDP socket.
     pub fn new(config: Config) -> Result<Self, std::io::Error> {
         let (sender, rx) = Dht::setup(config)?;
         receive(rx)?;
@@ -129,10 +144,14 @@ impl Dht {
         Ok(Dht(sender))
     }
 
-    /// Create a new [AsyncDht] node, without blocking on initial dns queries.
+    /// Create a new [`AsyncDht`] node, without blocking on initial dns queries.
     ///
     /// Could return an error if it failed to bind to the specified
     /// port or other io errors while binding the udp socket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`std::io::Error`] if the node fails to bind to the UDP socket.
     #[cfg(feature = "async")]
     pub async fn new_async(config: Config) -> Result<AsyncDht, std::io::Error> {
         AsyncDht::new(config).await
@@ -146,7 +165,7 @@ impl Dht {
 
         thread::Builder::new()
             .name("Mainline Dht actor thread".to_string())
-            .spawn(move || crate::actor::run(config, receiver))?;
+            .spawn(move || crate::actor::run(config, &receiver))?;
 
         let (tx, rx) = flume::bounded(1);
 
@@ -158,11 +177,16 @@ impl Dht {
     }
 
     /// Returns a builder to edit settings before creating a Dht node.
+    #[must_use]
     pub fn builder() -> DhtBuilder {
         DhtBuilder::default()
     }
 
     /// Create a new DHT client with default bootstrap nodes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the node fails to bind to a UDP socket.
     pub fn client() -> Result<Self, std::io::Error> {
         Dht::builder().build()
     }
@@ -174,8 +198,12 @@ impl Dht {
     /// DHT node is publicly accessible (not firewalled) _AND_ will be long running,
     /// and/or you are running your own local network for testing.
     ///
-    /// If you are not sure, use [Self::client] and it will switch
+    /// If you are not sure, use [`Self::client`] and it will switch
     /// to server mode when/if these two conditions are met.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the node fails to bind to a UDP socket.
     pub fn server() -> Result<Self, std::io::Error> {
         Dht::builder().server_mode().build()
     }
@@ -183,6 +211,7 @@ impl Dht {
     // === Getters ===
 
     /// Information and statistics about this [Dht] node.
+    #[must_use]
     pub fn info(&self) -> Info {
         let (tx, rx) = flume::bounded::<Info>(1);
         self.send(ActorMessage::Info(tx));
@@ -191,6 +220,7 @@ impl Dht {
     }
 
     /// Turn this node's routing table to a list of bootstrapping nodes.   
+    #[must_use]
     pub fn to_bootstrap(&self) -> Vec<String> {
         let (tx, rx) = flume::bounded::<Vec<String>>(1);
         self.send(ActorMessage::ToBootstrap(tx));
@@ -203,9 +233,10 @@ impl Dht {
     /// Block until the bootstrapping query is done.
     ///
     /// Returns true if the bootstrapping was successful.
+    #[must_use]
     pub fn bootstrapped(&self) -> bool {
         let info = self.info();
-        self.find_node(*info.id());
+        let _ = self.find_node(*info.id());
 
         let info = self.info();
         info.routing_table_size() > 0
@@ -223,9 +254,10 @@ impl Dht {
     /// You might need to ping them to confirm they exist, and responsive, or if you want to
     /// learn more about them like the client they are using, or if they support a given BEP.
     ///
-    /// If you are trying to find the closest nodes to a target with intent to [Self::put],
+    /// If you are trying to find the closest nodes to a target with intent to [`Self::put`],
     /// a request directly to these nodes (using `extra_nodes` parameter), then you should
-    /// use [Self::get_closest_nodes] instead.
+    /// use [`Self::get_closest_nodes`] instead.
+    #[must_use]
     pub fn find_node(&self, target: Id) -> Box<[Node]> {
         let (tx, rx) = flume::bounded::<Box<[Node]>>(1);
         self.send(ActorMessage::Get(
@@ -247,6 +279,7 @@ impl Dht {
     /// for Bittorrent is that any peer will introduce you to more peers through "peer exchange"
     /// so if you are implementing something different from Bittorrent, you might want
     /// to implement your own logic for gossipping more peers after you discover the first ones.
+    #[must_use]
     pub fn get_peers(&self, info_hash: Id) -> GetIterator<Vec<SocketAddrV4>> {
         let (tx, rx) = flume::unbounded::<Vec<SocketAddrV4>>();
         self.send(ActorMessage::Get(
@@ -262,6 +295,10 @@ impl Dht {
     /// The peer will be announced on this process IP.
     /// If explicit port is passed, it will be used, otherwise the port will be implicitly
     /// assumed by remote nodes to be the same ase port they received the request from.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PutQueryError`] if the query could not reach any node.
     pub fn announce_peer(&self, info_hash: Id, port: Option<u16>) -> Result<Id, PutQueryError> {
         let (port, implied_port) = match port {
             Some(port) => (port, None),
@@ -298,6 +335,10 @@ impl Dht {
     /// `info_hash` to this method.
     ///
     /// Read [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst) for more information.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PutQueryError`] if the query could not reach any node.
     pub fn announce_signed_peer(
         &self,
         info_hash: Id,
@@ -342,6 +383,7 @@ impl Dht {
     /// to implement your own logic for gossipping more peers after you discover the first ones.
     ///
     /// Read [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst) for more information.
+    #[must_use]
     pub fn get_signed_peers(&self, info_hash: Id) -> GetIterator<Vec<SignedAnnounce>> {
         let (tx, rx) = flume::unbounded::<Vec<SignedAnnounce>>();
         self.send(ActorMessage::Get(
@@ -355,6 +397,7 @@ impl Dht {
     // === Immutable data ===
 
     /// Get an Immutable data by its sha1 hash.
+    #[must_use]
     pub fn get_immutable(&self, target: Id) -> Option<Box<[u8]>> {
         let (tx, rx) = flume::unbounded::<Option<Box<[u8]>>>();
         self.send(ActorMessage::Get(
@@ -370,6 +413,10 @@ impl Dht {
     }
 
     /// Put an immutable data to the DHT.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PutQueryError`] if the query could not reach any node.
     pub fn put_immutable(&self, value: &[u8]) -> Result<Id, PutQueryError> {
         let target: Id = hash_immutable(value).into();
 
@@ -397,18 +444,19 @@ impl Dht {
     ///
     /// # Order
     ///
-    /// The order of [MutableItem]s returned by this iterator is not guaranteed to
+    /// The order of [`MutableItem`]s returned by this iterator is not guaranteed to
     /// reflect their `seq` value. You should not assume that the later items are
     /// more recent than earlier ones.
     ///
-    /// Consider using [Self::get_mutable_most_recent] if that is what you need.
+    /// Consider using [`Self::get_mutable_most_recent`] if that is what you need.
+    #[must_use]
     pub fn get_mutable(
         &self,
         public_key: &[u8; 32],
         salt: Option<&[u8]>,
         more_recent_than: Option<i64>,
     ) -> GetIterator<MutableItem> {
-        let salt = salt.map(|s| s.into());
+        let salt = salt.map(std::convert::Into::into);
         let target = MutableItem::target_from_key(public_key, salt.as_deref());
         let (tx, rx) = flume::unbounded::<MutableItem>();
         self.send(ActorMessage::Get(
@@ -423,7 +471,8 @@ impl Dht {
         GetIterator(rx.into_iter())
     }
 
-    /// Get the most recent [MutableItem] from the network.
+    /// Get the most recent [`MutableItem`] from the network.
+    #[must_use]
     pub fn get_mutable_most_recent(
         &self,
         public_key: &[u8; 32],
@@ -434,7 +483,7 @@ impl Dht {
         for item in iter {
             if let Some(mr) = &most_recent {
                 if item.seq() == mr.seq && item.value() > &mr.value {
-                    most_recent = Some(item)
+                    most_recent = Some(item);
                 }
             } else {
                 most_recent = Some(item);
@@ -452,8 +501,8 @@ impl Dht {
     ///
     /// ## Read first
     ///
-    /// To mitigate the risk of lost updates, you should call the [Self::get_mutable_most_recent] method
-    /// then start authoring the new [MutableItem] based on the most recent as in the following example:
+    /// To mitigate the risk of lost updates, you should call the [`Self::get_mutable_most_recent`] method
+    /// then start authoring the new [`MutableItem`] based on the most recent as in the following example:
     ///
     ///```rust
     /// use dht::{Dht, MutableItem, SigningKey, Testnet};
@@ -488,7 +537,7 @@ impl Dht {
     ///
     /// ## Errors
     ///
-    /// In addition to the [PutQueryError] common with all PUT queries, PUT mutable item
+    /// In addition to the [`PutQueryError`] common with all PUT queries, PUT mutable item
     /// query has other [Concurrency errors][ConcurrencyError], that try to detect write conflict
     /// risks or obvious conflicts.
     ///
@@ -507,8 +556,9 @@ impl Dht {
 
     /// Get closet nodes to a specific target, that support [BEP_0044](https://www.bittorrent.org/beps/bep_0044.html).
     ///
-    /// Useful to [Self::put] a request to nodes further from the 20 closest nodes to the
-    /// [PutRequestSpecific::target]. Which itself is useful to circumvent [extreme vertical sybil attacks](https://github.com/nuhvi/mainline/blob/main/docs/censorship-resistance.md#extreme-vertical-sybil-attacks).
+    /// Useful to [`Self::put`] a request to nodes further from the 20 closest nodes to the
+    /// [`PutRequestSpecific::target`]. Which itself is useful to circumvent [extreme vertical sybil attacks](https://github.com/nuhvi/mainline/blob/main/docs/censorship-resistance.md#extreme-vertical-sybil-attacks).
+    #[must_use]
     pub fn get_closest_nodes(&self, target: Id) -> Box<[Node]> {
         let (tx, rx) = flume::unbounded::<Box<[Node]>>();
         self.send(ActorMessage::Get(
@@ -529,9 +579,13 @@ impl Dht {
     /// to this request's [target][PutRequestSpecific::target].
     ///
     /// You can find nodes close to other regions of the network by calling
-    /// [Self::get_closest_nodes] with the target that you want to find the closest nodes to.
+    /// [`Self::get_closest_nodes`] with the target that you want to find the closest nodes to.
     ///
-    /// Note: extra nodes need to have [Node::valid_token].
+    /// Note: extra nodes need to have [`Node::valid_token`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PutError`] if the query could not reach any node.
     pub fn put(
         &self,
         request: PutRequestSpecific,
@@ -561,7 +615,7 @@ impl Dht {
     }
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::needless_pass_by_value)]
 fn receive<T>(rx: Receiver<T>) -> T {
     rx.recv().expect("actor thread unexpectedly shutdown")
 }
@@ -577,14 +631,14 @@ impl<T> Iterator for GetIterator<T> {
 }
 
 #[derive(thiserror::Error, Debug)]
-/// Put MutableItem errors.
+/// Put `MutableItem` errors.
 pub enum PutMutableError {
     #[error(transparent)]
-    /// Common PutQuery errors
+    /// Common `PutQuery` errors
     Query(#[from] PutQueryError),
 
     #[error(transparent)]
-    /// PutQuery for [crate::MutableItem] errors
+    /// `PutQuery` for [`crate::MutableItem`] errors
     Concurrency(#[from] ConcurrencyError),
 }
 
@@ -628,7 +682,7 @@ mod test {
             .next()
             .ok_or_else(|| eyre!("No peers"))?;
 
-        assert_eq!(peers.first().map(|p| p.port()), Some(45555));
+        assert_eq!(peers.first().map(std::net::SocketAddrV4::port), Some(45555));
 
         Ok(())
     }
@@ -657,7 +711,7 @@ mod test {
     fn find_node_no_values() -> Result<()> {
         let client = Dht::builder().no_bootstrap().build()?;
 
-        client.find_node(Id::random());
+        let _ = client.find_node(Id::random());
 
         Ok(())
     }
@@ -836,12 +890,12 @@ mod test {
             let handle = std::thread::spawn(move || {
                 let result = client.put_mutable(item, None);
                 if i == 0 {
-                    assert!(result.is_ok())
+                    assert!(result.is_ok());
                 } else {
                     assert!(matches!(
                         result,
                         Err(PutMutableError::Concurrency(ConcurrencyError::ConflictRisk))
-                    ))
+                    ));
                 }
             });
 
@@ -1032,7 +1086,7 @@ mod test {
             if let Some(first_signer) = signers.first() {
                 assert!(a.announce_signed_peer(info_hash, first_signer).is_err());
             }
-            assert_eq!(a.get_signed_peers(info_hash).next(), None)
+            assert_eq!(a.get_signed_peers(info_hash).next(), None);
         }
 
         {

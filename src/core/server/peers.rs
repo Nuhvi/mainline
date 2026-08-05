@@ -1,4 +1,4 @@
-//! Manage announced peers for info_hashes
+//! Manage announced peers for `info_hashes`
 
 use std::{net::SocketAddrV4, num::NonZeroUsize};
 
@@ -6,7 +6,7 @@ use crate::common::Id;
 
 use lru::LruCache;
 
-const CHANCE_SCALE: f32 = 2.0 * (1u32 << 31) as f32;
+const CHANCE_SCALE: f32 = 4_294_967_296.0;
 
 #[derive(Debug, Clone)]
 /// An LRU cache of "Peers" per info hashes.
@@ -34,10 +34,15 @@ impl PeersStore {
             let mut info_hash_lru = LruCache::new(self.max_peers);
             info_hash_lru.put(*peer.0, peer.1);
             self.info_hashes.put(info_hash, info_hash_lru);
-        };
+        }
     }
 
     /// Returns a random set of peers per an info hash.
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
     pub(crate) fn get_random_peers(&mut self, info_hash: &Id) -> Option<Vec<SocketAddrV4>> {
         if let Some(info_hash_lru) = self.info_hashes.get(info_hash) {
             let size = info_hash_lru.len();
@@ -172,7 +177,7 @@ mod test {
             store.add_peer(
                 info_hash,
                 (&Id::random(), SocketAddrV4::new([127, 0, 1, i].into(), 0)),
-            )
+            );
         }
 
         assert_eq!(

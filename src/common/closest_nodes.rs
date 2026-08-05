@@ -12,7 +12,8 @@ pub struct ClosestNodes {
 }
 
 impl ClosestNodes {
-    /// Create a new instance of [ClosestNodes].
+    /// Create a new instance of [`ClosestNodes`].
+    #[must_use]
     pub fn new(target: Id) -> Self {
         Self {
             target,
@@ -23,21 +24,25 @@ impl ClosestNodes {
     // === Getters ===
 
     /// Returns the target of the query for these closest nodes.
+    #[must_use]
     pub fn target(&self) -> Id {
         self.target
     }
 
     /// Returns a slice of the nodes array.
+    #[must_use]
     pub fn nodes(&self) -> &[Node] {
         &self.nodes
     }
 
     /// Returns the number of nodes.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.nodes.len()
     }
 
     /// Returns true if there are no nodes.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
@@ -63,7 +68,7 @@ impl ClosestNodes {
                 prope.id().xor(&self.target).cmp(&seek)
             }
         }) {
-            self.nodes.insert(pos, node)
+            self.nodes.insert(pos, node);
         }
     }
 
@@ -76,6 +81,7 @@ impl ClosestNodes {
     ///
     /// If one or more of these conditions are not met, then we just take all responding nodes
     /// and store data at them.
+    #[must_use]
     pub fn take_until_secure(
         &self,
         previous_dht_size_estimate: usize,
@@ -85,8 +91,14 @@ impl ClosestNodes {
 
         // 20 / dht_size_estimate == expected_dk / ID space
         // so expected_dk = 20 * ID space / dht_size_estimate
-        let expected_dk =
-            (20.0 * u128::MAX as f64 / (previous_dht_size_estimate as f64 + 1.0)) as u128;
+        // Computed in u128 integer arithmetic to avoid float precision loss.
+        let denominator = previous_dht_size_estimate as u128 + 1;
+        let expected_dk = if denominator <= 20 {
+            // Saturating the following equation
+            u128::MAX
+        } else {
+            20 * (u128::MAX / denominator) + (20 * (u128::MAX % denominator)) / denominator
+        };
 
         let mut subnets = HashSet::new();
 
@@ -108,6 +120,7 @@ impl ClosestNodes {
     }
 
     /// Count the number of subnets with unique 6 bits prefix in ipv4
+    #[must_use]
     pub fn subnets_count(&self) -> u8 {
         if self.nodes.is_empty() {
             return 20;
@@ -119,13 +132,14 @@ impl ClosestNodes {
             subnets.insert(subnet(node));
         }
 
-        subnets.len() as u8
+        subnets.len().try_into().unwrap_or_default()
     }
 
     /// An estimation of the Dht from the distribution of closest nodes
     /// responding to a query.
     ///
     /// [Read more](https://github.com/nuhvi/mainline/blob/main/docs/dht_size_estimate.md)
+    #[must_use]
     pub fn dht_size_estimate(&self) -> f64 {
         dht_size_estimate(
             self.nodes
@@ -149,31 +163,38 @@ fn distance(target: &Id, node: &Node) -> u128 {
     u128::from_be_bytes(low.try_into().unwrap_or_default())
 }
 
+#[allow(clippy::cast_precision_loss)]
 fn dht_size_estimate<I>(distances: I) -> f64
 where
     I: IntoIterator<Item = u128>,
 {
     let mut sum = 0.0;
-    let mut count = 0;
+    let mut count: u32 = 0;
 
     // Ignoring the first node, as that gives the best result in simulations.
     for distance in distances {
         count += 1;
 
-        sum += count as f64 * distance as f64;
+        sum += f64::from(count) * distance as f64;
     }
 
     if count == 0 {
         return 0.0;
     }
 
-    let lsq_constant = (count * (count + 1) * (2 * count + 1) / 6) as f64;
+    let lsq_constant = f64::from(count * (count + 1) * (2 * count + 1) / 6);
 
     lsq_constant * u128::MAX as f64 / sum
 }
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::unnecessary_wraps,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     use std::{collections::BTreeMap, net::SocketAddrV4, str::FromStr, sync::Arc, time::Instant};
 
     use eyre::Result;
@@ -203,7 +224,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         let mut sorted = distances.clone();
-        sorted.sort();
+        sorted.sort_unstable();
 
         assert_eq!(sorted, distances);
         Ok(())
@@ -271,7 +292,7 @@ mod tests {
         let mean = (0..sims)
             .map(|_| simulate(dht_size as usize, lookups) as f64)
             .sum::<f64>()
-            / (sims as f64);
+            / f64::from(sims);
 
         let margin = (mean - dht_size).abs() / dht_size;
 
@@ -293,10 +314,10 @@ mod tests {
                 let mut closest_nodes = ClosestNodes::new(target);
 
                 for (_, node) in nodes.range(target..).take(100) {
-                    closest_nodes.add(node.clone())
+                    closest_nodes.add(node.clone());
                 }
                 for (_, node) in nodes.range(..target).rev().take(100) {
-                    closest_nodes.add(node.clone())
+                    closest_nodes.add(node.clone());
                 }
 
                 let estimate = closest_nodes.dht_size_estimate();

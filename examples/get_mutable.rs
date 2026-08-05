@@ -66,7 +66,7 @@ fn get_first(dht: &Dht, public_key: &[u8; 32]) {
         );
         print_value(&item);
     } else {
-        println!("Not Found")
+        println!("Not Found");
     }
 }
 
@@ -76,9 +76,9 @@ fn print_value(item: &MutableItem) {
             println!("  mutable item: {:?}, seq: {:?}", string, item.seq());
         }
         Err(_) => {
-            println!("  mutable item: {:?}, seq: {:?}", item.value(), item.seq(),);
+            println!("  mutable item: {:?}, seq: {:?}", item.value(), item.seq());
         }
-    };
+    }
 }
 
 fn from_hex(s: &str) -> Result<VerifyingKey> {

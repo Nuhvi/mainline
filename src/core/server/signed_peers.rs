@@ -1,4 +1,4 @@
-//! Manage announced peer ids for info_hashes
+//! Manage announced peer ids for `info_hashes`
 
 use std::num::NonZeroUsize;
 
@@ -6,7 +6,7 @@ use crate::common::{Id, SignedAnnounce};
 
 use lru::LruCache;
 
-const CHANCE_SCALE: f32 = 2.0 * (1u32 << 31) as f32;
+const CHANCE_SCALE: f32 = 4_294_967_296.0;
 
 #[derive(Debug, Clone)]
 /// An LRU cache of signed peers announced per info hashes.
@@ -34,10 +34,15 @@ impl SignedPeersStore {
             let mut info_hash_lru = LruCache::new(self.max_peers);
             info_hash_lru.put(*peer.key(), peer);
             self.info_hashes.put(info_hash, info_hash_lru);
-        };
+        }
     }
 
     /// Returns a random set of peers per an info hash.
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
     pub(crate) fn get_random_peers(&mut self, info_hash: &Id) -> Option<Vec<SignedAnnounce>> {
         if let Some(info_hash_lru) = self.info_hashes.get(info_hash) {
             let size = info_hash_lru.len();
@@ -151,7 +156,7 @@ mod test {
                 .get_random_peers(&info_hash)
                 .ok_or_eyre("expected peers")?
                 .iter()
-                .map(|p| p.key())
+                .map(SignedAnnounce::key)
                 .collect::<Vec<_>>(),
             vec![
                 signer3.verifying_key().as_bytes(),
@@ -171,7 +176,7 @@ mod test {
         let info_hash = Id::random();
 
         for _ in 0..200 {
-            store.add_peer(info_hash, make_peer(&make_signer()?, &info_hash))
+            store.add_peer(info_hash, make_peer(&make_signer()?, &info_hash));
         }
 
         assert_eq!(

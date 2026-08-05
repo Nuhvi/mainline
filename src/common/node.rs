@@ -8,11 +8,11 @@ use std::{
 
 use crate::common::Id;
 
-/// The age of a node's last_seen time before it is considered stale and removed from a full bucket
+/// The age of a node's `last_seen` time before it is considered stale and removed from a full bucket
 /// on inserting a new node.
-pub(crate) const STALE_TIME: Duration = Duration::from_secs(15 * 60);
+pub(crate) const STALE_TIME: Duration = Duration::from_mins(15);
 const MIN_PING_BACKOFF_INTERVAL: Duration = Duration::from_secs(10);
-pub(crate) const TOKEN_ROTATE_INTERVAL: Duration = Duration::from_secs(60 * 5);
+pub(crate) const TOKEN_ROTATE_INTERVAL: Duration = Duration::from_mins(5);
 
 #[derive(PartialEq)]
 pub(crate) struct NodeInner {
@@ -49,6 +49,7 @@ impl Debug for Node {
 
 impl Node {
     /// Creates a new Node from an id and socket address.
+    #[must_use]
     pub fn new(id: Id, address: SocketAddrV4) -> Node {
         Node(Arc::new(NodeInner {
             id,
@@ -68,39 +69,52 @@ impl Node {
     }
 
     /// Creates a node with random Id for testing purposes.
+    #[must_use]
     pub fn random() -> Node {
         Node(Arc::new(NodeInner::random()))
     }
 
     /// Create a node that is unique per `i` as it has a random Id and sets IP and port to `i`
     #[cfg(test)]
+    #[must_use]
     pub fn unique(i: usize) -> Node {
-        Node::new(Id::random(), SocketAddrV4::new((i as u32).into(), i as u16))
+        Node::new(
+            Id::random(),
+            SocketAddrV4::new(
+                u32::try_from(i).unwrap_or_default().into(),
+                u16::try_from(i).unwrap_or_default(),
+            ),
+        )
     }
 
     // === Getters ===
 
     /// Returns the id of this node
+    #[must_use]
     pub fn id(&self) -> &Id {
         &self.0.id
     }
 
     /// Returns the address of this node
+    #[must_use]
     pub fn address(&self) -> SocketAddrV4 {
         self.0.address
     }
 
     /// Returns the token we received from this node if any.
+    #[must_use]
     pub fn token(&self) -> Option<Box<[u8]>> {
         self.0.token.clone()
     }
 
     /// Node is last seen more than a threshold ago.
+    #[must_use]
     pub fn is_stale(&self) -> bool {
         self.0.last_seen.elapsed() > STALE_TIME
     }
 
     /// Node's token was received 5 minutes ago or less
+    #[must_use]
     pub fn valid_token(&self) -> bool {
         self.0.last_seen.elapsed() <= TOKEN_ROTATE_INTERVAL
     }
@@ -110,11 +124,13 @@ impl Node {
     }
 
     /// Returns true if both nodes have the same ip and port
+    #[must_use]
     pub fn same_address(&self, other: &Self) -> bool {
         self.0.address == other.0.address
     }
 
     /// Returns true if both nodes have the same ip
+    #[must_use]
     pub fn same_ip(&self, other: &Self) -> bool {
         self.0.address.ip() == other.0.address.ip()
     }
@@ -122,6 +138,7 @@ impl Node {
     /// Node [Id] is valid for its IP address.
     ///
     /// Check [BEP_0042](https://www.bittorrent.org/beps/bep_0042.html).
+    #[must_use]
     pub fn is_secure(&self) -> bool {
         self.0.id.is_valid_for_ip(*self.0.address.ip())
     }
@@ -131,7 +148,7 @@ impl Node {
     ///    = The existing nodes is Not secure.
     ///    = The existing nodes is secure And shares the same first 21 bits.
     ///
-    /// Effectively, allows only One non-secure node or Eight secure nodes from the same IP, in the routing table or ClosestNodes.
+    /// Effectively, allows only One non-secure node or Eight secure nodes from the same IP, in the routing table or `ClosestNodes`.
     pub(crate) fn already_exists(&self, nodes: &[Self]) -> bool {
         nodes.iter().any(|existing| {
             self.same_ip(existing)

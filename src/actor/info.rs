@@ -29,16 +29,16 @@ impl Info {
     }
     /// Returns the best guess for this node's Public address.
     ///
-    /// If [crate::DhtBuilder::public_ip] was set, this is what will be returned
+    /// If [`crate::DhtBuilder::public_ip`] was set, this is what will be returned
     /// (plus the local port), otherwise it will rely on consensus from
     /// responding nodes voting on our public IP and port.
     pub fn public_address(&self) -> Option<SocketAddrV4> {
         self.public_address
     }
-    /// Returns `true` if we can't confirm that [Self::public_address] is publicly addressable.
+    /// Returns `true` if we can't confirm that [`Self::public_address`] is publicly addressable.
     ///
     /// If this node is firewalled, it won't switch to server mode if it is in adaptive mode,
-    /// but if [crate::DhtBuilder::server_mode] was set to true, then whether or not this node is firewalled
+    /// but if [`crate::DhtBuilder::server_mode`] was set to true, then whether or not this node is firewalled
     /// won't matter.
     pub fn firewalled(&self) -> bool {
         self.firewalled

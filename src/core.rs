@@ -28,8 +28,8 @@ use server::ServerSettings;
 
 pub use put_query::{ConcurrencyError, PutError, PutQueryError};
 
-pub(crate) const REFRESH_TABLE_INTERVAL: Duration = Duration::from_secs(15 * 60);
-pub(crate) const PING_TABLE_INTERVAL: Duration = Duration::from_secs(5 * 60);
+pub(crate) const REFRESH_TABLE_INTERVAL: Duration = Duration::from_mins(15);
+pub(crate) const PING_TABLE_INTERVAL: Duration = Duration::from_mins(5);
 
 pub(crate) const MAX_CACHED_ITERATIVE_QUERIES: usize = 1000;
 
@@ -61,14 +61,14 @@ pub(crate) struct Core {
 
     /// Closest responding nodes to specific target
     pub cached_iterative_queries: LruCache<Id, CachedIterativeQuery>,
-    /// Active IterativeQueries
+    /// Active `IterativeQueries`
     pub iterative_queries: HashMap<Id, IterativeQuery>,
     /// Put queries are special, since they have to wait for a corresponding
-    /// get query to finish, update the closest_nodes, then `query_all` these.
+    /// get query to finish, update the `closest_nodes`, then `query_all` these.
     pub put_queries: HashMap<Id, PutQuery>,
 
     // Time
-    /// Last time we refreshed the routing table with a find_node query.
+    /// Last time we refreshed the routing table with a `find_node` query.
     pub last_table_refresh: Instant,
     /// Last time we pinged nodes in the routing table.
     pub last_table_ping: Instant,
@@ -127,7 +127,7 @@ impl Core {
             .get(target)
             .map(|cached| cached.closest_responding_nodes.clone())
             .filter(|closest_nodes| {
-                !closest_nodes.is_empty() && closest_nodes.iter().any(|n| n.valid_token())
+                !closest_nodes.is_empty() && closest_nodes.iter().any(Node::valid_token)
             })
     }
 
@@ -151,7 +151,7 @@ impl Core {
                         "Populated the routing table"
                     );
                 }
-            };
+            }
 
             query
                 .closest()
@@ -162,7 +162,7 @@ impl Core {
                 .collect::<Box<[_]>>()
         } else {
             let relevant_routing_table = choose_relevant_routing_table(
-                query.request.request_type.clone(),
+                &query.request.request_type,
                 &self.routing_table,
                 &self.signed_peers_routing_table,
             );
@@ -180,7 +180,7 @@ impl Core {
         closest_nodes
     }
 
-    /// Remove done [IterativeQuery]s, return the [Id]s of [PutQuery] ready to start,
+    /// Remove done [`IterativeQuery`]s, return the [Id]s of [`PutQuery`] ready to start,
     /// and if done queries contained votes for new public address, return the address
     /// to be pinged.
     pub(crate) fn cleanup_done_queries(
@@ -196,7 +196,7 @@ impl Core {
 
                 should_ping_alleged_new_address =
                     self.update_address_votes_from_iterative_query(&query);
-            };
+            }
         }
 
         for (id, _) in done_put_queries {
@@ -217,9 +217,9 @@ impl Core {
 
             for node in routing_table.nodes() {
                 if node.is_stale() {
-                    to_remove.push(*node.id())
+                    to_remove.push(*node.id());
                 } else if node.should_ping() {
-                    to_ping.push(node.address())
+                    to_ping.push(node.address());
                 }
             }
 
@@ -266,8 +266,8 @@ impl Core {
                     }
                 } else {
                     return Err(ConcurrencyError::ConflictRisk)?;
-                };
-            };
+                }
+            }
         }
 
         Ok(())
@@ -296,11 +296,11 @@ impl Core {
     pub(crate) fn check_responses_from_active_query(&self, target: &Id) -> Option<&[Response]> {
         self.iterative_queries
             .get(target)
-            .map(|query| query.responses())
+            .map(iterative_query::IterativeQuery::responses)
     }
 
-    /// Create an [IterativeQuery] and populate it with candidate nodes, but not insert it to
-    /// [Core::iterative_queries] yet.
+    /// Create an [`IterativeQuery`] and populate it with candidate nodes, but not insert it to
+    /// [`Core::iterative_queries`] yet.
     ///
     /// Return the query, and a list of nodes (from our bootstrapping node and/or routing tables)
     /// to visit to start the query.
@@ -325,13 +325,13 @@ impl Core {
 
         // Seed this query with the closest nodes we know about.
         for node in routing_table_closest {
-            query.add_candidate(node)
+            query.add_candidate(node);
         }
 
         // If we have cached iterative query with the same hash, use its nodes as well..
         if let Some(closest_responding_nodes) = self.get_cached_closest_nodes(&target) {
             for node in closest_responding_nodes {
-                query.add_candidate(node.clone())
+                query.add_candidate(node.clone());
             }
         }
 
@@ -342,7 +342,7 @@ impl Core {
         let candidates = query.closest();
         if candidates.is_empty() || candidates.len() < self.bootstrap.len() {
             for bootstrapping_node in self.bootstrap.clone() {
-                to_visit.push(bootstrapping_node)
+                to_visit.push(bootstrapping_node);
             }
         }
 
@@ -462,26 +462,23 @@ impl Core {
             ..
         }) = query
         {
-            match request_type {
-                RequestTypeSpecific::FindNode(..) => {
-                    self.routing_table
-                        .decrement_dht_size_estimate(dht_size_estimate);
-                }
-                _ => {
-                    let relevant_routing_table = choose_relevant_routing_table_mut(
-                        &request_type,
-                        &mut self.routing_table,
-                        &mut self.signed_peers_routing_table,
-                    );
+            if let RequestTypeSpecific::FindNode(..) = request_type {
+                self.routing_table
+                    .decrement_dht_size_estimate(dht_size_estimate);
+            } else {
+                let relevant_routing_table = choose_relevant_routing_table_mut(
+                    &request_type,
+                    &mut self.routing_table,
+                    &mut self.signed_peers_routing_table,
+                );
 
-                    relevant_routing_table.decrement_responders_stats(
-                        dht_size_estimate,
-                        responders_dht_size_estimate,
-                        subnets,
-                    );
-                }
+                relevant_routing_table.decrement_responders_stats(
+                    dht_size_estimate,
+                    responders_dht_size_estimate,
+                    subnets,
+                );
             }
-        };
+        }
     }
 }
 
@@ -497,7 +494,7 @@ fn choose_relevant_routing_table_mut<'a>(
 }
 
 fn choose_relevant_routing_table<'a>(
-    request_type: RequestTypeSpecific,
+    request_type: &RequestTypeSpecific,
     basic_routing_table: &'a RoutingTable,
     signed_peers_routing_table: &'a RoutingTable,
 ) -> &'a RoutingTable {
@@ -508,13 +505,11 @@ fn choose_relevant_routing_table<'a>(
 }
 
 fn supports_signed_peers(version: Option<[u8; 4]>) -> bool {
-    version
-        .map(|version| {
-            VERSIONS_SUPPORTING_SIGNED_PEERS
-                .iter()
-                .any(|v| version[0..2] == v[0..2] && version[2..] >= v[2..])
-        })
-        .unwrap_or_default()
+    version.is_some_and(|version| {
+        VERSIONS_SUPPORTING_SIGNED_PEERS
+            .iter()
+            .any(|v| version[0..2] == v[0..2] && version[2..] >= v[2..])
+    })
 }
 
 pub(crate) struct CachedIterativeQuery {

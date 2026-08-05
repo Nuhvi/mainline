@@ -10,8 +10,8 @@ use crate::{
 use crate::actor::socket::KrpcSocket;
 
 #[derive(Debug)]
-/// Once an [super::IterativeQuery] is done, or if a previous cached one was a available,
-/// we can store data at the closest nodes using this PutQuery, that keeps track of
+/// Once an [`super::IterativeQuery`] is done, or if a previous cached one was a available,
+/// we can store data at the closest nodes using this `PutQuery`, that keeps track of
 /// acknowledging nodes, and or errors.
 pub(crate) struct PutQuery {
     pub target: Id,
@@ -42,7 +42,7 @@ impl PutQuery {
     ) -> Result<(), PutError> {
         if self.started() {
             return Ok(());
-        };
+        }
 
         let target = self.target;
         debug!(?target, closest_secure_nodes = ?closest_nodes.len(), "PutQuery start");
@@ -86,7 +86,7 @@ impl PutQuery {
 
     pub(crate) fn success(&mut self) {
         trace!(target = ?self.target, "PutQuery got success response");
-        self.stored_at += 1
+        self.stored_at += 1;
     }
 
     pub(crate) fn error(&mut self, error: ErrorSpecific) {
@@ -136,9 +136,9 @@ impl PutQuery {
                     "Put Query: failed"
                 );
 
-                return Err(most_common_error
-                    .map(|(_, error)| error)
-                    .unwrap_or(PutQueryError::Timeout.into()));
+                return Err(
+                    most_common_error.map_or(PutQueryError::Timeout.into(), |(_, error)| error)
+                );
             }
 
             debug!(?target, stored_at = ?self.stored_at, "PutQuery Done successfully");
@@ -170,12 +170,12 @@ impl PutQuery {
         !self
             .inflight_requests
             .iter()
-            .any(|tid| socket.inflight(tid))
+            .any(|tid| socket.inflight(*tid))
     }
 
     /// Return most common error if any
     fn majority_nodes_rejected_put_mutable(&self) -> Option<ConcurrencyError> {
-        let half = ((self.inflight_requests.len() / 2) + 1) as u8;
+        let half = u8::try_from((self.inflight_requests.len() / 2) + 1).unwrap_or(u8::MAX);
 
         if matches!(self.request, PutRequestSpecific::PutMutable(_)) {
             return self.most_common_error().and_then(|(count, error)| {
@@ -189,7 +189,7 @@ impl PutQuery {
                     None
                 }
             });
-        };
+        }
 
         None
     }
@@ -206,19 +206,19 @@ impl PutQuery {
 }
 
 #[derive(thiserror::Error, Debug, Clone)]
-/// PutQuery errors
+/// `PutQuery` errors
 pub enum PutError {
-    /// Common PutQuery errors
+    /// Common `PutQuery` errors
     #[error(transparent)]
     Query(#[from] PutQueryError),
 
     #[error(transparent)]
-    /// PutQuery for [crate::MutableItem] errors
+    /// `PutQuery` for [`crate::MutableItem`] errors
     Concurrency(#[from] ConcurrencyError),
 }
 
 #[derive(thiserror::Error, Debug, Clone)]
-/// Common PutQuery errors
+/// Common `PutQuery` errors
 pub enum PutQueryError {
     /// Failed to find any nodes close, usually means dht node failed to bootstrap,
     /// so the routing table is empty. Check the machine's access to UDP socket,
@@ -233,13 +233,13 @@ pub enum PutQueryError {
     #[error("Query Error Response")]
     ErrorResponse(ErrorSpecific),
 
-    /// PutQuery timed out with no responses neither success or errors
+    /// `PutQuery` timed out with no responses neither success or errors
     #[error("PutQuery timed out with no responses neither success or errors")]
     Timeout,
 }
 
 #[derive(thiserror::Error, Debug, Clone)]
-/// PutQuery for [crate::MutableItem] errors
+/// `PutQuery` for [`crate::MutableItem`] errors
 pub enum ConcurrencyError {
     /// Trying to PUT mutable items with the same `key`, and `salt` but different `seq`.
     ///
@@ -253,7 +253,7 @@ pub enum ConcurrencyError {
     #[error("Conflict risk, try reading most recent item before writing again.")]
     ConflictRisk,
 
-    /// The [crate::MutableItem::seq] is less than or equal the sequence from another signed item.
+    /// The [`crate::MutableItem::seq`] is less than or equal the sequence from another signed item.
     ///
     /// Try reading most recent mutable item before writing again.
     #[error("MutableItem::seq is not the most recent, try reading most recent item before writing again.")]

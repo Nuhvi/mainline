@@ -79,17 +79,23 @@ fn get_peers(dht: &Dht, info_hash: &Id) {
     );
 }
 fn to_hex(bytes: &[u8]) -> String {
-    let hex_chars: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    use std::fmt::Write;
 
-    hex_chars
+    bytes.iter().fold(String::new(), |mut acc, byte| {
+        let _ = write!(acc, "{byte:02x}");
+        acc
+    })
 }
 
 fn time_ago(timestamp_micros: u64) -> String {
     // Get current time in microseconds since UNIX epoch
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_micros() as u64;
+    let now = u64::try_from(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_micros(),
+    )
+    .unwrap_or_default();
 
     // Calculate difference in microseconds
     let diff_micros = now.saturating_sub(timestamp_micros);
@@ -115,16 +121,16 @@ fn time_ago(timestamp_micros: u64) -> String {
             let hours = seconds / 3600;
             format!("{} hour{} ago", hours, if hours == 1 { "" } else { "s" })
         }
-        86400..=2591999 => {
-            let days = seconds / 86400;
+        86_400..=2_591_999 => {
+            let days = seconds / 86_400;
             format!("{} day{} ago", days, if days == 1 { "" } else { "s" })
         }
-        2592000..=31535999 => {
-            let months = seconds / 2592000; // ~30 days
+        2_592_000..=31_535_999 => {
+            let months = seconds / 2_592_000; // ~30 days
             format!("{} month{} ago", months, if months == 1 { "" } else { "s" })
         }
         _ => {
-            let years = seconds / 31536000; // ~365 days
+            let years = seconds / 31_536_000; // ~365 days
             format!("{} year{} ago", years, if years == 1 { "" } else { "s" })
         }
     }

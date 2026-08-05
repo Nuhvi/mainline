@@ -1,4 +1,4 @@
-//! AsyncDht node.
+//! `AsyncDht` node.
 
 use std::{
     net::SocketAddrV4,
@@ -23,6 +23,7 @@ use crate::{
 
 impl Dht {
     /// Return an async version of the Dht client.
+    #[must_use]
     pub fn as_async(self) -> AsyncDht {
         AsyncDht(self)
     }
@@ -33,10 +34,14 @@ impl Dht {
 pub struct AsyncDht(Dht);
 
 impl AsyncDht {
-    /// Create a [AsyncDht] node, without blocking on initial dns queries.
+    /// Create a [`AsyncDht`] node, without blocking on initial dns queries.
     ///
     /// Could return an error if it failed to bind to the specified
     /// port or other io errors while binding the udp socket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`std::io::Error`] if the node fails to bind to the UDP socket.
     pub async fn new(config: crate::dht::Config) -> Result<Self, std::io::Error> {
         let (sender, rx) = Dht::setup(config)?;
 
@@ -46,6 +51,7 @@ impl AsyncDht {
     }
 
     /// Returns a reference to the inner synchronous [Dht] .
+    #[must_use]
     pub fn as_sync(&self) -> &Dht {
         &self.0
     }
@@ -91,9 +97,9 @@ impl AsyncDht {
     /// You might need to ping them to confirm they exist, and responsive, or if you want to
     /// learn more about them like the client they are using, or if they support a given BEP.
     ///
-    /// If you are trying to find the closest nodes to a target with intent to [Self::put],
+    /// If you are trying to find the closest nodes to a target with intent to [`Self::put`],
     /// a request directly to these nodes (using `extra_nodes` parameter), then you should
-    /// use [Self::get_closest_nodes] instead.
+    /// use [`Self::get_closest_nodes`] instead.
     pub async fn find_node(&self, target: Id) -> Box<[Node]> {
         let (tx, rx) = flume::bounded::<Box<[Node]>>(1);
         self.send(ActorMessage::Get(
@@ -115,6 +121,7 @@ impl AsyncDht {
     /// for Bittorrent is that any peer will introduce you to more peers through "peer exchange"
     /// so if you are implementing something different from Bittorrent, you might want
     /// to implement your own logic for gossipping more peers after you discover the first ones.
+    #[must_use]
     pub fn get_peers(&self, info_hash: Id) -> GetStream<Vec<SocketAddrV4>> {
         let (tx, rx) = flume::unbounded::<Vec<SocketAddrV4>>();
         self.send(ActorMessage::Get(
@@ -130,6 +137,10 @@ impl AsyncDht {
     /// The peer will be announced on this process IP.
     /// If explicit port is passed, it will be used, otherwise the port will be implicitly
     /// assumed by remote nodes to be the same ase port they received the request from.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PutQueryError`] if the query could not reach any node.
     pub async fn announce_peer(
         &self,
         info_hash: Id,
@@ -171,6 +182,10 @@ impl AsyncDht {
     /// `info_hash` to this method.
     ///
     /// Read [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst) for more information.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PutQueryError`] if the query could not reach any node.
     pub async fn announce_signed_peer(
         &self,
         info_hash: Id,
@@ -218,7 +233,8 @@ impl AsyncDht {
     /// to implement your own logic for gossipping more peers after you discover the first ones.
     ///
     /// Read [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst) for more information.
-    pub async fn get_signed_peers(&self, info_hash: Id) -> GetStream<Vec<SignedAnnounce>> {
+    #[must_use]
+    pub fn get_signed_peers(&self, info_hash: Id) -> GetStream<Vec<SignedAnnounce>> {
         let (tx, rx) = flume::unbounded::<Vec<SignedAnnounce>>();
         self.send(ActorMessage::Get(
             GetRequestSpecific::GetSignedPeers(GetPeersRequestArguments { info_hash }),
@@ -246,6 +262,10 @@ impl AsyncDht {
     }
 
     /// Put an immutable data to the DHT.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PutQueryError`] if the query could not reach any node.
     pub async fn put_immutable(&self, value: &[u8]) -> Result<Id, PutQueryError> {
         let target: Id = hash_immutable(value).into();
 
@@ -274,18 +294,19 @@ impl AsyncDht {
     ///
     /// # Order
     ///
-    /// The order of [MutableItem]s returned by this stream is not guaranteed to
+    /// The order of [`MutableItem`]s returned by this stream is not guaranteed to
     /// reflect their `seq` value. You should not assume that the later items are
     /// more recent than earlier ones.
     ///
-    /// Consider using [Self::get_mutable_most_recent] if that is what you need.
+    /// Consider using [`Self::get_mutable_most_recent`] if that is what you need.
+    #[must_use]
     pub fn get_mutable(
         &self,
         public_key: &[u8; 32],
         salt: Option<&[u8]>,
         more_recent_than: Option<i64>,
     ) -> GetStream<MutableItem> {
-        let salt = salt.map(|s| s.into());
+        let salt = salt.map(std::convert::Into::into);
         let target = MutableItem::target_from_key(public_key, salt.as_deref());
         let (tx, rx) = flume::unbounded::<MutableItem>();
         self.send(ActorMessage::Get(
@@ -300,7 +321,7 @@ impl AsyncDht {
         GetStream(rx.into_stream())
     }
 
-    /// Get the most recent [MutableItem] from the network.
+    /// Get the most recent [`MutableItem`] from the network.
     pub async fn get_mutable_most_recent(
         &self,
         public_key: &[u8; 32],
@@ -312,7 +333,7 @@ impl AsyncDht {
         while let Some(item) = stream.next().await {
             if let Some(mr) = &most_recent {
                 if item.seq() == mr.seq && item.value() > &mr.value {
-                    most_recent = Some(item)
+                    most_recent = Some(item);
                 }
             } else {
                 most_recent = Some(item);
@@ -330,8 +351,8 @@ impl AsyncDht {
     ///
     /// ## Read first
     ///
-    /// To mitigate the risk of lost updates, you should call the [Self::get_mutable_most_recent] method
-    /// then start authoring the new [MutableItem] based on the most recent as in the following example:
+    /// To mitigate the risk of lost updates, you should call the [`Self::get_mutable_most_recent`] method
+    /// then start authoring the new [`MutableItem`] based on the most recent as in the following example:
     ///
     ///```rust
     /// use dht::{Dht, MutableItem, SigningKey, Testnet};
@@ -372,7 +393,7 @@ impl AsyncDht {
     ///
     /// ## Errors
     ///
-    /// In addition to the [PutQueryError] common with all PUT queries, PUT mutable item
+    /// In addition to the [`PutQueryError`] common with all PUT queries, PUT mutable item
     /// query has other [Concurrency errors][crate::core::ConcurrencyError], that try to detect write conflict
     /// risks or obvious conflicts.
     ///
@@ -395,8 +416,8 @@ impl AsyncDht {
 
     /// Get closet nodes to a specific target, that support [BEP_0044](https://www.bittorrent.org/beps/bep_0044.html).
     ///
-    /// Useful to [Self::put] a request to nodes further from the 20 closest nodes to the
-    /// [PutRequestSpecific::target]. Which itself is useful to circumvent [extreme vertical sybil attacks](https://github.com/nuhvi/mainline/blob/main/docs/censorship-resistance.md#extreme-vertical-sybil-attacks).
+    /// Useful to [`Self::put`] a request to nodes further from the 20 closest nodes to the
+    /// [`PutRequestSpecific::target`]. Which itself is useful to circumvent [extreme vertical sybil attacks](https://github.com/nuhvi/mainline/blob/main/docs/censorship-resistance.md#extreme-vertical-sybil-attacks).
     pub async fn get_closest_nodes(&self, target: Id) -> Box<[Node]> {
         let (tx, rx) = flume::unbounded::<Box<[Node]>>();
         self.send(ActorMessage::Get(
@@ -417,9 +438,13 @@ impl AsyncDht {
     /// to this request's [target][PutRequestSpecific::target].
     ///
     /// You can find nodes close to other regions of the network by calling
-    /// [Self::get_closest_nodes] with the target that you want to find the closest nodes to.
+    /// [`Self::get_closest_nodes`] with the target that you want to find the closest nodes to.
     ///
-    /// Note: extra nodes need to have [Node::valid_token].
+    /// Note: extra nodes need to have [`Node::valid_token`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PutError`] if the query could not reach any node.
     pub async fn put(
         &self,
         request: PutRequestSpecific,
@@ -767,14 +792,14 @@ mod test {
                 futures::executor::block_on(async {
                     let result = dht.put_mutable(item, None).await;
                     if i == 0 {
-                        assert!(result.is_ok())
+                        assert!(result.is_ok());
                     } else {
                         assert!(matches!(
                             result,
                             Err(PutMutableError::Concurrency(ConcurrencyError::ConflictRisk))
-                        ))
+                        ));
                     }
-                })
+                });
             });
 
             handles.push(handle);
@@ -927,7 +952,6 @@ mod test {
 
             let peers = b
                 .get_signed_peers(info_hash)
-                .await
                 .next()
                 .await
                 .ok_or_eyre("No peers")?;

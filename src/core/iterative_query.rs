@@ -39,8 +39,9 @@ impl GetRequestSpecific {
     pub fn target(&self) -> Id {
         match self {
             GetRequestSpecific::FindNode(args) => args.target,
-            GetRequestSpecific::GetPeers(args) => args.info_hash,
-            GetRequestSpecific::GetSignedPeers(args) => args.info_hash,
+            GetRequestSpecific::GetPeers(args) | GetRequestSpecific::GetSignedPeers(args) => {
+                args.info_hash
+            }
             GetRequestSpecific::GetValue(args) => args.target,
         }
     }
@@ -130,11 +131,11 @@ impl IterativeQuery {
         let mut max = 0_u32;
         let mut best_addr = None;
 
-        for (addr, count) in self.public_address_votes.iter() {
+        for (addr, count) in &self.public_address_votes {
             if *count > max {
                 max = *count;
                 best_addr = Some(*addr);
-            };
+            }
         }
 
         best_addr
@@ -164,23 +165,23 @@ impl IterativeQuery {
         self.visited.insert(address);
     }
 
-    /// Return true if a response (by transaction_id) is expected by this query.
+    /// Return true if a response (by `transaction_id`) is expected by this query.
     pub(crate) fn inflight(&self, tid: u32) -> bool {
         self.inflight_requests.contains(&tid)
     }
 
     /// Add a node that responded with a token as a probable storage node.
     pub(crate) fn add_responding_node(&mut self, node: Node) {
-        self.responders.add(node)
+        self.responders.add(node);
     }
 
     /// Store received response.
-    pub(crate) fn response(&mut self, from: SocketAddrV4, response: Response) {
+    pub(crate) fn response(&mut self, from: SocketAddrV4, response: &Response) {
         let target = self.target();
 
         trace!(?target, ?response, ?from, "Query got response");
 
-        self.responses.push(response.to_owned());
+        self.responses.push(response.clone());
     }
 
     pub(crate) fn visit_closest(&mut self, socket: &mut KrpcSocket) {
@@ -197,7 +198,7 @@ impl IterativeQuery {
             .iter()
             .take(MAX_BUCKET_SIZE_K)
             .filter(|node| !self.visited.contains(&node.address()))
-            .map(|node| node.address())
+            .map(Node::address)
             .collect()
     }
 
@@ -208,11 +209,11 @@ impl IterativeQuery {
         let done = !self
             .inflight_requests
             .iter()
-            .any(|&tid| socket.inflight(&tid));
+            .any(|tid| socket.inflight(*tid));
 
         if done {
             debug!(id=?self.target(), closest = ?self.closest.len(), visited = ?self.visited.len(), responders = ?self.responders.len(), "Done query");
-        };
+        }
 
         done
     }

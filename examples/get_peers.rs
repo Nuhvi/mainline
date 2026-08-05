@@ -9,7 +9,7 @@ use eyre::Result;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// info_hash to lookup peers for
+    /// `info_hash` to lookup peers for
     infohash: String,
 }
 
@@ -27,12 +27,12 @@ fn main() -> Result<()> {
 
     let dht = Dht::client()?;
 
-    println!("Looking up peers for info_hash: {} ...", info_hash);
+    println!("Looking up peers for info_hash: {info_hash} ...");
     println!("\n=== COLD QUERY ===");
     get_peers(&dht, &info_hash);
 
     println!("\n=== SUBSEQUENT QUERY ===");
-    println!("Looking up peers for info_hash: {} ...", info_hash);
+    println!("Looking up peers for info_hash: {info_hash} ...");
     get_peers(&dht, &info_hash);
 
     Ok(())
@@ -52,7 +52,7 @@ fn get_peers(dht: &Dht, info_hash: &Id) {
                 start.elapsed().as_millis()
             );
 
-            println!("peers {:?}", response);
+            println!("peers {response:?}");
         }
 
         for peer in response {
