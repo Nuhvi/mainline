@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc a1845c9bfe25fe93838d84d595bf61b99890485dfba62ffca611d839f4a27617 # shrinks to message = Message { transaction_id: 0, version: None, requester_ip: None, message_type: Request(RequestSpecific { requester_id: Id(0000000000000000000000000000000000000000), request_type: Put(PutRequest { token: [], put_request_type: AnnouncePeer(AnnouncePeerRequestArguments { info_hash: Id(0000000000000000000000000000000000000000), port: 0, implied_port: Some(false) }) }) }), read_only: false }
+cc 64dd332a7618bf0f0fc03081485c52d66cbd4f8e9fb0d5b9138001bb75820faa # shrinks to message = Message { transaction_id: 0, version: None, requester_ip: None, message_type: Request(RequestSpecific { requester_id: Id(0000000000000000000000000000000000000000), request_type: Put(PutRequest { token: [], put_request_type: AnnouncePeer(AnnouncePeerRequestArguments { info_hash: Id(0000000000000000000000000000000000000000), port: 0, implied_port: None }) }) }), read_only: false }, mutations = []

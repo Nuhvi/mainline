@@ -694,6 +694,8 @@ impl Message {
             return Err(DecodeMessageError::TooShort);
         } else if bytes.first() != Some(&100) {
             return Err(DecodeMessageError::NotBencodeDictionary);
+        } else if matches!(scan_bencode_depth(bytes), BencodeScan::TooDeep) {
+            return Err(DecodeMessageError::BencodeTooDeep);
         }
 
         Message::from_serde_message(internal::DHTMessage::from_bytes(bytes)?)
@@ -769,6 +771,97 @@ impl Message {
             },
             _ => None,
         }
+    }
+}
+
+/// The maximum bencode nesting depth that a message may use.
+///
+/// Real DHT messages nest four levels at most. The bencode deserializer
+/// recurses for each nested item. It has no depth limit. A small packet with
+/// deep nesting overflows the stack of the actor thread and stops the node.
+const MAX_BENCODE_DEPTH: usize = 16;
+
+/// The result of the bencode depth scan.
+enum BencodeScan {
+    /// The input is well-formed and its nesting depth is within the limit.
+    Acceptable,
+    /// The input nests deeper than `MAX_BENCODE_DEPTH`.
+    TooDeep,
+    /// The input is malformed at a depth that is within the limit.
+    Malformed,
+}
+
+/// Scans the bencode nesting depth of a byte slice.
+///
+/// The scan does not recurse. It is safe for the small stack of the actor
+/// thread. Malformed input is not an error here: the bencode parser reports
+/// it, because the scanning stopped before the depth limit.
+fn scan_bencode_depth(bytes: &[u8]) -> BencodeScan {
+    let mut depth = 0usize;
+    let mut index = 0usize;
+
+    while let Some(&byte) = bytes.get(index) {
+        match byte {
+            b'd' | b'l' => {
+                depth += 1;
+                if depth > MAX_BENCODE_DEPTH {
+                    return BencodeScan::TooDeep;
+                }
+                index += 1;
+            }
+            b'e' => match depth.checked_sub(1) {
+                Some(shallower) => {
+                    depth = shallower;
+                    index += 1;
+                }
+                None => return BencodeScan::Malformed,
+            },
+            b'i' => {
+                // An integer is `i<number>e`.
+                let Some(rest) = index.checked_add(1).and_then(|next| bytes.get(next..)) else {
+                    return BencodeScan::Malformed;
+                };
+                let Some(end) = rest.iter().position(|&b| b == b'e') else {
+                    return BencodeScan::Malformed;
+                };
+                index += end + 2;
+            }
+            b'0'..=b'9' => {
+                // A byte string is `<length>:<bytes>`. The bytes can contain
+                // `d`, `l` or `e`. Skip the bytes.
+                let mut length = 0usize;
+                while let Some(&digit @ b'0'..=b'9') = bytes.get(index) {
+                    let Some(next) = length
+                        .checked_mul(10)
+                        .and_then(|value| value.checked_add(usize::from(digit - b'0')))
+                    else {
+                        return BencodeScan::Malformed;
+                    };
+                    length = next;
+                    index += 1;
+                }
+                if bytes.get(index) != Some(&b':') {
+                    return BencodeScan::Malformed;
+                }
+                let Some(end) = index
+                    .checked_add(1)
+                    .and_then(|start| start.checked_add(length))
+                else {
+                    return BencodeScan::Malformed;
+                };
+                if end > bytes.len() {
+                    return BencodeScan::Malformed;
+                }
+                index = end;
+            }
+            _ => return BencodeScan::Malformed,
+        }
+    }
+
+    if depth == 0 {
+        BencodeScan::Acceptable
+    } else {
+        BencodeScan::Malformed
     }
 }
 
@@ -942,6 +1035,9 @@ pub(crate) enum DecodeMessageError {
 
     #[error("Mutable put message must have a sequence number and a signature")]
     MissingMutablePutSequenceOrSignature,
+
+    #[error("Bencode nesting depth exceeds {MAX_BENCODE_DEPTH}")]
+    BencodeTooDeep,
 }
 
 #[cfg(test)]
@@ -1324,11 +1420,51 @@ mod tests {
         Ok(())
     }
 
+    /// An unsolicited packet with deep bencode nesting used to overflow the
+    /// stack in the bencode deserializer and kill the DHT actor thread.
+    /// Decoding must instead return an error. See ANT-2026-DZNMMQFA.
     #[test]
-    #[ignore = "ANT-2026-DZNMMQFA: needs the bencode depth limit"]
     fn test_deeply_nested_message_returns_error() {
         let bytes = [b"d1:a".as_slice(), &[b'l'; 60_000]].concat();
-        assert!(Message::from_bytes(&bytes).is_err());
+        assert!(matches!(
+            Message::from_bytes(&bytes),
+            Err(DecodeMessageError::BencodeTooDeep)
+        ));
+    }
+
+    /// A 2 KiB packet is enough to crash the actor thread. The socket buffer
+    /// truncates larger packets to this size. The depth limit must reject a
+    /// packet of this size before the recursion starts.
+    #[test]
+    fn test_mtu_sized_packet_with_deep_nesting_returns_error() {
+        let bytes = [b"d1:a".as_slice(), &[b'l'; 2_000]].concat();
+        assert_eq!(bytes.len(), 2_004);
+        assert!(matches!(
+            Message::from_bytes(&bytes),
+            Err(DecodeMessageError::BencodeTooDeep)
+        ));
+    }
+
+    #[test]
+    fn test_bencode_depth_check_skips_byte_strings() {
+        // The `l` and `e` bytes inside the byte string are payload, not
+        // structure. They must not count towards the depth.
+        let mut bytes = b"d1:t20:".to_vec();
+        bytes.extend_from_slice(&[b'l'; 20]);
+        bytes.extend_from_slice(b"1:y1:q");
+        bytes.push(b'e');
+        assert!(matches!(
+            scan_bencode_depth(&bytes),
+            BencodeScan::Acceptable
+        ));
+        assert!(matches!(
+            scan_bencode_depth(b"d1:t2:aa1:y1:q"),
+            BencodeScan::Malformed
+        ));
+        assert!(matches!(
+            scan_bencode_depth(b"d1:t2:aa1:y1:qee"),
+            BencodeScan::Malformed
+        ));
     }
 
     #[test]
