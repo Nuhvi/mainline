@@ -154,10 +154,11 @@ impl MutableItem {
 
     /// Returns whether `self` replaces `other` as the most recent item.
     ///
-    /// It compares the values only when the two `seq` values are equal.
+    /// A higher `seq` wins. It compares the values only when the two `seq`
+    /// values are equal.
     #[must_use]
     pub(crate) fn is_more_recent_than(&self, other: &MutableItem) -> bool {
-        self.seq() == other.seq() && self.value() > other.value()
+        self.seq() > other.seq() || (self.seq() == other.seq() && self.value() > other.value())
     }
 }
 
@@ -270,7 +271,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "ANT-2026-6TOY5DPL"]
     fn higher_seq_is_more_recent() {
         let signer = SigningKey::from_bytes(&[7; 32]);
         let item = |seq, value: &[u8]| MutableItem::new(&signer, value, seq, None);
