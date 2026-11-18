@@ -9,7 +9,7 @@ use eyre::{eyre, Result};
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// Mutable data public key.
+    /// Mutable data secret key, in hex.
     secret_key: String,
     /// Value to store on the DHT
     value: String,

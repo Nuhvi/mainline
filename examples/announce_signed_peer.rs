@@ -11,7 +11,7 @@ use eyre::{eyre, Result};
 struct Cli {
     /// `info_hash` to announce a peer on
     infohash: String,
-    /// Mutable data public key.
+    /// Secret key to sign the peer announcement, in hex.
     secret_key: String,
 }
 

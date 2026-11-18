@@ -48,11 +48,15 @@ cargo run --example get_immutable <40 bytes hex target from put_immutable>
 ### PUT/GET Arbitrary Mutable items.
 ```sh
 
-# Store mutable data
-cargo run --example put_mutable <64 bytes hex secret_key> <string>
+# Create a key pair. Each command prints one hex string.
+SECRET_KEY=$(cargo run --quiet --example key -- new-key)
+PUBLIC_KEY=$(cargo run --quiet --example key -- get-public "$SECRET_KEY")
 
-# Retrieve mutable data
-cargo run --example get_mutable <40 bytes hex target from put_mutable>
+# Store mutable data. The secret key signs the value.
+cargo run --example put_mutable -- "$SECRET_KEY" "https://github.com/Nuhvi/mainline"
+
+# Retrieve mutable data. The public key identifies the value.
+cargo run --example get_mutable -- "$PUBLIC_KEY"
 ```
 
 ---
