@@ -218,3 +218,55 @@ impl IterativeQuery {
         done
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::thread;
+    use std::time::Duration;
+
+    use eyre::{eyre, Result};
+
+    use super::*;
+
+    #[test]
+    #[ignore = "ANT-2026-WXBVRQOM"]
+    fn unresponsive_nodes_do_not_crowd_out_further_nodes() -> Result<()> {
+        let mut socket = KrpcSocket::client()?;
+        let target = Id::random();
+        let mut query = IterativeQuery::new(
+            Id::random(),
+            target,
+            GetRequestSpecific::GetValue(GetValueRequestArguments {
+                target,
+                seq: None,
+                salt: None,
+            }),
+        );
+
+        for distance in 1..=MAX_BUCKET_SIZE_K as u8 {
+            let mut id = *target.as_bytes();
+            let octet = id.get_mut(19).ok_or_else(|| eyre!("an id is 20 bytes"))?;
+            *octet ^= distance;
+            let address = SocketAddrV4::new([127, 66, 0, distance].into(), 1);
+            query.add_candidate(Node::new(id.into(), address));
+        }
+
+        let mut id = *target.as_bytes();
+        let octet = id.get_mut(0).ok_or_else(|| eyre!("an id is 20 bytes"))?;
+        *octet ^= 1;
+        let further = SocketAddrV4::new([127, 0, 0, 1].into(), 1);
+        query.add_candidate(Node::new(id.into(), further));
+
+        query.visit_closest(&mut socket);
+        while !query.is_done(&socket) {
+            thread::sleep(Duration::from_millis(50));
+        }
+        query.visit_closest(&mut socket);
+
+        assert!(
+            query.visited.contains(&further),
+            "the farther node was never asked"
+        );
+        Ok(())
+    }
+}

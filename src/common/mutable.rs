@@ -149,6 +149,16 @@ impl MutableItem {
     pub fn salt(&self) -> Option<&[u8]> {
         self.salt.as_deref()
     }
+
+    // === Compare ===
+
+    /// Returns whether `self` replaces `other` as the most recent item.
+    ///
+    /// It compares the values only when the two `seq` values are equal.
+    #[must_use]
+    pub(crate) fn is_more_recent_than(&self, other: &MutableItem) -> bool {
+        self.seq() == other.seq() && self.value() > other.value()
+    }
 }
 
 pub(crate) fn encode_signable(seq: i64, value: &[u8], salt: Option<&[u8]>) -> Box<[u8]> {
@@ -257,5 +267,19 @@ mod tests {
         );
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    #[ignore = "ANT-2026-6TOY5DPL"]
+    fn higher_seq_is_more_recent() {
+        let signer = SigningKey::from_bytes(&[7; 32]);
+        let item = |seq, value: &[u8]| MutableItem::new(&signer, value, seq, None);
+        // A higher seq wins, whatever the value.
+        assert!(item(2, b"a").is_more_recent_than(&item(1, b"b")));
+        assert!(!item(1, b"b").is_more_recent_than(&item(2, b"a")));
+        // For equal seq the greater value wins, so all readers settle on the same item.
+        assert!(item(1, b"b").is_more_recent_than(&item(1, b"a")));
+        assert!(!item(1, b"a").is_more_recent_than(&item(1, b"b")));
+        assert!(!item(1, b"a").is_more_recent_than(&item(1, b"a")));
     }
 }

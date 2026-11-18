@@ -480,11 +480,10 @@ impl Dht {
         let mut most_recent: Option<MutableItem> = None;
         let iter = self.get_mutable(public_key, salt, None);
         for item in iter {
-            if let Some(mr) = &most_recent {
-                if item.seq() == mr.seq && item.value() > &mr.value {
-                    most_recent = Some(item);
-                }
-            } else {
+            if most_recent
+                .as_ref()
+                .is_none_or(|mr| item.is_more_recent_than(mr))
+            {
                 most_recent = Some(item);
             }
         }

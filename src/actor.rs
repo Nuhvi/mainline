@@ -493,3 +493,38 @@ pub(crate) enum ResponseSender {
     Mutable(Sender<MutableItem>),
     Immutable(Sender<Option<Box<[u8]>>>),
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    #[ignore = "ANT-2026-2VYKUTI8"]
+    fn foreign_ping_cannot_confirm_public_address() -> Result<(), std::io::Error> {
+        let config = config::Config {
+            bootstrap: vec![],
+            ..Default::default()
+        };
+        let mut actor = Actor::new(config)?;
+        let public_address = SocketAddrV4::new([127, 0, 0, 1].into(), 6881);
+        actor.core.public_address = Some(public_address);
+
+        let ping = Message {
+            transaction_id: 7,
+            message_type: MessageType::Request(RequestSpecific {
+                requester_id: Id::random(),
+                request_type: RequestTypeSpecific::Ping,
+            }),
+            version: None,
+            read_only: false,
+            requester_ip: None,
+        };
+        let _ = actor.handle_incoming_message(ping, public_address);
+
+        assert!(
+            actor.core.firewalled,
+            "a ping from a stranger cleared the firewalled flag"
+        );
+        Ok(())
+    }
+}

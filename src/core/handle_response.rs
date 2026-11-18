@@ -243,3 +243,71 @@ impl Core {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use eyre::{eyre, Result};
+
+    use crate::{
+        actor::socket::KrpcSocket,
+        common::{FindNodeRequestArguments, FindNodeResponseArguments},
+        core::iterative_query::GetRequestSpecific,
+        ServerSettings,
+    };
+
+    use super::*;
+
+    #[test]
+    #[ignore = "ANT-2026-QRSC5W38"]
+    fn internet_node_cannot_aim_requests_at_local_network() -> Result<()> {
+        let mut core = Core::new(Id::random(), vec![], false, ServerSettings::default());
+        let mut socket = KrpcSocket::client()?;
+        let target = Id::random();
+        let (mut query, _) = core
+            .create_iterative_query(
+                GetRequestSpecific::FindNode(FindNodeRequestArguments { target }),
+                None,
+            )
+            .ok_or_else(|| eyre!("a query for an unknown target must start"))?;
+
+        let internet = SocketAddrV4::new([203, 0, 113, 1].into(), 6881);
+        query.visit(&mut socket, internet);
+        core.iterative_queries.insert(target, query);
+
+        let public = Node::new(
+            Id::random(),
+            SocketAddrV4::new([198, 51, 100, 1].into(), 6881),
+        );
+        let local = Node::new(
+            Id::random(),
+            SocketAddrV4::new([192, 168, 1, 2].into(), 6881),
+        );
+        // A fresh socket sends its first request with transaction id 0.
+        let response = Message {
+            transaction_id: 0,
+            version: None,
+            requester_ip: None,
+            read_only: false,
+            message_type: MessageType::Response(ResponseSpecific::FindNode(
+                FindNodeResponseArguments {
+                    responder_id: Id::random(),
+                    nodes: [public.clone(), local.clone()].into(),
+                },
+            )),
+        };
+        let _ = core.handle_response(internet, response);
+
+        let closest = core
+            .iterative_queries
+            .get(&target)
+            .ok_or_else(|| eyre!("the query must still exist"))?
+            .closest()
+            .nodes();
+        assert!(closest.contains(&public), "the public node was dropped");
+        assert!(
+            !closest.contains(&local),
+            "an Internet node pointed the lookup at the local network"
+        );
+        Ok(())
+    }
+}

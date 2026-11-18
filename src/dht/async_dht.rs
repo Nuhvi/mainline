@@ -331,11 +331,10 @@ impl AsyncDht {
         let mut stream = self.get_mutable(public_key, salt, None);
 
         while let Some(item) = stream.next().await {
-            if let Some(mr) = &most_recent {
-                if item.seq() == mr.seq && item.value() > &mr.value {
-                    most_recent = Some(item);
-                }
-            } else {
+            if most_recent
+                .as_ref()
+                .is_none_or(|mr| item.is_more_recent_than(mr))
+            {
                 most_recent = Some(item);
             }
         }

@@ -693,4 +693,94 @@ mod test {
         assert!(!server.inflight(tid));
         Ok(())
     }
+
+    #[test]
+    #[ignore = "ANT-2026-QYMAMPLO"]
+    fn response_from_wrong_address_keeps_request_inflight() -> Result<()> {
+        let mut server = KrpcSocket::client()?;
+        let server_address = SocketAddrV4::new([127, 0, 0, 1].into(), server.local_addr().port());
+        let mut client = KrpcSocket::client()?;
+        let mut stranger = KrpcSocket::client()?;
+
+        server.inflight_requests.requests.push(InflightRequest {
+            tid: 8,
+            to: client.local_addr(),
+            sent_at: Instant::now(),
+        });
+        let response = ResponseSpecific::Ping(PingResponseArguments {
+            responder_id: Id::random(),
+        });
+
+        stranger.response(server_address, 8, response.clone());
+        assert!(server.recv_from().is_none());
+        assert!(server.inflight(8), "the stranger ended the request");
+
+        client.response(server_address, 8, response);
+        let (message, _) = server
+            .recv_from()
+            .ok_or_else(|| eyre::eyre!("no response from the expected address"))?;
+        assert_eq!(message.transaction_id, 8);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "ANT-2026-51OFOF9U"]
+    fn late_response_does_not_inflate_request_timeout() -> Result<()> {
+        let mut server = KrpcSocket::client()?;
+        let server_address = SocketAddrV4::new([127, 0, 0, 1].into(), server.local_addr().port());
+        let mut client = KrpcSocket::client()?;
+
+        server.inflight_requests.requests.push(InflightRequest {
+            tid: 8,
+            to: client.local_addr(),
+            sent_at: Instant::now() - Duration::from_secs(10),
+        });
+        let response = ResponseSpecific::Ping(PingResponseArguments {
+            responder_id: Id::random(),
+        });
+
+        client.response(server_address, 8, response);
+        let _ = server.recv_from();
+
+        let timeout = server.inflight_requests.request_timeout();
+        assert!(
+            timeout < Duration::from_secs(3),
+            "a late reply raised the request timeout to {timeout:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "ANT-2026-KILP8YTR"]
+    fn timed_out_requests_do_not_accumulate() -> Result<()> {
+        let mut socket = KrpcSocket::client()?;
+        let socket_address = SocketAddrV4::new([127, 0, 0, 1].into(), socket.local_addr().port());
+        let sender = UdpSocket::bind("127.0.0.1:0")?;
+        let unresponsive = SocketAddrV4::new([127, 0, 0, 1].into(), 1);
+        let request = RequestSpecific {
+            requester_id: Id::random(),
+            request_type: RequestTypeSpecific::Ping,
+        };
+
+        for _ in 0..100 {
+            for _ in 0..20 {
+                socket.request(unresponsive, request.clone());
+            }
+            let expired = Instant::now() - 2 * socket.inflight_requests.request_timeout();
+            for request in &mut socket.inflight_requests.requests {
+                request.sent_at = expired;
+            }
+
+            // Keep the poll interval from backing off, or the test takes minutes.
+            socket.poll_interval = MIN_POLL_INTERVAL;
+            socket.socket.set_read_timeout(Some(MIN_POLL_INTERVAL))?;
+
+            sender.send_to(b"ping", socket_address)?;
+            let _ = socket.recv_from();
+        }
+
+        let capacity = socket.inflight_requests.requests.capacity();
+        assert!(capacity <= 64, "capacity grew to {capacity}");
+        Ok(())
+    }
 }

@@ -1323,4 +1323,39 @@ mod tests {
         assert!(Message::from_bytes(&bytes).is_err());
         Ok(())
     }
+
+    #[test]
+    #[ignore = "ANT-2026-DZNMMQFA: needs the bencode depth limit"]
+    fn test_deeply_nested_message_returns_error() {
+        let bytes = [b"d1:a".as_slice(), &[b'l'; 60_000]].concat();
+        assert!(Message::from_bytes(&bytes).is_err());
+    }
+
+    #[test]
+    fn test_get_signed_peers_response_with_empty_peer_returns_error() {
+        let bytes = b"d1:t2:\x00\x001:y1:r1:rd2:id20:AAAAAAAAAAAAAAAAAAAA5:token1:x5:peersl0:eee";
+        assert!(Message::from_bytes(bytes).is_err());
+    }
+
+    #[test]
+    #[ignore = "ANT-2026-Q1YZQ6P8"]
+    fn test_signed_peers_entry_of_wrong_length() {
+        let response = |entry: &[u8]| {
+            let mut bytes = b"d1:rd2:id20:abcdefghij01234567895:peersl".to_vec();
+            bytes.extend_from_slice(format!("{}:", entry.len()).as_bytes());
+            bytes.extend_from_slice(entry);
+            bytes.extend_from_slice(b"e5:token2:tke1:t2:aa1:y1:re");
+            Message::from_bytes(&bytes)
+        };
+        assert!(response(&[7; 104]).is_ok());
+        for len in [0, 40, 103, 105, 208] {
+            assert!(
+                matches!(
+                    response(&vec![7; len]),
+                    Err(DecodeMessageError::InvalidSignedPeersEncodingLength)
+                ),
+                "entry of {len} bytes"
+            );
+        }
+    }
 }
