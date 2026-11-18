@@ -293,12 +293,12 @@ fn format_socket_message(msg: &str) -> String {
         if let Some(id) = extract_field(msg_type, "requester_id: Id(")
             .or_else(|| extract_field(msg_type, "requester_id: "))
         {
-            let _ = writeln!(details, "  Requester ID: {}", &id[..40].bright_yellow());
+            let _ = writeln!(details, "  Requester ID: {}", id[..40].bright_yellow());
         }
         if let Some(id) = extract_field(msg_type, "responder_id: Id(")
             .or_else(|| extract_field(msg_type, "responder_id: "))
         {
-            let _ = writeln!(details, "  Responder ID: {}", &id[..40].bright_yellow());
+            let _ = writeln!(details, "  Responder ID: {}", id[..40].bright_yellow());
         }
 
         // Extract version if present (format it nicely)

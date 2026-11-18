@@ -15,7 +15,7 @@ fn main() -> Result<()> {
 
     println!("Calculating Dht size by sampling random lookup queries..");
 
-    for lookups in 1.. {
+    for lookups in 1..=i32::MAX {
         let _ = dht.find_node(Id::random());
 
         let info = dht.info();

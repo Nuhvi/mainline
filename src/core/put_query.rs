@@ -154,7 +154,7 @@ impl PutQuery {
                 "PutQuery for MutableItem was rejected by most nodes with 3xx code."
             );
 
-            return Err(most_common_error)?;
+            Err(most_common_error)?;
         }
 
         Ok(false)
