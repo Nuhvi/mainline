@@ -157,12 +157,14 @@ impl IterativeQuery {
             .or_insert(1);
     }
 
-    /// Visit explicitly given addresses, and add them to the visited set.
+    /// Visit explicitly given addresses, add them to the visited set, and return the
+    /// transaction id.
     /// only used from the Rpc when calling bootstrapping nodes.
-    pub(crate) fn visit(&mut self, socket: &mut KrpcSocket, address: SocketAddrV4) {
+    pub(crate) fn visit(&mut self, socket: &mut KrpcSocket, address: SocketAddrV4) -> u32 {
         let tid = socket.request(address, self.request.clone());
         self.inflight_requests.push(tid);
         self.visited.insert(address, Some(tid));
+        tid
     }
 
     /// Return true if a response (by `transaction_id`) is expected by this query.

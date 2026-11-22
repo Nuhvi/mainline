@@ -321,7 +321,7 @@ mod tests {
             .ok_or_else(|| eyre!("a query for an unknown target must start"))?;
 
         let internet = SocketAddrV4::new([203, 0, 113, 1].into(), 6881);
-        query.visit(&mut socket, internet);
+        let tid = query.visit(&mut socket, internet);
         core.iterative_queries.insert(target, query);
 
         let public = Node::new(
@@ -332,9 +332,8 @@ mod tests {
             Id::random(),
             SocketAddrV4::new([192, 168, 1, 2].into(), 6881),
         );
-        // A fresh socket sends its first request with transaction id 0.
         let response = Message {
-            transaction_id: 0,
+            transaction_id: tid,
             version: None,
             requester_ip: None,
             read_only: false,
@@ -387,11 +386,11 @@ mod tests {
 
             let mut socket = KrpcSocket::client()?;
             let from = SocketAddrV4::new([198, 51, 100, 1].into(), 6881);
-            query.visit(&mut socket, from);
+            let tid = query.visit(&mut socket, from);
             core.iterative_queries.insert(target, query);
 
             let message = Message {
-                transaction_id: 0,
+                transaction_id: tid,
                 version: None,
                 requester_ip: None,
                 read_only: false,
@@ -443,11 +442,11 @@ mod tests {
                 None,
             )
             .ok_or_else(|| eyre!("a query for an unknown target must start"))?;
-        query.visit(&mut socket, liar);
+        let tid = query.visit(&mut socket, liar);
         core.iterative_queries.insert(target, query);
 
         let response = Message {
-            transaction_id: 0,
+            transaction_id: tid,
             version: None,
             requester_ip: None,
             read_only: false,
@@ -483,11 +482,11 @@ mod tests {
                 None,
             )
             .ok_or_else(|| eyre!("a query for an unknown target must start"))?;
-        query.visit(&mut socket, liar);
+        let tid = query.visit(&mut socket, liar);
         core.iterative_queries.insert(target, query);
 
         let response = Message {
-            transaction_id: 0,
+            transaction_id: tid,
             version: None,
             requester_ip: None,
             read_only: false,
