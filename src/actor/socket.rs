@@ -110,6 +110,13 @@ impl KrpcSocket {
     pub(crate) fn request(&mut self, address: SocketAddrV4, request: RequestSpecific) -> u32 {
         let transaction_id = self.inflight_requests.add(address);
 
+        if address.ip().is_unspecified() {
+            // 0.0.0.0 is not a valid destination (RFC 1122), and where the OS sends it differs
+            // between platforms. The request is left to time out.
+            warn!(?address, "Not sending a request to an unspecified address");
+            return transaction_id;
+        }
+
         let message = self.request_message(transaction_id, request);
         trace!(context = "socket_message_sending", message = ?message);
 
@@ -265,7 +272,7 @@ impl KrpcSocket {
         // Positive or an error response or to an inflight request.
         match self.inflight_requests.remove(message.transaction_id) {
             Some(request) => {
-                if compare_socket_addr(request.to, from) {
+                if request.to == from {
                     return true;
                 }
                 trace!(
@@ -337,19 +344,6 @@ pub(crate) enum SendMessageError {
     #[error(transparent)]
     /// Transparent [`std::io::Error`]
     IO(#[from] std::io::Error),
-}
-
-// Same as SocketAddr::eq but ignores the ip if it is unspecified for testing reasons.
-fn compare_socket_addr(a: SocketAddrV4, b: SocketAddrV4) -> bool {
-    if a.port() != b.port() {
-        return false;
-    }
-
-    if a.ip().is_unspecified() {
-        return true;
-    }
-
-    a.ip() == b.ip()
 }
 
 pub(crate) struct InflightRequest {
@@ -592,7 +586,7 @@ mod test {
         let (tx, rx) = flume::bounded(1);
 
         let mut client = KrpcSocket::client()?;
-        let client_address = client.local_addr();
+        let client_address = SocketAddrV4::new([127, 0, 0, 1].into(), client.local_addr().port());
 
         let responder_id = Id::random();
         let response = ResponseSpecific::Ping(PingResponseArguments { responder_id });
@@ -641,11 +635,11 @@ mod test {
     #[test]
     fn ignore_response_from_wrong_address() -> Result<()> {
         let mut server = KrpcSocket::client()?;
-        let server_address = server.local_addr();
+        let server_address = SocketAddrV4::new([127, 0, 0, 1].into(), server.local_addr().port());
 
         let mut client = KrpcSocket::client()?;
 
-        let client_address = client.local_addr();
+        let client_address = SocketAddrV4::new([127, 0, 0, 1].into(), client.local_addr().port());
 
         server.inflight_requests.requests.push(InflightRequest {
             tid: 8,
@@ -695,6 +689,30 @@ mod test {
     }
 
     #[test]
+    fn requests_to_unspecified_address_are_not_sent() -> Result<()> {
+        let mut socket = KrpcSocket::client()?;
+        let receiver = UdpSocket::bind("127.0.0.1:0")?;
+        receiver.set_read_timeout(Some(Duration::from_millis(50)))?;
+        let address = SocketAddrV4::new([0, 0, 0, 0].into(), receiver.local_addr()?.port());
+
+        let tid = socket.request(
+            address,
+            RequestSpecific {
+                requester_id: Id::random(),
+                request_type: RequestTypeSpecific::Ping,
+            },
+        );
+
+        let mut buf = [0_u8; 64];
+        assert!(
+            receiver.recv_from(&mut buf).is_err(),
+            "sent a request to an unspecified address"
+        );
+        assert!(socket.inflight(tid));
+        Ok(())
+    }
+
+    #[test]
     #[ignore = "ANT-2026-QYMAMPLO"]
     fn response_from_wrong_address_keeps_request_inflight() -> Result<()> {
         let mut server = KrpcSocket::client()?;
@@ -704,7 +722,7 @@ mod test {
 
         server.inflight_requests.requests.push(InflightRequest {
             tid: 8,
-            to: client.local_addr(),
+            to: SocketAddrV4::new([127, 0, 0, 1].into(), client.local_addr().port()),
             sent_at: Instant::now(),
         });
         let response = ResponseSpecific::Ping(PingResponseArguments {
@@ -732,7 +750,7 @@ mod test {
 
         server.inflight_requests.requests.push(InflightRequest {
             tid: 8,
-            to: client.local_addr(),
+            to: SocketAddrV4::new([127, 0, 0, 1].into(), client.local_addr().port()),
             sent_at: Instant::now() - Duration::from_secs(10),
         });
         let response = ResponseSpecific::Ping(PingResponseArguments {
