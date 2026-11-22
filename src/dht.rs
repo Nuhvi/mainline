@@ -823,6 +823,17 @@ mod test {
     }
 
     #[test]
+    fn find_node_then_announce_fetches_tokens() -> Result<()> {
+        let testnet = Testnet::new(3)?;
+        let client = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
+        let target = Id::from([11; 20]);
+
+        assert!(!client.find_node(target).is_empty());
+        client.announce_peer(target, Some(1234))?;
+        Ok(())
+    }
+
+    #[test]
     fn find_node_no_values() -> Result<()> {
         let client = Dht::builder().no_bootstrap().build()?;
 

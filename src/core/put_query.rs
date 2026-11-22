@@ -47,11 +47,11 @@ impl PutQuery {
         let target = self.target;
         debug!(?target, closest_secure_nodes = ?closest_nodes.len(), "PutQuery start");
 
-        if closest_nodes.is_empty() {
-            Err(PutQueryError::NoClosestNodes)?;
-        }
-
         for node in closest_nodes.iter().chain(self.extra_nodes.iter()) {
+            // Servers reject tokens older than about two rotations, so only use fresh ones.
+            if !node.valid_token() {
+                continue;
+            }
             // Set correct values to the request placeholders
             if let Some(token) = node.token() {
                 let tid = socket.request(
@@ -69,6 +69,9 @@ impl PutQuery {
             }
         }
 
+        if !self.started() {
+            return Err(PutQueryError::NoClosestNodes.into());
+        }
         Ok(())
     }
 
@@ -345,6 +348,54 @@ mod tests {
             query.success();
         }
         assert_eq!(query.stored_at, 300);
+        Ok(())
+    }
+
+    fn immutable_request() -> PutRequestSpecific {
+        PutRequestSpecific::PutImmutable(crate::common::PutImmutableRequestArguments {
+            target: Id::random(),
+            v: Box::new([1]),
+        })
+    }
+
+    #[test]
+    fn stale_tokens_are_not_used() -> Result<()> {
+        use std::net::SocketAddrV4;
+        use std::sync::Arc;
+        use std::time::Instant;
+
+        let mut socket = KrpcSocket::client()?;
+        let stale = Node(Arc::new(crate::common::NodeInner {
+            id: Id::random(),
+            address: SocketAddrV4::new([127, 0, 0, 1].into(), 12345),
+            token: Some(vec![1].into()),
+            last_seen: Instant::now() - crate::common::TOKEN_ROTATE_INTERVAL * 2,
+        }));
+
+        let mut put = PutQuery::new(immutable_request(), None);
+        assert!(matches!(
+            put.start(&mut socket, &[stale]),
+            Err(PutError::Query(PutQueryError::NoClosestNodes))
+        ));
+        assert!(!put.started());
+        Ok(())
+    }
+
+    #[test]
+    fn extra_nodes_can_supply_the_token() -> Result<()> {
+        use std::net::SocketAddrV4;
+
+        let mut socket = KrpcSocket::client()?;
+        let extra = Node::new_with_token(
+            Id::random(),
+            SocketAddrV4::new([127, 0, 0, 1].into(), 12345),
+            vec![1].into(),
+        );
+
+        let mut put = PutQuery::new(immutable_request(), Some(vec![extra].into()));
+        put.start(&mut socket, &[])?;
+
+        assert!(put.started());
         Ok(())
     }
 }
