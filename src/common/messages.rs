@@ -9,7 +9,7 @@ mod internal;
 use std::convert::TryInto;
 use std::net::{Ipv4Addr, SocketAddrV4};
 
-use crate::common::{Id, Node, SignedAnnounce, ID_SIZE};
+use crate::common::{hash_immutable, Id, Node, SignedAnnounce, ID_SIZE};
 
 use super::InvalidIdSize;
 
@@ -329,8 +329,6 @@ impl Message {
                                 arguments: internal::DHTPutValueRequestArguments {
                                     id: requester_id.into(),
                                     token,
-
-                                    target: put_immutable_arguments.target.into(),
                                     v: put_immutable_arguments.v,
                                     k: None,
                                     seq: None,
@@ -345,8 +343,6 @@ impl Message {
                                 arguments: internal::DHTPutValueRequestArguments {
                                     id: requester_id.into(),
                                     token,
-
-                                    target: put_mutable_arguments.target.into(),
                                     v: put_mutable_arguments.v,
                                     k: Some(put_mutable_arguments.k),
                                     seq: Some(put_mutable_arguments.seq),
@@ -558,6 +554,10 @@ impl Message {
                                         DecodeMessageError::MissingMutablePutSequenceOrSignature,
                                     );
                                 };
+                                let target = crate::MutableItem::target_from_key(
+                                    &k,
+                                    arguments.salt.as_deref(),
+                                );
                                 RequestSpecific {
                                     requester_id: Id::from_bytes(arguments.id)?,
 
@@ -565,7 +565,7 @@ impl Message {
                                         token: arguments.token,
                                         put_request_type: PutRequestSpecific::PutMutable(
                                             PutMutableRequestArguments {
-                                                target: Id::from_bytes(arguments.target)?,
+                                                target,
                                                 v: arguments.v,
                                                 k,
                                                 seq,
@@ -577,6 +577,7 @@ impl Message {
                                     }),
                                 }
                             } else {
+                                let target = hash_immutable(&arguments.v).into();
                                 RequestSpecific {
                                     requester_id: Id::from_bytes(arguments.id)?,
 
@@ -584,7 +585,7 @@ impl Message {
                                         token: arguments.token,
                                         put_request_type: PutRequestSpecific::PutImmutable(
                                             PutImmutableRequestArguments {
-                                                target: Id::from_bytes(arguments.target)?,
+                                                target,
                                                 v: arguments.v,
                                             },
                                         ),
@@ -1348,7 +1349,7 @@ mod tests {
                     token: [99, 100, 101, 102].into(),
                     put_request_type: PutRequestSpecific::PutImmutable(
                         PutImmutableRequestArguments {
-                            target: Id::random(),
+                            target: hash_immutable(&[99, 100, 101, 102]).into(),
                             v: [99, 100, 101, 102].into(),
                         },
                     ),
@@ -1358,6 +1359,7 @@ mod tests {
 
         let serde_msg = original_msg.clone().into_serde_message();
         let bytes = serde_msg.to_bytes()?;
+        assert!(!String::from_utf8_lossy(&bytes).contains("target"));
         let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes)?;
         let parsed_msg = Message::from_serde_message(parsed_serde_msg)?;
         assert_eq!(parsed_msg, original_msg);
@@ -1376,7 +1378,10 @@ mod tests {
                 request_type: RequestTypeSpecific::Put(PutRequest {
                     token: [99, 100, 101, 102].into(),
                     put_request_type: PutRequestSpecific::PutMutable(PutMutableRequestArguments {
-                        target: Id::random(),
+                        target: crate::MutableItem::target_from_key(
+                            &[100; 32],
+                            Some(&[0, 2, 4, 8]),
+                        ),
                         v: [99, 100, 101, 102].into(),
                         k: [100; 32],
                         seq: 100,
@@ -1390,6 +1395,7 @@ mod tests {
 
         let serde_msg = original_msg.clone().into_serde_message();
         let bytes = serde_msg.to_bytes()?;
+        assert!(!String::from_utf8_lossy(&bytes).contains("target"));
         let parsed_serde_msg = internal::DHTMessage::from_bytes(&bytes)?;
         let parsed_msg = Message::from_serde_message(parsed_serde_msg)?;
         assert_eq!(parsed_msg, original_msg);
@@ -1410,7 +1416,6 @@ mod tests {
             variant: internal::DHTMessageVariant::Request(internal::DHTRequestSpecific::PutValue {
                 arguments: internal::DHTPutValueRequestArguments {
                     id: [1; 20],
-                    target: [0x11; 20],
                     token: (*b"ZZZZ").into(),
                     v: (*b"hi").into(),
                     k: Some([0x33; 32]),

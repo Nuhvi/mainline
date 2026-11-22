@@ -361,9 +361,6 @@ pub(crate) struct DHTPutValueRequestArguments {
     pub id: [u8; 20],
 
     #[serde(with = "serde_bytes")]
-    pub target: [u8; 20],
-
-    #[serde(with = "serde_bytes")]
     pub token: Box<[u8]>,
 
     #[serde(with = "serde_bytes")]
