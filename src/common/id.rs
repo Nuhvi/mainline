@@ -208,16 +208,30 @@ impl FromStr for Id {
 
         let mut bytes = Vec::with_capacity(s.len() / 2);
 
-        for i in 0..s.len() / 2 {
-            let byte_str = &s[i * 2..(i * 2) + 2];
-            if let Ok(byte) = u8::from_str_radix(byte_str, 16) {
-                bytes.push(byte);
-            } else {
-                return Err(DecodeIdError::InvalidHexCharacter(byte_str.into()));
-            }
+        for &[high, low] in s.as_bytes().as_chunks::<2>().0 {
+            let byte = match hex_value(high).zip(hex_value(low)) {
+                Some((high, low)) => (high << 4) | low,
+                None => {
+                    return Err(DecodeIdError::InvalidHexCharacter(
+                        String::from_utf8_lossy(&[high, low]).into_owned(),
+                    ));
+                }
+            };
+
+            bytes.push(byte);
         }
 
         Ok(Id::from_bytes(bytes)?)
+    }
+}
+
+/// Returns the value of one ASCII hex digit.
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
     }
 }
 
@@ -377,5 +391,29 @@ mod test {
             Ok(())
         }
         Ok(())
+    }
+
+    #[test]
+    fn unicode_id_is_rejected_without_panicking() {
+        assert!(matches!(
+            Id::from_str("aéa"),
+            Err(DecodeIdError::InvalidHexCharacter(_))
+        ));
+    }
+
+    #[test]
+    fn plus_sign_is_not_a_hex_digit() {
+        assert!(matches!(
+            Id::from_str(&"+0".repeat(20)),
+            Err(DecodeIdError::InvalidHexCharacter(_))
+        ));
+    }
+
+    #[test]
+    fn odd_number_of_characters_is_rejected() {
+        assert!(matches!(
+            Id::from_str("abc"),
+            Err(DecodeIdError::OddNumberOfCharacters)
+        ));
     }
 }
