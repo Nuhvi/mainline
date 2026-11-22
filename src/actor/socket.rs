@@ -481,20 +481,16 @@ impl InflightRequests {
             .binary_search_by(|request| request.tid.cmp(&tid))
     }
 
-    /// Removes timeedout requests if necessary to save memory
+    /// Removes the requests that timed out.
+    ///
+    /// Requests are in `sent_at` order, so the timed out requests are a prefix.
     fn cleanup(&mut self) {
-        if self.requests.len() < self.requests.capacity() {
-            return;
-        }
-
-        let index = match self
+        let timeout = self.request_timeout();
+        let now = Instant::now();
+        let expired = self
             .requests
-            .binary_search_by(|request| self.request_timeout().cmp(&request.sent_at.elapsed()))
-        {
-            Ok(i) | Err(i) => i,
-        };
-
-        self.requests.drain(0..index);
+            .partition_point(|request| now.duration_since(request.sent_at) >= timeout);
+        self.requests.drain(..expired);
     }
 }
 
@@ -802,7 +798,6 @@ mod test {
     }
 
     #[test]
-    #[ignore = "ANT-2026-KILP8YTR"]
     fn timed_out_requests_do_not_accumulate() -> Result<()> {
         let mut socket = KrpcSocket::client()?;
         let socket_address = SocketAddrV4::new([127, 0, 0, 1].into(), socket.local_addr().port());
