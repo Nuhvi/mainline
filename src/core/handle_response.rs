@@ -1,4 +1,4 @@
-use std::net::SocketAddrV4;
+use std::net::{Ipv4Addr, SocketAddrV4};
 
 use tracing::{debug, trace};
 
@@ -58,8 +58,14 @@ impl Core {
             should_add_node = true;
 
             if let Some(nodes) = message.get_closer_nodes() {
+                // A node on the Internet must not be able to point our requests at our local
+                // network. Nodes in a local network may name each other, so that test networks
+                // and DHTs inside a LAN keep working.
+                let from_local_network = is_local_network(*from.ip());
                 for node in nodes {
-                    query.add_candidate(node.clone());
+                    if from_local_network || !is_local_network(*node.address().ip()) {
+                        query.add_candidate(node.clone());
+                    }
                 }
             }
 
@@ -244,6 +250,17 @@ impl Core {
     }
 }
 
+/// Returns whether `ip` is not a public Internet address.
+fn is_local_network(ip: Ipv4Addr) -> bool {
+    ip.is_private()
+        || matches!(ip.octets(), [100, 64..=127, ..]) // shared address space, RFC 6598
+        || ip.is_loopback()
+        || ip.is_link_local()
+        || ip.is_unspecified()
+        || ip.is_multicast()
+        || ip.is_broadcast()
+}
+
 #[cfg(test)]
 mod tests {
     use eyre::{eyre, Result};
@@ -258,7 +275,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "ANT-2026-QRSC5W38"]
     fn internet_node_cannot_aim_requests_at_local_network() -> Result<()> {
         let mut core = Core::new(Id::random(), vec![], false, ServerSettings::default());
         let mut socket = KrpcSocket::client()?;
@@ -309,5 +325,32 @@ mod tests {
             "an Internet node pointed the lookup at the local network"
         );
         Ok(())
+    }
+
+    #[test]
+    fn local_network_addresses() {
+        for ip in [
+            [10, 0, 0, 1],
+            [172, 16, 0, 1],
+            [192, 168, 1, 2],
+            [100, 64, 0, 1],
+            [100, 127, 255, 255],
+            [127, 0, 0, 1],
+            [169, 254, 0, 1],
+            [0, 0, 0, 0],
+            [224, 0, 0, 1],
+            [255, 255, 255, 255],
+        ] {
+            assert!(is_local_network(ip.into()), "{ip:?}");
+        }
+
+        for ip in [
+            [1, 1, 1, 1],
+            [100, 63, 0, 1],
+            [100, 128, 0, 1],
+            [198, 51, 100, 1],
+        ] {
+            assert!(!is_local_network(ip.into()), "{ip:?}");
+        }
     }
 }
