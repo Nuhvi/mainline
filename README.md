@@ -58,12 +58,16 @@ However, that limit/block will only apply _after_ parsing incoming messages, and
 
 ### Adaptive mode
 
-The default Adaptive mode will start the node in client mode, and after 15 minutes of running with a publicly accessible address,
-it will switch to server mode. This way nodes that can serve as routing nodes (accessible and less likely to churn), serve as such.
+The default Adaptive mode starts the node in client mode. After 15 minutes, it switches to server mode if a self-ping confirms the public address.
+This way nodes that can serve as routing nodes (accessible and less likely to churn) serve as such.
 
-If you want to explicitly start in Server mode, because you know you are not running behind firewall,
-you can call `Dht::builder().server_mode().build()`, and you can optionally add your known public ip so the node doesn't have to depend on,
-votes from responding nodes: `Dht::builder().server_mode().public_ip().build()`.
+The self-ping is a best-effort heuristic. NAT hairpinning can give a false positive. A blocked hairpin path can give a false negative.
+A false positive mainly costs other nodes: they may add the node to their routing tables, send probes, and evict it after their stale timeout.
+The node itself may receive no inbound traffic if it is unreachable. A false positive cannot forge writes, because the write token binds to the source IP and target.
+
+If you port-forward the node or run a public service such as iroh-dns-server, start in Server mode instead of relying on adaptive mode.
+Call `Dht::builder().server_mode().build()`. You can optionally add your known public IP so the node does not depend on votes from responding nodes:
+`Dht::builder().server_mode().public_ip(ip).build()`, where `ip` is your `Ipv4Addr`.
 
 ## Acknowledgment
 

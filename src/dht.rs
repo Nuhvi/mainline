@@ -40,7 +40,10 @@ pub struct DhtBuilder(Config);
 type SetupResult = (Sender<ActorMessage>, Receiver<Result<(), std::io::Error>>);
 
 impl DhtBuilder {
-    /// Set this node's `server_mode`.
+    /// Start the node in server mode.
+    ///
+    /// Use this for a port-forwarded or public node. Adaptive mode can miss reachability
+    /// when the NAT does not hairpin. See the README's adaptive mode section.
     pub fn server_mode(&mut self) -> &mut Self {
         self.0.server_mode = true;
 
@@ -183,6 +186,10 @@ impl Dht {
 
     /// Create a new DHT client with default bootstrap nodes.
     ///
+    /// The node starts in adaptive mode. It uses a self-ping heuristic to decide when to
+    /// switch to server mode. This heuristic can give false positives and false negatives.
+    /// If the node is port-forwarded or public, use [`Self::server`] instead.
+    ///
     /// # Errors
     ///
     /// Returns an error if the node fails to bind to a UDP socket.
@@ -193,12 +200,11 @@ impl Dht {
     /// Create a new DHT node that is running in [Server mode][DhtBuilder::server_mode] as
     /// soon as possible.
     ///
-    /// You shouldn't use this option unless you are sure your
-    /// DHT node is publicly accessible (not firewalled) _AND_ will be long running,
-    /// and/or you are running your own local network for testing.
+    /// Use this option when the node is port-forwarded or public and long running, or when
+    /// you run your own local network for testing.
     ///
-    /// If you are not sure, use [`Self::client`] and it will switch
-    /// to server mode when/if these two conditions are met.
+    /// If you are not sure, use [`Self::client`]. Its adaptive mode is best-effort, and it
+    /// can stay in client mode when a NAT blocks hairpinning.
     ///
     /// # Errors
     ///

@@ -35,11 +35,20 @@ impl Info {
     pub fn public_address(&self) -> Option<SocketAddrV4> {
         self.public_address
     }
-    /// Returns `true` if we can't confirm that [`Self::public_address`] is publicly addressable.
+    /// Returns `true` if we cannot confirm that [`Self::public_address`] is publicly addressable.
     ///
-    /// If this node is firewalled, it won't switch to server mode if it is in adaptive mode,
-    /// but if [`crate::DhtBuilder::server_mode`] was set to true, then whether or not this node is firewalled
-    /// won't matter.
+    /// This is a best-effort flag, not a reachability proof. NAT hairpinning can make it
+    /// false when external peers cannot reach us. A blocked hairpin path can make it true
+    /// when they can.
+    ///
+    /// A false positive mainly costs other nodes. They may add us to their routing tables,
+    /// send probes, and evict us after their stale timeout. If we are unreachable, we
+    /// receive no inbound requests. A false positive does not allow forged writes, because
+    /// tokens bind to the source IP and target.
+    ///
+    /// In adaptive mode, `true` prevents the switch to server mode. An explicit
+    /// [`crate::DhtBuilder::server_mode`] ignores this flag. If the node is port-forwarded
+    /// or public, start it in server mode.
     pub fn firewalled(&self) -> bool {
         self.firewalled
     }

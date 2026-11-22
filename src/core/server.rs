@@ -198,13 +198,13 @@ impl Server {
                 MessageType::Response(match self.peers.get_random_peers(&info_hash) {
                     Some(peers) => ResponseSpecific::GetPeers(GetPeersResponseArguments {
                         responder_id: *routing_table.id(),
-                        token: self.tokens.generate_token(from).into(),
+                        token: self.tokens.generate_token(from, &info_hash).into(),
                         nodes: Some(routing_table.closest(info_hash)),
                         values: peers,
                     }),
                     None => ResponseSpecific::NoValues(NoValuesResponseArguments {
                         responder_id: *routing_table.id(),
-                        token: self.tokens.generate_token(from).into(),
+                        token: self.tokens.generate_token(from, &info_hash).into(),
                         nodes: Some(routing_table.closest(info_hash)),
                     }),
                 })
@@ -214,14 +214,14 @@ impl Server {
                     Some(peers) => {
                         ResponseSpecific::GetSignedPeers(GetSignedPeersResponseArguments {
                             responder_id: *signing_peers_routing_table.id(),
-                            token: self.tokens.generate_token(from).into(),
+                            token: self.tokens.generate_token(from, &info_hash).into(),
                             nodes: Some(signing_peers_routing_table.closest(info_hash)),
                             peers,
                         })
                     }
                     None => ResponseSpecific::NoValues(NoValuesResponseArguments {
                         responder_id: *signing_peers_routing_table.id(),
-                        token: self.tokens.generate_token(from).into(),
+                        token: self.tokens.generate_token(from, &info_hash).into(),
                         nodes: Some(signing_peers_routing_table.closest(info_hash)),
                     }),
                 })
@@ -233,7 +233,7 @@ impl Server {
                     MessageType::Response(ResponseSpecific::GetImmutable(
                         GetImmutableResponseArguments {
                             responder_id: *routing_table.id(),
-                            token: self.tokens.generate_token(from).into(),
+                            token: self.tokens.generate_token(from, &target).into(),
                             nodes: Some(routing_table.closest(target)),
                             v: v.clone(),
                         },
@@ -252,7 +252,7 @@ impl Server {
                     implied_port,
                     ..
                 }) => {
-                    if !self.tokens.validate(from, &token) {
+                    if !self.tokens.validate(from, &token, &info_hash) {
                         debug!(
                             ?info_hash,
                             ?requester_id,
@@ -287,7 +287,7 @@ impl Server {
                     k,
                     sig,
                 }) => {
-                    if !self.tokens.validate(from, &token) {
+                    if !self.tokens.validate(from, &token, &info_hash) {
                         debug!(
                             ?info_hash,
                             ?requester_id,
@@ -334,7 +334,7 @@ impl Server {
                     target,
                     ..
                 }) => {
-                    if !self.tokens.validate(from, &token) {
+                    if !self.tokens.validate(from, &token, &target) {
                         debug!(
                             ?target,
                             ?requester_id,
@@ -385,7 +385,7 @@ impl Server {
                     cas,
                     ..
                 }) => {
-                    if !self.tokens.validate(from, &token) {
+                    if !self.tokens.validate(from, &token, &target) {
                         debug!(
                             ?target,
                             ?requester_id,
@@ -483,14 +483,14 @@ impl Server {
                     Some(true) => {
                         ResponseSpecific::NoMoreRecentValue(NoMoreRecentValueResponseArguments {
                             responder_id: *routing_table.id(),
-                            token: self.tokens.generate_token(from).into(),
+                            token: self.tokens.generate_token(from, &target).into(),
                             nodes: Some(routing_table.closest(target)),
                             seq: item.seq(),
                         })
                     }
                     _ => ResponseSpecific::GetMutable(GetMutableResponseArguments {
                         responder_id: *routing_table.id(),
-                        token: self.tokens.generate_token(from).into(),
+                        token: self.tokens.generate_token(from, &target).into(),
                         nodes: Some(routing_table.closest(target)),
                         v: item.value().into(),
                         k: *item.key(),
@@ -501,7 +501,7 @@ impl Server {
             }
             None => ResponseSpecific::NoValues(NoValuesResponseArguments {
                 responder_id: *routing_table.id(),
-                token: self.tokens.generate_token(from).into(),
+                token: self.tokens.generate_token(from, &target).into(),
                 nodes: Some(routing_table.closest(target)),
             }),
         }

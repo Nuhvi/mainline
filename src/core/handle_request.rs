@@ -84,10 +84,19 @@ impl Core {
         }
     }
 
-    /// Check an incoming request, and if it is a PING request, with our own
-    /// id and from our own address, then we assume that the ip address we are being
-    /// told is valid.
-    // TODO: can this be spoofed? should we check the `tid` as well to be sure?
+    /// Check an incoming ping from our public address and clear `firewalled`.
+    ///
+    /// This is a best-effort check. It does not check the requester id or the
+    /// transaction id.
+    ///
+    /// Returns true if the routing tables must repopulate after an id reset.
+    /// This is intentional. A spoofed packet can trigger the check. NAT hairpinning
+    /// can also return the self-ping while external peers cannot reach us.
+    ///
+    /// Accept these false positives. Server mode is safe, and the write token binds
+    /// to the source IP and target. If we are unreachable, we receive no inbound
+    /// requests. Peers that add us only spend probes until they evict us. A blocked
+    /// hairpin path gives a false negative; in that case, start the node in server mode.
     fn does_verify_our_new_public_address_with_self_ping(
         &mut self,
         from: SocketAddrV4,
