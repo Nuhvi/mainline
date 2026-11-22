@@ -1,0 +1,5 @@
+# `curve25519-dalek-derive` and `tracing-attributes` use `syn` 2.
+# Upstream curve25519-dalek main uses `syn` 3. No release contains that change.
+# Some Windows proc-macro crates also use `syn` 2.
+# Remove this setting when the graph uses one `syn` major version.
+allowed-duplicate-crates = ["syn"]
