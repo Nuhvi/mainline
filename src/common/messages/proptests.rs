@@ -471,7 +471,7 @@ fn any_message() -> BoxedStrategy<Message> {
     .boxed();
 
     (
-        any::<u32>(),
+        prop::collection::vec(any::<u8>(), 0..=4).prop_map(Vec::into_boxed_slice),
         prop::option::of(any::<[u8; 4]>()),
         prop::option::of(socket_addr()),
         any::<bool>(),

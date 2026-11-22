@@ -26,6 +26,11 @@ impl Core {
             return None;
         }
 
+        let Ok(transaction_id) = <[u8; 4]>::try_from(message.transaction_id.as_ref()) else {
+            return None;
+        };
+        let transaction_id = u32::from_be_bytes(transaction_id);
+
         let author_id = message.get_author_id();
         let from_version = message.version;
 
@@ -33,7 +38,7 @@ impl Core {
         if let Some(query) = self
             .put_queries
             .values_mut()
-            .find(|query| query.inflight(message.transaction_id))
+            .find(|query| query.inflight(transaction_id))
         {
             match message.message_type {
                 MessageType::Response(ResponseSpecific::Ping(_)) => {
@@ -54,7 +59,7 @@ impl Core {
         if let Some(query) = self
             .iterative_queries
             .values_mut()
-            .find(|query| query.inflight(message.transaction_id))
+            .find(|query| query.inflight(transaction_id))
         {
             // KrpcSocket would not give us a response from the wrong address for the transaction_id
             query.responded(from);
@@ -333,7 +338,7 @@ mod tests {
             SocketAddrV4::new([192, 168, 1, 2].into(), 6881),
         );
         let response = Message {
-            transaction_id: tid,
+            transaction_id: tid.to_be_bytes().into(),
             version: None,
             requester_ip: None,
             read_only: false,
@@ -390,7 +395,7 @@ mod tests {
             core.iterative_queries.insert(target, query);
 
             let message = Message {
-                transaction_id: tid,
+                transaction_id: tid.to_be_bytes().into(),
                 version: None,
                 requester_ip: None,
                 read_only: false,
@@ -446,7 +451,7 @@ mod tests {
         core.iterative_queries.insert(target, query);
 
         let response = Message {
-            transaction_id: tid,
+            transaction_id: tid.to_be_bytes().into(),
             version: None,
             requester_ip: None,
             read_only: false,
@@ -486,7 +491,7 @@ mod tests {
         core.iterative_queries.insert(target, query);
 
         let response = Message {
-            transaction_id: tid,
+            transaction_id: tid.to_be_bytes().into(),
             version: None,
             requester_ip: None,
             read_only: false,

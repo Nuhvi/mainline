@@ -125,7 +125,6 @@ impl KrpcSocket {
         let message = self.request_message(transaction_id, request);
         trace!(context = "socket_message_sending", message = ?message);
 
-        let tid = message.transaction_id;
         let _ = self.send(address, &message).map_err(|e| {
             debug!(?e, "Error sending request message");
         });
@@ -133,14 +132,14 @@ impl KrpcSocket {
         self.poll_interval = MIN_POLL_INTERVAL;
         let _ = self.socket.set_read_timeout(Some(self.poll_interval));
 
-        tid
+        transaction_id
     }
 
     /// Send a response to the given address.
     pub(crate) fn response(
         &mut self,
         address: SocketAddrV4,
-        transaction_id: u32,
+        transaction_id: Box<[u8]>,
         response: ResponseSpecific,
     ) {
         let message =
@@ -155,7 +154,7 @@ impl KrpcSocket {
     pub(crate) fn error(
         &mut self,
         address: SocketAddrV4,
-        transaction_id: u32,
+        transaction_id: Box<[u8]>,
         error: ErrorSpecific,
     ) {
         let message = self.response_message(MessageType::Error(error), address, transaction_id);
@@ -274,9 +273,15 @@ impl KrpcSocket {
     // === Private Methods ===
 
     fn is_expected_response(&mut self, message: &Message, from: SocketAddrV4) -> bool {
+        // Our requests always use four bytes. Other lengths must not alias an id.
+        let Ok(bytes) = <[u8; 4]>::try_from(message.transaction_id.as_ref()) else {
+            return false;
+        };
+        let transaction_id = u32::from_be_bytes(bytes);
+
         // A positive or an error response to an inflight request. The socket checks the
         // sender before it removes the request, so no other host can end it.
-        let Some(request) = self.inflight_requests.peek(message.transaction_id) else {
+        let Some(request) = self.inflight_requests.peek(transaction_id) else {
             trace!(
                 context = "socket_validation",
                 message = "Unexpected response id, or timedout request"
@@ -292,14 +297,14 @@ impl KrpcSocket {
             return false;
         }
 
-        self.inflight_requests.remove(message.transaction_id);
+        self.inflight_requests.remove(transaction_id);
         true
     }
 
     /// Set `transactin_id`, version and `read_only`
     fn request_message(&mut self, transaction_id: u32, message: RequestSpecific) -> Message {
         Message {
-            transaction_id,
+            transaction_id: transaction_id.to_be_bytes().into(),
             message_type: MessageType::Request(message),
             version: Some(self.version()),
             read_only: !self.server_mode,
@@ -312,7 +317,7 @@ impl KrpcSocket {
         &mut self,
         message: MessageType,
         requester_ip: SocketAddrV4,
-        request_tid: u32,
+        request_tid: Box<[u8]>,
     ) -> Message {
         Message {
             transaction_id: request_tid,
@@ -544,7 +549,7 @@ mod test {
         let server_thread = thread::spawn(move || loop {
             if let Some((message, from)) = server.recv_from() {
                 assert_eq!(from.port(), client_address.port());
-                assert_eq!(message.transaction_id, tid);
+                assert_eq!(&*message.transaction_id, &tid.to_be_bytes());
                 assert!(message.read_only, "Read-only should be true");
                 assert_eq!(message.version, Some(VERSION), "Version should be 'RS'");
                 assert_eq!(message.message_type, MessageType::Request(expected_request));
@@ -586,7 +591,7 @@ mod test {
             loop {
                 if let Some((message, from)) = server.recv_from() {
                     assert_eq!(from.port(), client_address.port());
-                    assert_eq!(message.transaction_id, 8);
+                    assert_eq!(&*message.transaction_id, &8_u32.to_be_bytes());
                     assert!(message.read_only, "Read-only should be true");
                     assert_eq!(message.version, Some(VERSION), "Version should be 'RS'");
                     assert_eq!(
@@ -603,7 +608,7 @@ mod test {
 
         let server_address = rx.recv().map_err(|_| eyre::eyre!("recv failed"))?;
 
-        client.response(server_address, 8, response);
+        client.response(server_address, 8_u32.to_be_bytes().into(), response);
 
         server_thread
             .join()
@@ -642,7 +647,7 @@ mod test {
             );
         });
 
-        client.response(server_address, 8, response);
+        client.response(server_address, 8_u32.to_be_bytes().into(), response);
 
         server_thread
             .join()
@@ -713,15 +718,15 @@ mod test {
             responder_id: Id::random(),
         });
 
-        stranger.response(server_address, 8, response.clone());
+        stranger.response(server_address, 8_u32.to_be_bytes().into(), response.clone());
         assert!(server.recv_from().is_none());
         assert!(server.inflight(8), "the stranger ended the request");
 
-        client.response(server_address, 8, response);
+        client.response(server_address, 8_u32.to_be_bytes().into(), response);
         let (message, _) = server
             .recv_from()
             .ok_or_else(|| eyre::eyre!("no response from the expected address"))?;
-        assert_eq!(message.transaction_id, 8);
+        assert_eq!(&*message.transaction_id, &8_u32.to_be_bytes());
         Ok(())
     }
 
@@ -742,7 +747,7 @@ mod test {
             responder_id: Id::random(),
         });
 
-        client.response(server_address, 8, response);
+        client.response(server_address, 8_u32.to_be_bytes().into(), response);
         let _ = server.recv_from();
 
         let timeout = server.inflight_requests.request_timeout();
@@ -803,6 +808,64 @@ mod test {
 
         let capacity = socket.inflight_requests.requests.capacity();
         assert!(capacity <= 64, "capacity grew to {capacity}");
+        Ok(())
+    }
+
+    #[test]
+    fn response_id_must_match_the_full_four_bytes() -> Result<()> {
+        let mut socket = KrpcSocket::client()?;
+        let address = SocketAddrV4::new([127, 0, 0, 1].into(), 12345);
+        socket.inflight_requests.requests.insert(
+            0x6161,
+            InflightRequest {
+                to: address,
+                sent_at: Instant::now(),
+            },
+        );
+
+        let mut response = Message {
+            transaction_id: Box::from(&b"aa"[..]),
+            version: None,
+            requester_ip: None,
+            read_only: false,
+            message_type: MessageType::Response(ResponseSpecific::Ping(PingResponseArguments {
+                responder_id: Id::random(),
+            })),
+        };
+
+        assert!(!socket.is_expected_response(&response, address));
+        assert!(socket.inflight(0x6161));
+
+        response.transaction_id = 0x6161_u32.to_be_bytes().into();
+        assert!(socket.is_expected_response(&response, address));
+        assert!(!socket.inflight(0x6161));
+        Ok(())
+    }
+
+    #[test]
+    fn response_echoes_the_transaction_id_bytes() -> Result<()> {
+        let mut socket = KrpcSocket::client()?;
+        let receiver = UdpSocket::bind("127.0.0.1:0")?;
+        receiver.set_read_timeout(Some(Duration::from_millis(100)))?;
+        let address = SocketAddrV4::new([127, 0, 0, 1].into(), receiver.local_addr()?.port());
+
+        socket.response(
+            address,
+            Box::from(&b"aa"[..]),
+            ResponseSpecific::Ping(PingResponseArguments {
+                responder_id: Id::random(),
+            }),
+        );
+
+        let mut buf = [0_u8; MTU];
+        let (len, _) = receiver.recv_from(&mut buf)?;
+        let bytes = buf
+            .get(..len)
+            .ok_or_else(|| eyre::eyre!("received length is out of bounds"))?;
+        let message = Message::from_bytes(bytes)
+            .map_err(|error| eyre::eyre!("failed to parse the response: {error}"))?;
+
+        assert_eq!(&*message.transaction_id, b"aa");
         Ok(())
     }
 }

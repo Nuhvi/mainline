@@ -178,7 +178,7 @@ mod tests {
         let _ = core.handle_response(
             from,
             Message {
-                transaction_id: 0,
+                transaction_id: 0_u32.to_be_bytes().into(),
                 version: None,
                 requester_ip: None,
                 read_only: false,
