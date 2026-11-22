@@ -292,12 +292,9 @@ impl Actor {
     ) -> Option<(Id, Response)> {
         match message.message_type {
             MessageType::Request(request_specific) => {
-                let (response, should_repopulate_routing_tables) = self.core.handle_request(
-                    from,
-                    message.read_only,
-                    message.version,
-                    request_specific,
-                );
+                let (response, should_repopulate_routing_tables) =
+                    self.core
+                        .handle_request(from, message.read_only, request_specific);
 
                 match response {
                     Some(MessageType::Error(error)) => {
@@ -311,6 +308,10 @@ impl Actor {
 
                 if should_repopulate_routing_tables {
                     self.populate();
+                }
+
+                for address in self.core.take_pending_pings() {
+                    self.ping(address);
                 }
 
                 None

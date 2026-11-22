@@ -26,6 +26,9 @@ impl Core {
             return None;
         }
 
+        let author_id = message.get_author_id();
+        let from_version = message.version;
+
         // If the response looks like a Ping response, check StoreQueries for the transaction_id.
         if let Some(query) = self
             .put_queries
@@ -41,12 +44,11 @@ impl Core {
                 _ => {}
             }
 
+            self.add_responder(from, author_id, from_version);
             return None;
         }
 
-        let mut should_add_node = false;
-        let author_id = message.get_author_id();
-        let from_version = message.version;
+        let mut should_add_node = true;
 
         // Get corresponding query for message.transaction_id
         if let Some(query) = self
@@ -55,7 +57,6 @@ impl Core {
             .find(|query| query.inflight(message.transaction_id))
         {
             // KrpcSocket would not give us a response from the wrong address for the transaction_id
-            should_add_node = true;
 
             if let Some(nodes) = message.get_closer_nodes() {
                 // A node on the Internet must not be able to point our requests at our local
@@ -235,18 +236,26 @@ impl Core {
         }
 
         if should_add_node {
-            // Add a node to our routing table on any expected incoming response.
-
-            if let Some(id) = author_id {
-                self.routing_table.add(Node::new(id, from));
-
-                if supports_signed_peers(message.version) {
-                    self.signed_peers_routing_table.add(Node::new(id, from));
-                }
-            }
+            self.add_responder(from, author_id, from_version);
         }
 
         None
+    }
+
+    /// Adds the responder to the routing tables if it has an author id.
+    fn add_responder(
+        &mut self,
+        from: SocketAddrV4,
+        author_id: Option<Id>,
+        version: Option<[u8; 4]>,
+    ) {
+        if let Some(id) = author_id {
+            self.routing_table.add(Node::new(id, from));
+
+            if supports_signed_peers(version) {
+                self.signed_peers_routing_table.add(Node::new(id, from));
+            }
+        }
     }
 }
 

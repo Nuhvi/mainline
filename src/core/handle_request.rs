@@ -1,34 +1,33 @@
 use std::net::SocketAddrV4;
+use std::time::Instant;
 
 use tracing::info;
 
-use crate::core::supports_signed_peers;
+use crate::core::REQUESTER_PING_INTERVAL;
 use crate::RequestSpecific;
 use crate::{core::Core, MessageType};
 
-use crate::common::{Id, Node, RequestTypeSpecific};
+use crate::common::{Id, RequestTypeSpecific};
 
 impl Core {
     pub(crate) fn handle_request(
         &mut self,
         from: SocketAddrV4,
         request_from_read_only_node: bool,
-        version: Option<[u8; 4]>,
         request_specific: RequestSpecific,
     ) -> (Option<MessageType>, bool) {
-        self.maybe_add_node_from_request(
-            from,
-            version,
-            request_from_read_only_node,
-            &request_specific,
-        );
+        let allowed = self.server_mode && self.server.allow_request(&request_specific, from);
+
+        if allowed {
+            self.maybe_ping_requester(from, request_from_read_only_node, &request_specific);
+        }
 
         let should_repopulate_routing_tables =
             self.does_verify_our_new_public_address_with_self_ping(from, &request_specific);
 
-        let response = if self.server_mode {
+        let response = if allowed {
             let server = &mut self.server;
-            let response = server.handle_request(
+            let response = server.handle_allowed_request(
                 &self.routing_table,
                 &self.signed_peers_routing_table,
                 from,
@@ -46,42 +45,54 @@ impl Core {
         (response, should_repopulate_routing_tables)
     }
 
-    /// In client mode, we never add to our table any node contacting us
-    /// without querying it first, to avoid eclipse attacks.
+    /// Pings a requester that we might want in our routing tables.
     ///
-    /// While bootstrapping though, we can't be that picky, we have two
-    /// reasons to except that rule:
+    /// A request proves nothing: its sender address can be forged, and the
+    /// requester picks its own id. So we never add a requester directly. We
+    /// ping it instead, and its response, which the socket matches against our
+    /// transaction id and the address we pinged, adds it in
+    /// [`Core::handle_response`].
     ///
-    /// 1. first node creating the DHT;
-    ///    without this exception, the bootstrapping node's routing table will never be populated.
-    /// 2. Bootstrapping `signed_peers_routing_table` requires that we latch to any node
-    ///    that claims to support it.
-    ///    In `periodic_node_maintaenance` fake unresponsive nodes will be removed.
-    ///    And either way we prioritize secure nodes, so making up nodes from same
-    //    machine won't have much effect.
-    fn maybe_add_node_from_request(
+    /// We only do this for `find_node` requests.
+    fn maybe_ping_requester(
         &mut self,
         from: SocketAddrV4,
-        version: Option<[u8; 4]>,
         request_from_read_only_node: bool,
         request_specific: &RequestSpecific,
     ) {
-        if self.server_mode && !request_from_read_only_node {
-            if let RequestTypeSpecific::FindNode(ref param) = request_specific.request_type {
-                let node = Node::new(param.target, from);
-                let supports_signed_peers = supports_signed_peers(version);
-
-                if self.bootstrap.is_empty() {
-                    self.routing_table.add(node.clone());
-
-                    if supports_signed_peers {
-                        self.signed_peers_routing_table.add(node);
-                    }
-                } else if supports_signed_peers {
-                    self.signed_peers_routing_table.add(node);
-                }
-            }
+        if !self.server_mode || request_from_read_only_node {
+            return;
         }
+
+        if !matches!(
+            &request_specific.request_type,
+            RequestTypeSpecific::FindNode(_)
+        ) {
+            return;
+        }
+
+        let known = self
+            .routing_table
+            .nodes()
+            .any(|node| node.address() == from)
+            || self
+                .signed_peers_routing_table
+                .nodes()
+                .any(|node| node.address() == from);
+        if known {
+            return;
+        }
+
+        if self
+            .recently_pinged
+            .get(&from)
+            .is_some_and(|pinged| pinged.elapsed() < REQUESTER_PING_INTERVAL)
+        {
+            return;
+        }
+
+        self.recently_pinged.put(from, Instant::now());
+        self.pending_pings.push(from);
     }
 
     /// Check an incoming ping from our public address and clear `firewalled`.
@@ -130,5 +141,159 @@ impl Core {
         }
 
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    use super::*;
+    use crate::common::{
+        FindNodeRequestArguments, Message, PingResponseArguments, ResponseSpecific,
+    };
+    use crate::{RequestFilter, ServerSettings};
+
+    fn new_core(server_mode: bool, server_settings: ServerSettings) -> Core {
+        Core::new(Id::random(), vec![], server_mode, server_settings)
+    }
+
+    fn find_node(core: &mut Core, from: SocketAddrV4, read_only: bool) {
+        let _ = core.handle_request(
+            from,
+            read_only,
+            RequestSpecific {
+                requester_id: Id::from_ipv4(*from.ip()),
+                request_type: RequestTypeSpecific::FindNode(FindNodeRequestArguments {
+                    target: Id::random(),
+                }),
+            },
+        );
+    }
+
+    fn ping_response(core: &mut Core, from: SocketAddrV4, responder_id: Id) {
+        let _ = core.handle_response(
+            from,
+            Message {
+                transaction_id: 0,
+                version: None,
+                requester_ip: None,
+                read_only: false,
+                message_type: MessageType::Response(ResponseSpecific::Ping(
+                    PingResponseArguments { responder_id },
+                )),
+            },
+        );
+    }
+
+    #[test]
+    fn accepted_find_node_pings_requester_and_does_not_add() {
+        let from = SocketAddrV4::new([203, 0, 113, 10].into(), 6881);
+        let mut core = new_core(true, ServerSettings::default());
+
+        find_node(&mut core, from, false);
+        assert!(core.routing_table.is_empty());
+        assert_eq!(core.take_pending_pings(), vec![from]);
+
+        // Repeated requests do not trigger another ping.
+        find_node(&mut core, from, false);
+        assert!(core.take_pending_pings().is_empty());
+
+        let id = Id::from_ipv4(*from.ip());
+        ping_response(&mut core, from, id);
+
+        let nodes: Vec<_> = core.routing_table.nodes().collect();
+        assert_eq!(nodes.len(), 1);
+        let node = nodes.first();
+        assert_eq!(node.map(|node| *node.id()), Some(id));
+        assert_eq!(node.map(|node| node.address()), Some(from));
+    }
+
+    #[test]
+    fn read_only_requesters_are_not_pinged() {
+        let from = SocketAddrV4::new([203, 0, 113, 10].into(), 6881);
+        let mut core = new_core(true, ServerSettings::default());
+
+        find_node(&mut core, from, true);
+
+        assert!(core.take_pending_pings().is_empty());
+        assert!(core.routing_table.is_empty());
+    }
+
+    #[test]
+    fn client_mode_does_not_ping() {
+        let from = SocketAddrV4::new([203, 0, 113, 10].into(), 6881);
+        let mut core = new_core(false, ServerSettings::default());
+
+        find_node(&mut core, from, false);
+
+        assert!(core.take_pending_pings().is_empty());
+    }
+
+    #[test]
+    fn known_requesters_are_not_pinged() {
+        let from = SocketAddrV4::new([203, 0, 113, 10].into(), 6881);
+        let mut core = new_core(true, ServerSettings::default());
+
+        ping_response(&mut core, from, Id::from_ipv4(*from.ip()));
+        find_node(&mut core, from, false);
+
+        assert!(core.take_pending_pings().is_empty());
+    }
+
+    #[test]
+    fn rejected_requests_do_not_ping() {
+        #[derive(Clone, Debug)]
+        struct RejectAll;
+
+        impl RequestFilter for RejectAll {
+            fn allow_request(&self, _: &RequestSpecific, _: SocketAddrV4) -> bool {
+                false
+            }
+        }
+
+        let from = SocketAddrV4::new([203, 0, 113, 10].into(), 6881);
+        let mut core = new_core(
+            true,
+            ServerSettings {
+                filter: Box::new(RejectAll),
+                ..Default::default()
+            },
+        );
+
+        find_node(&mut core, from, false);
+
+        assert!(core.take_pending_pings().is_empty());
+        assert!(core.routing_table.is_empty());
+    }
+
+    #[test]
+    fn request_filter_is_called_once() {
+        #[derive(Clone, Debug)]
+        struct CountingFilter(Arc<AtomicUsize>);
+
+        impl RequestFilter for CountingFilter {
+            fn allow_request(&self, _: &RequestSpecific, _: SocketAddrV4) -> bool {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                true
+            }
+        }
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let from = SocketAddrV4::new([203, 0, 113, 10].into(), 6881);
+        let mut core = new_core(
+            true,
+            ServerSettings {
+                filter: Box::new(CountingFilter(calls.clone())),
+                ..Default::default()
+            },
+        );
+
+        find_node(&mut core, from, false);
+
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
     }
 }

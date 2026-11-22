@@ -148,20 +148,21 @@ impl Server {
         }
     }
 
-    /// Returns an optional response or an error for a request.
+    /// Returns true if the request filter allows this request.
+    pub(crate) fn allow_request(&self, request: &RequestSpecific, from: SocketAddrV4) -> bool {
+        self.filter.allow_request(request, from)
+    }
+
+    /// Returns an optional response or an error for an allowed request.
     ///
     /// Passed to the Rpc to send back to the requester.
-    pub(crate) fn handle_request(
+    pub(crate) fn handle_allowed_request(
         &mut self,
         routing_table: &RoutingTable,
         signing_peers_routing_table: &RoutingTable,
         from: SocketAddrV4,
         request: RequestSpecific,
     ) -> Option<MessageType> {
-        if !self.filter.allow_request(&request, from) {
-            return None;
-        }
-
         // Lazily rotate secrets before handling a request
         if self.tokens.should_update() {
             self.tokens.rotate();
