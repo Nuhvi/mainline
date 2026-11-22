@@ -16,10 +16,10 @@ use crate::actor::socket::KrpcSocket;
 pub(crate) struct PutQuery {
     pub target: Id,
     /// Nodes that confirmed success
-    stored_at: u8,
+    stored_at: usize,
     inflight_requests: Vec<u32>,
     pub request: PutRequestSpecific,
-    errors: Vec<(u8, ErrorSpecific)>,
+    errors: Vec<(usize, ErrorSpecific)>,
     extra_nodes: Box<[Node]>,
 }
 
@@ -51,11 +51,7 @@ impl PutQuery {
             Err(PutQueryError::NoClosestNodes)?;
         }
 
-        for node in closest_nodes
-            .iter()
-            .take(u8::MAX as usize)
-            .chain(self.extra_nodes.iter())
-        {
+        for node in closest_nodes.iter().chain(self.extra_nodes.iter()) {
             // Set correct values to the request placeholders
             if let Some(token) = node.token() {
                 let tid = socket.request(
@@ -175,7 +171,7 @@ impl PutQuery {
 
     /// Return most common error if any
     fn majority_nodes_rejected_put_mutable(&self) -> Option<ConcurrencyError> {
-        let half = u8::try_from((self.inflight_requests.len() / 2) + 1).unwrap_or(u8::MAX);
+        let half = (self.inflight_requests.len() / 2) + 1;
 
         if matches!(self.request, PutRequestSpecific::PutMutable(_)) {
             return self.most_common_error().and_then(|(count, error)| {
@@ -194,14 +190,15 @@ impl PutQuery {
         None
     }
 
-    fn most_common_error(&self) -> Option<(u8, PutError)> {
-        self.errors
-            .first()
-            .and_then(|(count, error)| match error.code {
-                301 => Some((*count, PutError::from(ConcurrencyError::CasFailed))),
-                302 => Some((*count, PutError::from(ConcurrencyError::NotMostRecent))),
-                _ => None,
-            })
+    fn most_common_error(&self) -> Option<(usize, PutError)> {
+        self.errors.first().map(|(count, error)| {
+            let error = match (&self.request, error.code) {
+                (PutRequestSpecific::PutMutable(_), 301) => ConcurrencyError::CasFailed.into(),
+                (PutRequestSpecific::PutMutable(_), 302) => ConcurrencyError::NotMostRecent.into(),
+                _ => PutQueryError::ErrorResponse(error.clone()).into(),
+            };
+            (*count, error)
+        })
     }
 }
 
@@ -262,4 +259,92 @@ pub enum ConcurrencyError {
     /// The `CAS` condition does not match the `seq` of the most recent known signed item.
     #[error("CAS check failed, try reading most recent item before writing again.")]
     CasFailed,
+}
+
+#[cfg(test)]
+mod tests {
+    use eyre::Result;
+
+    use super::*;
+    use crate::{
+        common::{AnnouncePeerRequestArguments, PutMutableRequestArguments},
+        MutableItem,
+    };
+
+    fn announce_request() -> PutRequestSpecific {
+        PutRequestSpecific::AnnouncePeer(AnnouncePeerRequestArguments {
+            info_hash: Id::random(),
+            port: 6881,
+            implied_port: None,
+        })
+    }
+
+    fn mutable_request() -> PutRequestSpecific {
+        let item = MutableItem::new(
+            &ed25519_dalek::SigningKey::from_bytes(&[7; 32]),
+            b"value",
+            1,
+            None,
+        );
+        PutRequestSpecific::PutMutable(PutMutableRequestArguments::from(item, None))
+    }
+
+    fn cas_error() -> ErrorSpecific {
+        ErrorSpecific {
+            code: 301,
+            description: "CAS mismatch".into(),
+        }
+    }
+
+    #[test]
+    fn concurrency_errors_only_for_mutable_puts() -> Result<()> {
+        let mut announce = PutQuery::new(announce_request(), None);
+        announce.error(cas_error());
+        let (count, error) = announce
+            .most_common_error()
+            .ok_or_else(|| eyre::eyre!("expected an error"))?;
+        assert_eq!(count, 1);
+        assert!(matches!(
+            error,
+            PutError::Query(PutQueryError::ErrorResponse(_))
+        ));
+
+        let mut mutable = PutQuery::new(mutable_request(), None);
+        mutable.error(cas_error());
+        let (count, error) = mutable
+            .most_common_error()
+            .ok_or_else(|| eyre::eyre!("expected an error"))?;
+        assert_eq!(count, 1);
+        assert!(matches!(
+            error,
+            PutError::Concurrency(ConcurrencyError::CasFailed)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn counts_are_not_u8() -> Result<()> {
+        let mut query = PutQuery::new(announce_request(), None);
+
+        for _ in 0..300 {
+            query.error(ErrorSpecific {
+                code: 500,
+                description: "error".into(),
+            });
+        }
+        let (count, error) = query
+            .most_common_error()
+            .ok_or_else(|| eyre::eyre!("expected an error"))?;
+        assert_eq!(count, 300);
+        assert!(matches!(
+            error,
+            PutError::Query(PutQueryError::ErrorResponse(_))
+        ));
+
+        for _ in 0..300 {
+            query.success();
+        }
+        assert_eq!(query.stored_at, 300);
+        Ok(())
+    }
 }
