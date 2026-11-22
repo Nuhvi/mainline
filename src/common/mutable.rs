@@ -1,6 +1,6 @@
 //! Helper functions and structs for mutable items.
 
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha1_smol::Sha1;
 use std::convert::TryFrom;
@@ -8,6 +8,9 @@ use std::convert::TryFrom;
 use crate::Id;
 
 use super::PutMutableRequestArguments;
+
+/// Maximum salt length in BEP 44.
+const MAX_SALT_SIZE: usize = 64;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 /// [BEP_0044](https://www.bittorrent.org/beps/bep_0044.html)'s Mutable item.
@@ -88,12 +91,19 @@ impl MutableItem {
         signature: &[u8],
         salt: Option<Box<[u8]>>,
     ) -> Result<Self, MutableError> {
+        if salt
+            .as_deref()
+            .is_some_and(|salt| salt.len() > MAX_SALT_SIZE)
+        {
+            return Err(MutableError::SaltTooLong);
+        }
+
         let key = VerifyingKey::try_from(key).map_err(|_| MutableError::InvalidMutablePublicKey)?;
 
         let signature =
             Signature::from_slice(signature).map_err(|_| MutableError::InvalidMutableSignature)?;
 
-        key.verify(&encode_signable(seq, &v, salt.as_deref()), &signature)
+        key.verify_strict(&encode_signable(seq, &v, salt.as_deref()), &signature)
             .map_err(|_| MutableError::InvalidMutableSignature)?;
 
         let derived = MutableItem::target_from_key(&key.to_bytes(), salt.as_deref());
@@ -190,6 +200,10 @@ pub enum MutableError {
     #[error("Mutable item target does not match its public key")]
     /// The item's target is not `sha1(k[+salt])` of its public key
     TargetMismatch,
+
+    #[error("Mutable item salt is longer than 64 bytes")]
+    /// The salt is longer than the BEP 44 limit
+    SaltTooLong,
 }
 
 impl PutMutableRequestArguments {
@@ -268,6 +282,46 @@ mod tests {
         );
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn mutable_item_rejects_small_order_key() {
+        // The identity point is a valid curve point of small order.
+        let key: [u8; 32] = std::array::from_fn(|i| u8::from(i == 0));
+        // R is the identity point and S is zero. This satisfies the plain
+        // verification equation for any message.
+        let signature: [u8; 64] = std::array::from_fn(|i| u8::from(i == 0));
+        let target = MutableItem::target_from_key(&key, None);
+
+        let result = MutableItem::from_dht_message(
+            target,
+            &key,
+            b"value".to_vec().into(),
+            1,
+            &signature,
+            None,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn mutable_item_salt_is_at_most_64_bytes() {
+        let signer = SigningKey::from_bytes(&[7; 32]);
+        let validate = |salt: &[u8]| {
+            let item = MutableItem::new(&signer, b"value", 1, Some(salt));
+            MutableItem::from_dht_message(
+                *item.target(),
+                signer.verifying_key().as_bytes(),
+                item.value().to_vec().into(),
+                item.seq(),
+                item.signature(),
+                Some(salt.to_vec().into()),
+            )
+        };
+
+        assert!(validate(&[0x55; 64]).is_ok());
+        assert!(validate(&[0x55; 65]).is_err());
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! Helper functions and structs for announcing signed peers.
 
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, time::SystemTime};
 
@@ -69,7 +69,7 @@ impl SignedAnnounce {
         let signature =
             Signature::from_slice(signature).map_err(|_| SignedAnnounceError::Signature)?;
 
-        key.verify(&encode_signable(info_hash, timestamp), &signature)
+        key.verify_strict(&encode_signable(info_hash, timestamp), &signature)
             .map_err(|_| SignedAnnounceError::Signature)?;
 
         let now = system_time();
@@ -216,5 +216,19 @@ mod tests {
 
         assert!(matches!(result, Err(SignedAnnounceError::PublicKey)));
         Ok(())
+    }
+
+    #[test]
+    fn small_order_key_is_rejected() {
+        let info_hash = Id::random();
+        // The identity point is a valid curve point of small order.
+        let key: [u8; 32] = std::array::from_fn(|i| u8::from(i == 0));
+        // R is the identity point and S is zero. This satisfies the plain
+        // verification equation for any message.
+        let signature: [u8; 64] = std::array::from_fn(|i| u8::from(i == 0));
+
+        let result = SignedAnnounce::from_dht_response(&info_hash, &key, 1, &signature);
+
+        assert!(matches!(result, Err(SignedAnnounceError::Signature)));
     }
 }
