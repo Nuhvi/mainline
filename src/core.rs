@@ -453,14 +453,15 @@ impl Core {
             &mut self.signed_peers_routing_table,
         );
 
-        relevant_routing_table.increment_responders_stats(
-            dht_size_estimate,
-            responders_dht_size_estimate,
-            subnets_count,
-        );
+        if matches!(query.request.request_type, RequestTypeSpecific::FindNode(_)) {
+            relevant_routing_table.increment_dht_size_estimate(dht_size_estimate);
+        } else {
+            relevant_routing_table.increment_responders_stats(
+                dht_size_estimate,
+                responders_dht_size_estimate,
+                subnets_count,
+            );
 
-        // Only for get queries, not find node.
-        if !matches!(query.request.request_type, RequestTypeSpecific::FindNode(_)) {
             debug!(
                 target = ?query.target(),
                 responders_size_estimate = ?relevant_routing_table.responders_based_dht_size_estimate(),
@@ -545,4 +546,65 @@ pub enum Response {
     SignedPeers(Vec<SignedAnnounce>),
     Immutable(Box<[u8]>),
     Mutable(MutableItem),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::{FindNodeRequestArguments, GetValueRequestArguments};
+    use crate::core::iterative_query::GetRequestSpecific;
+
+    fn node() -> Node {
+        Node::new(
+            Id::from([2; 20]),
+            SocketAddrV4::new([198, 51, 100, 1].into(), 6881),
+        )
+    }
+
+    #[test]
+    fn find_node_does_not_change_responder_stats() {
+        let mut core = Core::new(Id::random(), vec![], false, ServerSettings::default());
+        let node = node();
+        let get_target = Id::from([1; 20]);
+
+        let mut get = IterativeQuery::new(
+            *core.id(),
+            get_target,
+            GetRequestSpecific::GetValue(GetValueRequestArguments {
+                target: get_target,
+                seq: None,
+                salt: None,
+            }),
+        );
+        get.add_candidate(node.clone());
+        get.add_responding_node(node.clone());
+        core.cache_iterative_query(&get, std::slice::from_ref(&node));
+
+        let responders = core.routing_table.responders_based_dht_size_estimate();
+        assert!(responders > 0);
+
+        let find_target = Id::from([3; 20]);
+        let mut find = IterativeQuery::new(
+            *core.id(),
+            find_target,
+            GetRequestSpecific::FindNode(FindNodeRequestArguments {
+                target: find_target,
+            }),
+        );
+        find.add_candidate(node.clone());
+        core.cache_iterative_query(&find, std::slice::from_ref(&node));
+
+        assert_eq!(
+            core.routing_table.responders_based_dht_size_estimate(),
+            responders,
+            "a find_node query changed the responder statistics"
+        );
+
+        // Replacing the cached find_node entry must not change them either.
+        core.cache_iterative_query(&find, std::slice::from_ref(&node));
+        assert_eq!(
+            core.routing_table.responders_based_dht_size_estimate(),
+            responders
+        );
+    }
 }

@@ -234,14 +234,18 @@ impl RoutingTable {
         self.responders_size_estimates_sum as usize / self.responders_samples_count.max(1)
     }
 
+    pub(crate) fn increment_dht_size_estimate(&mut self, dht_size_estimate: f64) {
+        self.dht_size_estimates_count += 1;
+        self.dht_size_estimates_sum += dht_size_estimate;
+    }
+
     pub(crate) fn increment_responders_stats(
         &mut self,
         dht_size_estimate: f64,
         responders_dht_size_estimate: f64,
         subnets_count: u8,
     ) {
-        self.dht_size_estimates_count += 1;
-        self.dht_size_estimates_sum += dht_size_estimate;
+        self.increment_dht_size_estimate(dht_size_estimate);
 
         self.responders_samples_count += 1;
         self.responders_size_estimates_sum += responders_dht_size_estimate;
@@ -259,8 +263,7 @@ impl RoutingTable {
         responders_dht_size_estimate: f64,
         subnets_count: u8,
     ) {
-        self.dht_size_estimates_count -= 1;
-        self.dht_size_estimates_sum -= dht_size_estimate;
+        self.decrement_dht_size_estimate(dht_size_estimate);
 
         self.responders_samples_count -= 1;
         self.responders_size_estimates_sum -= responders_dht_size_estimate;
