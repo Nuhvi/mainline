@@ -160,12 +160,7 @@ impl AsyncDht {
             None,
         )
         .await
-        .map_err(|error| match error {
-            PutError::Query(error) => error,
-            PutError::Concurrency(_) => {
-                unreachable!("should not receive a concurrency error from announce peer query")
-            }
-        })
+        .map_err(super::put_error_to_query_error)
     }
 
     // === Signed Peers ===
@@ -203,14 +198,7 @@ impl AsyncDht {
             None,
         )
         .await
-        .map_err(|error| match error {
-            PutError::Query(error) => error,
-            PutError::Concurrency(_) => {
-                unreachable!(
-                    "should not receive a concurrency error from announce signed peer query"
-                )
-            }
-        })
+        .map_err(super::put_error_to_query_error)
     }
 
     /// Get peers verifiably announced for a given infohash by their public key.
@@ -277,12 +265,7 @@ impl AsyncDht {
             None,
         )
         .await
-        .map_err(|error| match error {
-            PutError::Query(error) => error,
-            PutError::Concurrency(_) => {
-                unreachable!("should not receive a concurrency error from put immutable query")
-            }
-        })
+        .map_err(super::put_error_to_query_error)
     }
 
     // === Mutable data ===
@@ -528,6 +511,105 @@ mod test {
 
         futures::executor::block_on(test())?;
 
+        Ok(())
+    }
+
+    #[test]
+    fn remote_put_error_is_returned_instead_of_panicking() -> Result<()> {
+        use crate::{
+            actor::{config::Config, socket::KrpcSocket},
+            common::{
+                ErrorSpecific, FindNodeResponseArguments, MessageType, NoValuesResponseArguments,
+                PutRequest, PutRequestSpecific, RequestTypeSpecific, ResponseSpecific,
+            },
+        };
+
+        let mut server = KrpcSocket::new(&Config {
+            port: Some(0),
+            server_mode: true,
+            ..Default::default()
+        })?;
+        let server_id = Id::random();
+        let address = SocketAddrV4::new([127, 0, 0, 1].into(), server.local_addr().port());
+        let (stop_tx, stop_rx) = flume::bounded(1);
+
+        let server_thread = std::thread::spawn(move || -> Result<()> {
+            loop {
+                if stop_rx.try_recv().is_ok() {
+                    return Ok(());
+                }
+
+                let Some((message, from)) = server.recv_from() else {
+                    continue;
+                };
+                let tid = message.transaction_id;
+                let MessageType::Request(request) = message.message_type else {
+                    continue;
+                };
+
+                match request.request_type {
+                    RequestTypeSpecific::Put(PutRequest {
+                        put_request_type: PutRequestSpecific::AnnouncePeer(_),
+                        ..
+                    }) => {
+                        server.error(
+                            from,
+                            tid,
+                            ErrorSpecific {
+                                code: 301,
+                                description: "CAS mismatch".into(),
+                            },
+                        );
+                    }
+                    RequestTypeSpecific::GetPeers(_) => {
+                        server.response(
+                            from,
+                            tid,
+                            ResponseSpecific::NoValues(NoValuesResponseArguments {
+                                responder_id: server_id,
+                                token: Box::new([1]),
+                                nodes: None,
+                            }),
+                        );
+                    }
+                    RequestTypeSpecific::FindNode(_) => {
+                        server.response(
+                            from,
+                            tid,
+                            ResponseSpecific::FindNode(FindNodeResponseArguments {
+                                responder_id: server_id,
+                                nodes: Box::new([]),
+                            }),
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        let client = futures::executor::block_on(
+            Dht::builder()
+                .port(0)
+                .bootstrap(&[address.to_string()])
+                .build_async(),
+        )?;
+        let result = futures::executor::block_on(client.announce_peer(Id::random(), Some(1234)));
+
+        let _ = stop_tx.send(());
+        server_thread
+            .join()
+            .map_err(|_| eyre::eyre!("server thread panicked"))??;
+
+        assert!(
+            matches!(
+                result,
+                Err(PutQueryError::ErrorResponse(ErrorSpecific {
+                    code: 301,
+                    ..
+                }))
+            ),
+            "remote put error was not returned: {result:?}"
+        );
         Ok(())
     }
 
