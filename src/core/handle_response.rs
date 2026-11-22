@@ -57,6 +57,7 @@ impl Core {
             .find(|query| query.inflight(message.transaction_id))
         {
             // KrpcSocket would not give us a response from the wrong address for the transaction_id
+            query.responded(from);
 
             if let Some(nodes) = message.get_closer_nodes() {
                 // A node on the Internet must not be able to point our requests at our local

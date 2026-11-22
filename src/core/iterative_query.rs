@@ -1,7 +1,6 @@
 //! Manage iterative queries and their corresponding request/response.
 
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::net::SocketAddrV4;
 
 use tracing::{debug, trace};
@@ -22,7 +21,8 @@ pub(crate) struct IterativeQuery {
     closest: ClosestNodes,
     responders: ClosestNodes,
     inflight_requests: Vec<u32>,
-    visited: HashSet<SocketAddrV4>,
+    /// Nodes we sent a request to, with the transaction id until they respond.
+    visited: HashMap<SocketAddrV4, Option<u32>>,
     responses: Vec<Response>,
     public_address_votes: HashMap<SocketAddrV4, u32>,
 }
@@ -99,7 +99,7 @@ impl IterativeQuery {
             responders: ClosestNodes::new(target),
 
             inflight_requests: Vec::new(),
-            visited: HashSet::new(),
+            visited: HashMap::new(),
 
             responses: Vec::new(),
 
@@ -162,12 +162,19 @@ impl IterativeQuery {
     pub(crate) fn visit(&mut self, socket: &mut KrpcSocket, address: SocketAddrV4) {
         let tid = socket.request(address, self.request.clone());
         self.inflight_requests.push(tid);
-        self.visited.insert(address);
+        self.visited.insert(address, Some(tid));
     }
 
     /// Return true if a response (by `transaction_id`) is expected by this query.
     pub(crate) fn inflight(&self, tid: u32) -> bool {
         self.inflight_requests.contains(&tid)
+    }
+
+    /// Record that the node at `address` responded to this query.
+    pub(crate) fn responded(&mut self, address: SocketAddrV4) {
+        if let Some(tid) = self.visited.get_mut(&address) {
+            *tid = None;
+        }
     }
 
     /// Add a node that responded with a token as a probable storage node.
@@ -185,21 +192,45 @@ impl IterativeQuery {
     }
 
     pub(crate) fn visit_closest(&mut self, socket: &mut KrpcSocket) {
-        let to_visit = self.closest_candidates();
+        let to_visit = self.next_candidates(socket);
 
         for address in to_visit {
             self.visit(socket, address);
         }
     }
 
-    pub(crate) fn closest_candidates(&self) -> Vec<SocketAddrV4> {
+    /// Returns the closest nodes for a new query.
+    ///
+    /// The query is new, so no node is visited yet.
+    pub(crate) fn initial_candidates(&self) -> Vec<SocketAddrV4> {
         self.closest
             .nodes()
             .iter()
             .take(MAX_BUCKET_SIZE_K)
-            .filter(|node| !self.visited.contains(&node.address()))
             .map(Node::address)
             .collect()
+    }
+
+    /// Returns the closest nodes that the query can visit now.
+    ///
+    /// A node whose request timed out frees its place among the closest nodes.
+    fn next_candidates(&self, socket: &KrpcSocket) -> Vec<SocketAddrV4> {
+        self.closest
+            .nodes()
+            .iter()
+            // A node that timed out without a response loses its slot.
+            .filter(|node| !self.timed_out(&node.address(), socket))
+            .take(MAX_BUCKET_SIZE_K)
+            // A pending or a responded node keeps its slot, but needs no request.
+            .filter(|node| !self.visited.contains_key(&node.address()))
+            .map(Node::address)
+            .collect()
+    }
+
+    /// Returns true if the node was asked, did not respond,
+    /// and its request is no longer inflight.
+    fn timed_out(&self, address: &SocketAddrV4, socket: &KrpcSocket) -> bool {
+        matches!(self.visited.get(address), Some(Some(tid)) if !socket.inflight(*tid))
     }
 
     /// Returns true if it is done.
@@ -226,10 +257,11 @@ mod tests {
 
     use eyre::{eyre, Result};
 
+    use crate::actor::socket::MIN_REQUEST_TIMEOUT;
+
     use super::*;
 
     #[test]
-    #[ignore = "ANT-2026-WXBVRQOM"]
     fn unresponsive_nodes_do_not_crowd_out_further_nodes() -> Result<()> {
         let mut socket = KrpcSocket::client()?;
         let target = Id::random();
@@ -264,9 +296,52 @@ mod tests {
         query.visit_closest(&mut socket);
 
         assert!(
-            query.visited.contains(&further),
+            query.visited.contains_key(&further),
             "the farther node was never asked"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn only_nodes_that_timed_out_without_responding_lose_their_place() -> Result<()> {
+        let mut socket = KrpcSocket::client()?;
+        let target = Id::random();
+        let mut query = IterativeQuery::new(
+            Id::random(),
+            target,
+            GetRequestSpecific::GetValue(GetValueRequestArguments {
+                target,
+                seq: None,
+                salt: None,
+            }),
+        );
+        let mut close = vec![];
+        for i in 1..=MAX_BUCKET_SIZE_K as u8 {
+            let mut id = *target.as_bytes();
+            let octet = id.get_mut(19).ok_or_else(|| eyre!("an id is 20 bytes"))?;
+            *octet ^= i;
+            let address = SocketAddrV4::new([127, 66, 0, i].into(), 1);
+            query.add_candidate(Node::new(id.into(), address));
+            query.visit(&mut socket, address);
+            close.push(address);
+        }
+
+        let mut id = *target.as_bytes();
+        let octet = id.get_mut(0).ok_or_else(|| eyre!("an id is 20 bytes"))?;
+        *octet ^= 1;
+        let further = SocketAddrV4::new([127, 0, 0, 1].into(), 1);
+        query.add_candidate(Node::new(id.into(), further));
+
+        // Requests still inflight: the close nodes keep their places.
+        assert!(query.next_candidates(&socket).is_empty());
+        // Requests timed out without a response: the further node is next.
+        thread::sleep(MIN_REQUEST_TIMEOUT + Duration::from_millis(100));
+        assert_eq!(query.next_candidates(&socket), vec![further]);
+        // Responses give the close nodes their places back, so the query is done.
+        for address in close {
+            query.responded(address);
+        }
+        assert!(query.next_candidates(&socket).is_empty());
         Ok(())
     }
 }
