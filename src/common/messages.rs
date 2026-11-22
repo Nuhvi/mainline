@@ -953,10 +953,15 @@ fn bytes_to_signed_peers<T: AsRef<[serde_bytes::ByteBuf]>>(
     bytes.iter().map(bytes_to_signed_peer).collect()
 }
 
+/// Decodes one signed peer entry.
+///
+/// An entry is exactly 104 bytes: a 32-byte public key, an 8-byte timestamp,
+/// and a 64-byte signature. The BEP puts one entry in each item of the
+/// `peers` list.
 fn bytes_to_signed_peer<T: AsRef<[u8]>>(bytes: T) -> Result<SignedAnnounce, DecodeMessageError> {
     let bytes = bytes.as_ref();
 
-    if !bytes.len().is_multiple_of(104) {
+    if bytes.len() != 104 {
         return Err(DecodeMessageError::InvalidSignedPeersEncodingLength);
     }
 
@@ -1473,8 +1478,8 @@ mod tests {
         assert!(Message::from_bytes(bytes).is_err());
     }
 
+    /// A 208-byte entry must not decode as one peer. See ANT-2026-Q1YZQ6P8.
     #[test]
-    #[ignore = "ANT-2026-Q1YZQ6P8"]
     fn test_signed_peers_entry_of_wrong_length() {
         let response = |entry: &[u8]| {
             let mut bytes = b"d1:rd2:id20:abcdefghij01234567895:peersl".to_vec();
