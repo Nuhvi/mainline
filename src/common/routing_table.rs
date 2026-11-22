@@ -89,6 +89,16 @@ impl RoutingTable {
             return false;
         }
 
+        // A node we already know at the same ip: let the bucket refresh it.
+        let known_at_same_ip = self.buckets.get(&distance).is_some_and(|bucket| {
+            bucket
+                .iter()
+                .any(|existing| existing.id() == node.id() && existing.same_ip(&node))
+        });
+        if known_at_same_ip {
+            return self.buckets.entry(distance).or_default().add(node);
+        }
+
         if self
             .buckets()
             .values()
@@ -389,6 +399,24 @@ mod test {
 
         table.add(Node::random());
         assert!(!table.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn adding_a_known_node_refreshes_it() -> Result<()> {
+        let mut table = RoutingTable::new(Id::random());
+        let node = Node::random();
+        table.add(node.clone());
+
+        let seen_again = Node::new(*node.id(), node.address());
+        assert!(table.add(seen_again.clone()));
+
+        let nodes = table.nodes().collect::<Vec<_>>();
+        assert_eq!(nodes.len(), 1);
+        let stored = nodes
+            .first()
+            .ok_or_else(|| eyre::eyre!("the table must hold one node"))?;
+        assert!(Arc::ptr_eq(&stored.0, &seen_again.0));
         Ok(())
     }
 
