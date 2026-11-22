@@ -23,6 +23,8 @@ pub(crate) const MIN_POLL_INTERVAL: Duration = Duration::from_micros(100);
 /// Useful for waiting for incoming requests, and [`super::Actor::periodic_node_maintaenance`].
 pub(crate) const MAX_POLL_INTERVAL: Duration = Duration::from_millis(500);
 pub(crate) const MIN_REQUEST_TIMEOUT: Duration = Duration::from_millis(500);
+/// Upper bound for the adaptive request timeout.
+const MAX_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Version before supporting `announce_signed_peers`
 #[cfg(test)]
@@ -391,7 +393,7 @@ impl InflightRequests {
     }
 
     fn request_timeout(&self) -> Duration {
-        self.estimated_rtt + self.deviation_rtt.mul_f64(4.0)
+        (self.estimated_rtt + self.deviation_rtt.mul_f64(4.0)).min(MAX_REQUEST_TIMEOUT)
     }
 
     fn is_empty(&self) -> bool {
@@ -427,12 +429,18 @@ impl InflightRequests {
             Ok(index) => {
                 let request = self.requests.remove(index);
 
-                self.update_rtt_estimates(request.sent_at.elapsed());
-                trace!(
-                    "Updated estimated round trip time {:?} and request timeout {:?}",
-                    self.estimated_rtt,
-                    self.request_timeout()
-                );
+                // The socket still handles a late response, but does not use it as a round
+                // trip sample. A single late reply must not inflate the timeout of every
+                // later request.
+                let rtt = request.sent_at.elapsed();
+                if rtt <= self.request_timeout() * 2 {
+                    self.update_rtt_estimates(rtt);
+                    trace!(
+                        "Updated estimated round trip time {:?} and request timeout {:?}",
+                        self.estimated_rtt,
+                        self.request_timeout()
+                    );
+                }
 
                 Some(request)
             }
@@ -441,9 +449,9 @@ impl InflightRequests {
     }
 
     fn update_rtt_estimates(&mut self, sample_rtt: Duration) {
-        if sample_rtt < MIN_REQUEST_TIMEOUT {
-            return;
-        }
+        // Clamp the sample instead of dropping fast replies.
+        // The estimate can then recover after a spike.
+        let sample_rtt = sample_rtt.clamp(MIN_REQUEST_TIMEOUT, MAX_REQUEST_TIMEOUT);
 
         // Use TCP-like alpha = 1/8, beta = 1/4
         let alpha = 0.125;
@@ -742,7 +750,6 @@ mod test {
     }
 
     #[test]
-    #[ignore = "ANT-2026-51OFOF9U"]
     fn late_response_does_not_inflate_request_timeout() -> Result<()> {
         let mut server = KrpcSocket::client()?;
         let server_address = SocketAddrV4::new([127, 0, 0, 1].into(), server.local_addr().port());
@@ -766,6 +773,26 @@ mod test {
             "a late reply raised the request timeout to {timeout:?}"
         );
         Ok(())
+    }
+
+    #[test]
+    fn request_timeout_is_bounded_and_recovers() {
+        let mut requests = InflightRequests::new();
+        assert_eq!(requests.request_timeout(), MIN_REQUEST_TIMEOUT);
+
+        // Each sample arrives just within the accepted range.
+        // The timeout goes up, but stays below the maximum.
+        for _ in 0..100 {
+            let sample = requests.request_timeout().mul_f64(1.9);
+            requests.update_rtt_estimates(sample);
+        }
+        assert_eq!(requests.request_timeout(), MAX_REQUEST_TIMEOUT);
+
+        // Fast replies bring the timeout back down to the minimum.
+        for _ in 0..200 {
+            requests.update_rtt_estimates(Duration::from_millis(50));
+        }
+        assert!(requests.request_timeout() < MIN_REQUEST_TIMEOUT.mul_f64(1.1));
     }
 
     #[test]
