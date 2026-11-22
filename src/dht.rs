@@ -999,14 +999,29 @@ mod test {
     #[test]
     fn populate_bootstrapping_node_routing_table() -> Result<()> {
         let size = 3;
+        let expected = size - 1;
 
         let testnet = Testnet::new(size)?;
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if testnet
+                .nodes
+                .iter()
+                .all(|n| n.to_bootstrap().len() == expected)
+            {
+                return Ok(());
+            }
+            if std::time::Instant::now() >= deadline {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
 
         assert!(testnet
             .nodes
             .iter()
-            .all(|n| n.to_bootstrap().len() == size - 1));
-
+            .all(|n| n.to_bootstrap().len() == expected));
         Ok(())
     }
 
