@@ -273,8 +273,7 @@ impl Server {
                         _ => SocketAddrV4::new(*from.ip(), port),
                     };
 
-                    self.peers
-                        .add_peer(info_hash, (&request.requester_id, peer));
+                    self.peers.add_peer(info_hash, peer);
 
                     return Some(MessageType::Response(ResponseSpecific::Ping(
                         PingResponseArguments {

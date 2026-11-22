@@ -1,6 +1,9 @@
 //! Manage announced peers for `info_hashes`
 
-use std::{net::SocketAddrV4, num::NonZeroUsize};
+use std::{
+    net::{Ipv4Addr, SocketAddrV4},
+    num::NonZeroUsize,
+};
 
 use crate::common::Id;
 
@@ -11,9 +14,12 @@ const CHANCE_SCALE: f32 = 4_294_967_296.0;
 #[derive(Debug, Clone)]
 /// An LRU cache of "Peers" per info hashes.
 ///
+/// Peers are keyed by ip, so that a single host can occupy at most one slot
+/// per info hash, no matter how many node ids or ports it uses.
+///
 /// Read [BEP_0005](https://www.bittorrent.org/beps/bep_0005.html) for more information.
 pub(crate) struct PeersStore {
-    info_hashes: LruCache<Id, LruCache<Id, SocketAddrV4>>,
+    info_hashes: LruCache<Id, LruCache<Ipv4Addr, SocketAddrV4>>,
     max_peers: NonZeroUsize,
 }
 
@@ -27,12 +33,12 @@ impl PeersStore {
     }
 
     /// Add a peer for an info hash.
-    pub(crate) fn add_peer(&mut self, info_hash: Id, peer: (&Id, SocketAddrV4)) {
+    pub(crate) fn add_peer(&mut self, info_hash: Id, peer: SocketAddrV4) {
         if let Some(info_hash_lru) = self.info_hashes.get_mut(&info_hash) {
-            info_hash_lru.put(*peer.0, peer.1);
+            info_hash_lru.put(*peer.ip(), peer);
         } else {
             let mut info_hash_lru = LruCache::new(self.max_peers);
-            info_hash_lru.put(*peer.0, peer.1);
+            info_hash_lru.put(*peer.ip(), peer);
             self.info_hashes.put(info_hash, info_hash_lru);
         }
     }
@@ -107,14 +113,8 @@ mod test {
         let info_hash_a = Id::random();
         let info_hash_b = Id::random();
 
-        store.add_peer(
-            info_hash_a,
-            (&info_hash_a, SocketAddrV4::new([127, 0, 1, 1].into(), 0)),
-        );
-        store.add_peer(
-            info_hash_b,
-            (&info_hash_b, SocketAddrV4::new([127, 0, 1, 1].into(), 0)),
-        );
+        store.add_peer(info_hash_a, SocketAddrV4::new([127, 0, 1, 1].into(), 0));
+        store.add_peer(info_hash_b, SocketAddrV4::new([127, 0, 1, 1].into(), 0));
 
         assert_eq!(store.info_hashes.len(), 1);
         assert_eq!(
@@ -133,18 +133,9 @@ mod test {
 
         let info_hash = Id::random();
 
-        store.add_peer(
-            info_hash,
-            (&Id::random(), SocketAddrV4::new([127, 0, 1, 1].into(), 0)),
-        );
-        store.add_peer(
-            info_hash,
-            (&Id::random(), SocketAddrV4::new([127, 0, 1, 2].into(), 0)),
-        );
-        store.add_peer(
-            info_hash,
-            (&Id::random(), SocketAddrV4::new([127, 0, 1, 3].into(), 0)),
-        );
+        store.add_peer(info_hash, SocketAddrV4::new([127, 0, 1, 1].into(), 0));
+        store.add_peer(info_hash, SocketAddrV4::new([127, 0, 1, 2].into(), 0));
+        store.add_peer(info_hash, SocketAddrV4::new([127, 0, 1, 3].into(), 0));
 
         assert_eq!(
             store.get_random_peers(&info_hash),
@@ -160,6 +151,31 @@ mod test {
     }
 
     #[test]
+    fn one_peer_per_ip() -> Result<()> {
+        let mut store = PeersStore::new(
+            NonZeroUsize::new(1).ok_or_eyre("non-zero value")?,
+            NonZeroUsize::new(100).ok_or_eyre("non-zero value")?,
+        );
+
+        let info_hash = Id::random();
+        let honest = SocketAddrV4::new([203, 0, 113, 1].into(), 6881);
+        store.add_peer(info_hash, honest);
+        for port in 0..100 {
+            store.add_peer(info_hash, SocketAddrV4::new([203, 0, 113, 2].into(), port));
+        }
+
+        let mut peers = store
+            .get_random_peers(&info_hash)
+            .ok_or_eyre("expected peers")?;
+        peers.sort();
+        assert_eq!(
+            peers,
+            [honest, SocketAddrV4::new([203, 0, 113, 2].into(), 99)]
+        );
+        Ok(())
+    }
+
+    #[test]
     fn random_peers_subset() -> Result<()> {
         let mut store = PeersStore::new(
             NonZeroUsize::new(1).ok_or_eyre("non-zero value")?,
@@ -169,10 +185,7 @@ mod test {
         let info_hash = Id::random();
 
         for i in 0..200 {
-            store.add_peer(
-                info_hash,
-                (&Id::random(), SocketAddrV4::new([127, 0, 1, i].into(), 0)),
-            );
+            store.add_peer(info_hash, SocketAddrV4::new([127, 0, 1, i].into(), 0));
         }
 
         assert_eq!(
