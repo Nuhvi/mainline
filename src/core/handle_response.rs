@@ -173,10 +173,25 @@ impl Core {
 
                     match MutableItem::from_dht_message(query.target(), &k, v, seq, &sig, salt) {
                         Ok(item) => {
-                            let response = Response::Mutable(item);
-                            query.response(from, &response);
+                            let min_seq = match &query.request.request_type {
+                                RequestTypeSpecific::GetValue(args) => args.seq,
+                                _ => None,
+                            };
+                            if min_seq.is_none_or(|seq| item.seq() > seq) {
+                                let response = Response::Mutable(item);
+                                query.response(from, &response);
 
-                            return Some((target, response));
+                                return Some((target, response));
+                            }
+
+                            debug!(
+                                ?from,
+                                ?responder_id,
+                                ?from_version,
+                                item_seq = item.seq(),
+                                ?min_seq,
+                                "Mutable record is not more recent than requested"
+                            );
                         }
                         Err(error) => {
                             debug!(
@@ -275,9 +290,11 @@ fn is_local_network(ip: Ipv4Addr) -> bool {
 mod tests {
     use eyre::{eyre, Result};
 
+    use ed25519_dalek::SigningKey;
+
     use crate::{
         actor::socket::KrpcSocket,
-        common::{FindNodeRequestArguments, FindNodeResponseArguments},
+        common::{FindNodeRequestArguments, FindNodeResponseArguments, GetValueRequestArguments},
         core::iterative_query::GetRequestSpecific,
         ServerSettings,
     };
@@ -334,6 +351,68 @@ mod tests {
             !closest.contains(&local),
             "an Internet node pointed the lookup at the local network"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn remote_mutable_reply_must_be_more_recent_than_requested() -> Result<()> {
+        let signer = SigningKey::from_bytes(&[7; 32]);
+        let item = MutableItem::new(&signer, b"value", 2, None);
+        let target = *item.target();
+
+        for (requested, accepted) in [
+            (None, true),
+            (Some(1), true),
+            (Some(2), false),
+            (Some(3), false),
+        ] {
+            let mut core = Core::new(Id::random(), vec![], false, ServerSettings::default());
+            let (mut query, _) = core
+                .create_iterative_query(
+                    GetRequestSpecific::GetValue(GetValueRequestArguments {
+                        target,
+                        seq: requested,
+                        salt: None,
+                    }),
+                    None,
+                )
+                .ok_or_else(|| eyre!("a query for an unknown target must start"))?;
+
+            let mut socket = KrpcSocket::client()?;
+            let from = SocketAddrV4::new([198, 51, 100, 1].into(), 6881);
+            query.visit(&mut socket, from);
+            core.iterative_queries.insert(target, query);
+
+            let message = Message {
+                transaction_id: 0,
+                version: None,
+                requester_ip: None,
+                read_only: false,
+                message_type: MessageType::Response(ResponseSpecific::GetMutable(
+                    GetMutableResponseArguments {
+                        responder_id: Id::random(),
+                        token: vec![1].into(),
+                        nodes: None,
+                        v: item.value().to_vec().into(),
+                        k: *item.key(),
+                        seq: item.seq(),
+                        sig: *item.signature(),
+                    },
+                )),
+            };
+            let result = core.handle_response(from, message);
+
+            assert_eq!(result.is_some(), accepted, "requested seq {requested:?}");
+            let query = core
+                .iterative_queries
+                .get(&target)
+                .ok_or_else(|| eyre!("the query must still exist"))?;
+            assert_eq!(
+                query.responses().len(),
+                usize::from(accepted),
+                "cached response at requested seq {requested:?}"
+            );
+        }
         Ok(())
     }
 
