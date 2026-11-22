@@ -154,6 +154,8 @@ impl Core {
                         ?from_version,
                         "Invalid immutable value"
                     );
+
+                    should_add_node = false;
                 }
                 MessageType::Response(ResponseSpecific::GetMutable(
                     GetMutableResponseArguments {
@@ -201,6 +203,8 @@ impl Core {
                                 ?from_version,
                                 "Invalid mutable record"
                             );
+
+                            should_add_node = false;
                         }
                     }
                 }
@@ -294,7 +298,10 @@ mod tests {
 
     use crate::{
         actor::socket::KrpcSocket,
-        common::{FindNodeRequestArguments, FindNodeResponseArguments, GetValueRequestArguments},
+        common::{
+            hash_immutable, FindNodeRequestArguments, FindNodeResponseArguments,
+            GetValueRequestArguments,
+        },
         core::iterative_query::GetRequestSpecific,
         ServerSettings,
     };
@@ -413,6 +420,95 @@ mod tests {
                 "cached response at requested seq {requested:?}"
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_values_do_not_add_responder() -> Result<()> {
+        let liar = SocketAddrV4::new([203, 0, 113, 1].into(), 6881);
+        let responder_id = Id::random();
+
+        // An immutable value that does not hash to the requested target.
+        let mut core = Core::new(Id::random(), vec![], false, ServerSettings::default());
+        let mut socket = KrpcSocket::client()?;
+        let v: Box<[u8]> = b"value".to_vec().into();
+        let target: Id = hash_immutable(&v).into();
+        let (mut query, _) = core
+            .create_iterative_query(
+                GetRequestSpecific::GetValue(GetValueRequestArguments {
+                    target,
+                    seq: None,
+                    salt: None,
+                }),
+                None,
+            )
+            .ok_or_else(|| eyre!("a query for an unknown target must start"))?;
+        query.visit(&mut socket, liar);
+        core.iterative_queries.insert(target, query);
+
+        let response = Message {
+            transaction_id: 0,
+            version: None,
+            requester_ip: None,
+            read_only: false,
+            message_type: MessageType::Response(ResponseSpecific::GetImmutable(
+                GetImmutableResponseArguments {
+                    responder_id,
+                    token: vec![1].into(),
+                    nodes: None,
+                    v: b"other".to_vec().into(),
+                },
+            )),
+        };
+        let _ = core.handle_response(liar, response);
+        assert_eq!(
+            core.routing_table.size(),
+            0,
+            "an invalid immutable value added its sender"
+        );
+
+        // A mutable item with an invalid signature.
+        let mut core = Core::new(Id::random(), vec![], false, ServerSettings::default());
+        let mut socket = KrpcSocket::client()?;
+        let signer = SigningKey::from_bytes(&[7; 32]);
+        let item = MutableItem::new(&signer, b"value", 1, None);
+        let target = *item.target();
+        let (mut query, _) = core
+            .create_iterative_query(
+                GetRequestSpecific::GetValue(GetValueRequestArguments {
+                    target,
+                    seq: None,
+                    salt: None,
+                }),
+                None,
+            )
+            .ok_or_else(|| eyre!("a query for an unknown target must start"))?;
+        query.visit(&mut socket, liar);
+        core.iterative_queries.insert(target, query);
+
+        let response = Message {
+            transaction_id: 0,
+            version: None,
+            requester_ip: None,
+            read_only: false,
+            message_type: MessageType::Response(ResponseSpecific::GetMutable(
+                GetMutableResponseArguments {
+                    responder_id,
+                    token: vec![1].into(),
+                    nodes: None,
+                    v: item.value().to_vec().into(),
+                    k: *item.key(),
+                    seq: item.seq(),
+                    sig: [0; 64],
+                },
+            )),
+        };
+        let _ = core.handle_response(liar, response);
+        assert_eq!(
+            core.routing_table.size(),
+            0,
+            "an invalid mutable item added its sender"
+        );
         Ok(())
     }
 
