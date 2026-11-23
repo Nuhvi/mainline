@@ -303,24 +303,49 @@ impl Core {
         Ok(None)
     }
 
-    /// If we are already announcing a signed peer or a mutable item, might as well
-    /// return it to the request asking for the same target.
-    pub(crate) fn check_outgoing_put_request(&self, target: &Id) -> Option<Response> {
-        self.put_queries
-            .values()
-            .filter(|query| query.target == *target)
-            .find_map(|existing| match existing.request.clone() {
-                PutRequestSpecific::PutMutable(request) => Some(Response::Mutable(request.into())),
-                PutRequestSpecific::AnnounceSignedPeer(request) => {
-                    Some(Response::SignedPeers(vec![SignedAnnounce {
-                        key: request.k,
-                        timestamp: request.t,
-                        signature: request.sig,
-                    }]))
-                }
-
-                _ => None,
-            })
+    /// Answer a read from a pending put when the put can satisfy the read.
+    ///
+    /// A mutable put answers a `GetValue` read only when the target and salt
+    /// match, and the put is newer than the read bound. A signed peer announce
+    /// answers a `GetSignedPeers` read with the same info hash.
+    pub(crate) fn check_outgoing_put_request(
+        &self,
+        request: &GetRequestSpecific,
+    ) -> Option<Response> {
+        match request {
+            GetRequestSpecific::GetValue(read) => self
+                .put_queries
+                .values()
+                .filter_map(|query| match &query.request {
+                    PutRequestSpecific::PutMutable(put)
+                        if put.target == read.target
+                            && put.salt == read.salt
+                            && read.seq.is_none_or(|seq| put.seq > seq) =>
+                    {
+                        Some(put)
+                    }
+                    _ => None,
+                })
+                .max_by(|a, b| a.seq.cmp(&b.seq).then_with(|| a.v.cmp(&b.v)))
+                .map(|put| Response::Mutable(put.clone().into())),
+            GetRequestSpecific::GetSignedPeers(read) => self
+                .put_queries
+                .values()
+                .filter_map(|query| match &query.request {
+                    PutRequestSpecific::AnnounceSignedPeer(announce)
+                        if announce.info_hash == read.info_hash =>
+                    {
+                        Some(Response::SignedPeers(vec![SignedAnnounce {
+                            key: announce.k,
+                            timestamp: announce.t,
+                            signature: announce.sig,
+                        }]))
+                    }
+                    _ => None,
+                })
+                .next(),
+            _ => None,
+        }
     }
 
     /// Reuse an active lookup only when its complete request matches.
@@ -647,6 +672,51 @@ mod tests {
             return;
         };
         assert_eq!(core.check_pending_put(&incoming), Ok(None));
+    }
+
+    #[test]
+    fn pending_put_answers_only_matching_reads() {
+        let mut core = Core::new(Id::random(), vec![], false, ServerSettings::default());
+        let signer = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
+        let older = MutableItem::new(&signer, b"a", 1, Some(b"salt"));
+        let newer = MutableItem::new(&signer, b"b", 2, Some(b"salt"));
+        let target = *newer.target();
+
+        for (id, item) in [(0, older.clone()), (1, newer.clone())] {
+            let request = PutRequestSpecific::PutMutable(
+                crate::common::PutMutableRequestArguments::from(item, None),
+            );
+            core.put_queries.insert(id, PutQuery::new(request, None));
+        }
+
+        let read = |seq| {
+            GetRequestSpecific::GetValue(GetValueRequestArguments {
+                target,
+                seq,
+                salt: Some(Box::from(&b"salt"[..])),
+            })
+        };
+
+        assert!(matches!(
+            core.check_outgoing_put_request(&read(None)),
+            Some(Response::Mutable(item)) if item.seq() == 2
+        ));
+        assert!(matches!(
+            core.check_outgoing_put_request(&read(Some(1))),
+            Some(Response::Mutable(item)) if item.seq() == 2
+        ));
+        assert!(core.check_outgoing_put_request(&read(Some(2))).is_none());
+        assert!(core.check_outgoing_put_request(&read(Some(3))).is_none());
+
+        let wrong_salt = GetRequestSpecific::GetValue(GetValueRequestArguments {
+            target,
+            seq: None,
+            salt: Some(Box::from(&b"other"[..])),
+        });
+        assert!(core.check_outgoing_put_request(&wrong_salt).is_none());
+
+        let find_node = GetRequestSpecific::FindNode(FindNodeRequestArguments { target });
+        assert!(core.check_outgoing_put_request(&find_node).is_none());
     }
 
     #[test]

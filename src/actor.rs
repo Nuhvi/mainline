@@ -236,7 +236,7 @@ impl Actor {
 
         let mut responses = vec![];
 
-        if let Some(response_from_outgoing_request) = self.core.check_outgoing_put_request(&target)
+        if let Some(response_from_outgoing_request) = self.core.check_outgoing_put_request(&request)
         {
             responses.push(response_from_outgoing_request);
         }
