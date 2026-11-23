@@ -15,6 +15,8 @@ use crate::actor::socket::KrpcSocket;
 /// acknowledging nodes, and or errors.
 pub(crate) struct PutQuery {
     pub target: Id,
+    /// The token lookup this put is waiting for, if it has not started yet.
+    pub lookup_id: Option<super::QueryId>,
     /// Nodes that confirmed success
     stored_at: usize,
     inflight_requests: Vec<u32>,
@@ -27,6 +29,7 @@ impl PutQuery {
     pub(crate) fn new(request: PutRequestSpecific, extra_nodes: Option<Box<[Node]>>) -> Self {
         Self {
             target: *request.target(),
+            lookup_id: None,
             stored_at: 0,
             inflight_requests: Vec::new(),
             request,
@@ -44,6 +47,7 @@ impl PutQuery {
             return Ok(());
         }
 
+        self.lookup_id = None;
         let target = self.target;
         debug!(?target, closest_secure_nodes = ?closest_nodes.len(), "PutQuery start");
 
@@ -238,7 +242,7 @@ pub enum PutQueryError {
     Timeout,
 }
 
-#[derive(thiserror::Error, Debug, Clone)]
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 /// `PutQuery` for [`crate::MutableItem`] errors
 pub enum ConcurrencyError {
     /// Trying to PUT mutable items with the same `key`, and `salt` but different `seq`.

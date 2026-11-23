@@ -32,7 +32,7 @@ pub struct Actor {
     pub(crate) socket: KrpcSocket,
     core: Core,
 
-    put_senders: HashMap<Id, Vec<Sender<Result<Id, PutError>>>>,
+    put_senders: HashMap<QueryId, Vec<Sender<Result<Id, PutError>>>>,
     get_senders: HashMap<QueryId, Vec<ResponseSender>>,
 }
 
@@ -160,20 +160,28 @@ impl Actor {
             }
         }
 
-        // Cleanup done PUT query and send a resulting error if any.
-        for (id, error) in done_put_queries {
-            if let Some(senders) = self.put_senders.remove(&id) {
-                let result = if let Some(error) = error {
-                    Err(error)
-                } else {
-                    Ok(id)
-                };
+        self.send_put_results(&done_put_queries);
+    }
 
+    fn send_put_results(&mut self, done_put_queries: &[(QueryId, Result<Id, PutError>)]) {
+        for (id, result) in done_put_queries {
+            if let Some(senders) = self.put_senders.remove(id) {
                 for sender in senders {
                     let _ = sender.send(result.clone());
                 }
             }
         }
+    }
+
+    /// Remove finished put queries and notify their callers. Call this method
+    /// before the conflict check in [`Actor::put`]. Then a finished put cannot
+    /// block a new put.
+    fn finish_done_put_queries(&mut self) {
+        let done = self.check_done_put_queries();
+        for (id, _) in &done {
+            self.core.put_queries.remove(id);
+        }
+        self.send_put_results(&done);
     }
 
     /// Store a value in the closest nodes, optionally trigger a lookup query if
@@ -182,21 +190,28 @@ impl Actor {
         &mut self,
         request: &PutRequestSpecific,
         extra_nodes: Option<Box<[Node]>>,
-    ) -> Result<(), PutError> {
-        self.core.check_concurrency_errors(request)?;
+    ) -> Result<QueryId, PutError> {
+        if let PutRequestSpecific::PutMutable(incoming) = request {
+            self.finish_done_put_queries();
+            match self.core.check_pending_put(incoming) {
+                Ok(Some(id)) => return Ok(id),
+                Ok(None) => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
 
         let mut query = PutQuery::new(request.clone(), extra_nodes);
 
-        let target = request.target();
-        if let Some(closest_nodes) = self.core.get_cached_closest_nodes(target) {
+        if let Some(closest_nodes) = self.core.get_cached_closest_nodes(request.target()) {
             query.start(&mut self.socket, &closest_nodes)?;
         } else {
-            let _ = self.get(GetRequestSpecific::from(request), None);
+            query.lookup_id = Some(self.get(GetRequestSpecific::from(request), None).0);
         }
 
-        self.core.put_queries.insert(*target, query);
+        let id = self.core.allocate_query_id();
+        self.core.put_queries.insert(id, query);
 
-        Ok(())
+        Ok(id)
     }
 
     /// Send a message to closer and closer nodes until we can't find any more nodes.
@@ -316,19 +331,19 @@ impl Actor {
         }
     }
 
-    fn check_done_put_queries(&self) -> Vec<(Id, Option<PutError>)> {
+    fn check_done_put_queries(&self) -> Vec<(QueryId, Result<Id, PutError>)> {
         self.core
             .put_queries
             .iter()
             .filter_map(|(id, query)| match query.check(&self.socket) {
                 Ok(done) => {
                     if done {
-                        Some((*id, None))
+                        Some((*id, Ok(query.target)))
                     } else {
                         None
                     }
                 }
-                Err(error) => Some((*id, Some(error))),
+                Err(error) => Some((*id, Err(error))),
             })
             .collect()
     }
@@ -354,20 +369,15 @@ impl Actor {
     fn start_put_queries(
         &mut self,
         done_iterative_queries: &[(QueryId, Box<[Node]>)],
-        done_put_queries: &mut Vec<(Id, Option<PutError>)>,
+        done_put_queries: &mut Vec<(QueryId, Result<Id, PutError>)>,
     ) {
         for (lookup_id, closest_nodes) in done_iterative_queries {
-            let Some(target) = self
-                .core
-                .iterative_queries
-                .get(lookup_id)
-                .map(|query| query.target())
-            else {
-                continue;
-            };
-            if let Some(put_query) = self.core.put_queries.get_mut(&target) {
+            for (id, put_query) in &mut self.core.put_queries {
+                if put_query.lookup_id != Some(*lookup_id) {
+                    continue;
+                }
                 if let Err(error) = put_query.start(&mut self.socket, closest_nodes) {
-                    done_put_queries.push((target, Some(error)));
+                    done_put_queries.push((*id, Err(error)));
                 }
             }
         }
@@ -409,11 +419,9 @@ pub(crate) fn run(config: Config, receiver: &Receiver<ActorMessage>) {
                             let _ = sender.send(actor.info());
                         }
                         ActorMessage::Put(request, sender, extra_nodes) => {
-                            let target = *request.target();
-
                             match actor.put(&request, extra_nodes) {
-                                Ok(()) => {
-                                    let senders = actor.put_senders.entry(target).or_insert(vec![]);
+                                Ok(id) => {
+                                    let senders = actor.put_senders.entry(id).or_insert(vec![]);
 
                                     senders.push(sender);
                                 }
@@ -501,6 +509,7 @@ pub(crate) enum ResponseSender {
 mod tests {
     use super::*;
     use crate::common::{GetPeersRequestArguments, GetValueRequestArguments};
+    use crate::core::ConcurrencyError;
 
     fn actor() -> eyre::Result<Actor> {
         Ok(Actor::new(config::Config {
@@ -545,6 +554,88 @@ mod tests {
             );
         }
         assert_eq!(actor.core.iterative_queries.len(), ids.len());
+        Ok(())
+    }
+
+    fn mutable_request(value: &[u8], seq: i64, cas: Option<i64>) -> crate::PutRequestSpecific {
+        let signer = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
+        let item = crate::MutableItem::new(&signer, value, seq, None);
+        crate::PutRequestSpecific::PutMutable(crate::common::PutMutableRequestArguments::from(
+            item, cas,
+        ))
+    }
+
+    #[test]
+    fn pending_put_conflicts_map_to_put_errors() -> eyre::Result<()> {
+        let mut actor = actor()?;
+        let pending_request = mutable_request(b"a", 2, None);
+        let pending_id = actor.core.allocate_query_id();
+        actor
+            .core
+            .put_queries
+            .insert(pending_id, PutQuery::new(pending_request.clone(), None));
+
+        assert!(matches!(
+            actor.put(&mutable_request(b"b", 2, None), None),
+            Err(PutError::Concurrency(ConcurrencyError::ConflictRisk))
+        ));
+        assert_eq!(actor.put(&pending_request, None)?, pending_id);
+        Ok(())
+    }
+
+    #[test]
+    fn finished_put_does_not_block_a_new_put() -> eyre::Result<()> {
+        use std::net::SocketAddrV4;
+        use std::time::Duration;
+
+        let mut actor = actor()?;
+        let pending_request = mutable_request(b"a", 2, None);
+        let pending_id = actor.core.allocate_query_id();
+        let mut pending = PutQuery::new(pending_request, None);
+        let node = Node::new_with_token(
+            Id::random(),
+            SocketAddrV4::new([127, 0, 0, 1].into(), 12345),
+            vec![1].into(),
+        );
+        pending.start(&mut actor.socket, &[node])?;
+        actor.core.put_queries.insert(pending_id, pending);
+
+        let (sender, receiver) = flume::bounded(1);
+        actor.put_senders.insert(pending_id, vec![sender]);
+
+        std::thread::sleep(crate::actor::socket::MIN_REQUEST_TIMEOUT + Duration::from_millis(100));
+
+        let new_id = actor.put(&mutable_request(b"b", 2, None), None)?;
+
+        assert!(matches!(
+            receiver.recv_timeout(Duration::from_secs(1))?,
+            Err(PutError::Query(crate::core::PutQueryError::Timeout))
+        ));
+        assert!(!actor.core.put_queries.contains_key(&pending_id));
+        assert!(actor.core.put_queries.contains_key(&new_id));
+        Ok(())
+    }
+
+    #[test]
+    fn done_puts_deliver_their_own_results() -> eyre::Result<()> {
+        let mut actor = actor()?;
+        let (sender_a, receiver_a) = flume::bounded(1);
+        let (sender_b, receiver_b) = flume::bounded(1);
+        actor.put_senders.insert(1, vec![sender_a]);
+        actor.put_senders.insert(2, vec![sender_b]);
+
+        let target = Id::from([4; 20]);
+        actor.send_put_results(&[
+            (1, Err(PutError::Query(crate::core::PutQueryError::Timeout))),
+            (2, Ok(target)),
+        ]);
+
+        assert!(matches!(
+            receiver_a.recv()?,
+            Err(PutError::Query(crate::core::PutQueryError::Timeout))
+        ));
+        let result = receiver_b.recv()?;
+        assert!(matches!(result, Ok(id) if id == target));
         Ok(())
     }
 }

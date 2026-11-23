@@ -11,8 +11,7 @@ use iterative_query::IterativeQuery;
 use put_query::PutQuery;
 
 use crate::common::{
-    Id, Node, PutMutableRequestArguments, RequestTypeSpecific, RoutingTable, SignedAnnounce,
-    MAX_BUCKET_SIZE_K,
+    Id, Node, RequestTypeSpecific, RoutingTable, SignedAnnounce, MAX_BUCKET_SIZE_K,
 };
 use crate::core::iterative_query::GetRequestSpecific;
 use crate::{MutableItem, PutRequestSpecific};
@@ -74,7 +73,7 @@ pub(crate) struct Core {
     pub iterative_queries: HashMap<QueryId, IterativeQuery>,
     /// Put queries are special, since they have to wait for a corresponding
     /// get query to finish, update the `closest_nodes`, then `query_all` these.
-    pub put_queries: HashMap<Id, PutQuery>,
+    pub put_queries: HashMap<QueryId, PutQuery>,
     next_query_id: QueryId,
 
     // Time
@@ -209,7 +208,7 @@ impl Core {
     pub(crate) fn cleanup_done_queries(
         &mut self,
         done_get_queries: &[(QueryId, Box<[Node]>)],
-        done_put_queries: &[(Id, Option<PutError>)],
+        done_put_queries: &[(QueryId, Result<Id, PutError>)],
     ) -> Option<SocketAddrV4> {
         let mut should_ping_alleged_new_address = None;
 
@@ -254,54 +253,63 @@ impl Core {
         to_ping
     }
 
-    pub(crate) fn check_concurrency_errors(
-        &mut self,
-        request: &PutRequestSpecific,
-    ) -> Result<(), ConcurrencyError> {
-        if let PutRequestSpecific::PutMutable(PutMutableRequestArguments {
-            sig,
-            cas,
-            seq,
-            target,
-            ..
-        }) = request
-        {
-            if let Some(PutRequestSpecific::PutMutable(inflight_request)) = self
-                .put_queries
-                .get(target)
-                .map(|existing| &existing.request)
-            {
-                debug!(?inflight_request, ?request, "Possible conflict risk");
+    /// Check a mutable put against another pending put for the same target.
+    ///
+    /// Returns the id of an identical pending put to join. Returns an error for a
+    /// conflicting put. The caller must remove finished puts before it calls this
+    /// method, so a timed-out put cannot block or absorb a new one.
+    pub(crate) fn check_pending_put(
+        &self,
+        incoming: &crate::common::PutMutableRequestArguments,
+    ) -> Result<Option<QueryId>, ConcurrencyError> {
+        let mut identical = None;
+        let mut latest: Option<&crate::common::PutMutableRequestArguments> = None;
+        let mut overrides = false;
 
-                if *sig == inflight_request.sig {
-                    // Noop, the inflight query is sufficient.
-                    return Ok(());
-                } else if *seq < inflight_request.seq {
-                    return Err(ConcurrencyError::NotMostRecent);
-                } else if let Some(cas) = cas {
-                    if *cas == inflight_request.seq {
-                        // The user is aware of the inflight query and whiches to overrides it.
-                        //
-                        // Remove the inflight request, and create a new one.
-                        self.put_queries.remove(target);
-                    } else {
-                        return Err(ConcurrencyError::CasFailed);
-                    }
-                } else {
-                    return Err(ConcurrencyError::ConflictRisk);
-                }
+        for (id, query) in &self.put_queries {
+            let PutRequestSpecific::PutMutable(pending) = &query.request else {
+                continue;
+            };
+            if pending.target != incoming.target {
+                continue;
+            }
+            if pending.sig == incoming.sig && pending.cas == incoming.cas {
+                identical = Some(*id);
+                break;
+            }
+            if incoming.cas == Some(pending.seq) {
+                overrides = true;
+            }
+            if latest.is_none_or(|latest| pending.seq > latest.seq) {
+                latest = Some(pending);
             }
         }
 
-        Ok(())
+        if let Some(id) = identical {
+            return Ok(Some(id));
+        }
+        if overrides {
+            return Ok(None);
+        }
+        if let Some(pending) = latest {
+            if incoming.seq < pending.seq {
+                return Err(ConcurrencyError::NotMostRecent);
+            }
+            if incoming.cas.is_some() {
+                return Err(ConcurrencyError::CasFailed);
+            }
+            return Err(ConcurrencyError::ConflictRisk);
+        }
+        Ok(None)
     }
 
     /// If we are already announcing a signed peer or a mutable item, might as well
     /// return it to the request asking for the same target.
     pub(crate) fn check_outgoing_put_request(&self, target: &Id) -> Option<Response> {
         self.put_queries
-            .get(target)
-            .and_then(|existing| match existing.request.clone() {
+            .values()
+            .filter(|query| query.target == *target)
+            .find_map(|existing| match existing.request.clone() {
                 PutRequestSpecific::PutMutable(request) => Some(Response::Mutable(request.into())),
                 PutRequestSpecific::AnnounceSignedPeer(request) => {
                     Some(Response::SignedPeers(vec![SignedAnnounce {
@@ -381,7 +389,9 @@ impl Core {
         loop {
             let id = self.next_query_id;
             self.next_query_id = self.next_query_id.wrapping_add(1);
-            if !self.iterative_queries.contains_key(&id) {
+            if !self.iterative_queries.contains_key(&id) && !self.put_queries.contains_key(&id) {
+                // Ids only repeat after the counter wraps, so this normally returns
+                // on the first iteration.
                 return id;
             }
         }
@@ -575,6 +585,79 @@ mod tests {
             Id::from([2; 20]),
             SocketAddrV4::new([198, 51, 100, 1].into(), 6881),
         )
+    }
+
+    fn mutable_request(value: &[u8], seq: i64, cas: Option<i64>) -> PutRequestSpecific {
+        let signer = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
+        let item = MutableItem::new(&signer, value, seq, None);
+        PutRequestSpecific::PutMutable(crate::common::PutMutableRequestArguments::from(item, cas))
+    }
+
+    #[test]
+    fn identical_pending_put_is_joined() {
+        let mut core = Core::new(Id::random(), vec![], false, ServerSettings::default());
+        let request = mutable_request(b"value", 2, None);
+        let id = core.allocate_query_id();
+        core.put_queries
+            .insert(id, PutQuery::new(request.clone(), None));
+
+        let PutRequestSpecific::PutMutable(incoming) = &request else {
+            return;
+        };
+        assert_eq!(core.check_pending_put(incoming), Ok(Some(id)));
+    }
+
+    #[test]
+    fn pending_put_conflicts_are_rejected() {
+        let mut core = Core::new(Id::random(), vec![], false, ServerSettings::default());
+        let id = core.allocate_query_id();
+        core.put_queries
+            .insert(id, PutQuery::new(mutable_request(b"a", 2, None), None));
+
+        let check = |request: PutRequestSpecific| {
+            let PutRequestSpecific::PutMutable(incoming) = &request else {
+                return Ok(None);
+            };
+            core.check_pending_put(incoming)
+        };
+
+        assert_eq!(
+            check(mutable_request(b"a", 1, None)),
+            Err(ConcurrencyError::NotMostRecent)
+        );
+        assert_eq!(
+            check(mutable_request(b"b", 2, None)),
+            Err(ConcurrencyError::ConflictRisk)
+        );
+        assert_eq!(
+            check(mutable_request(b"b", 3, Some(1))),
+            Err(ConcurrencyError::CasFailed)
+        );
+        assert_eq!(core.put_queries.len(), 1);
+    }
+
+    #[test]
+    fn pending_put_can_be_overridden_with_its_seq() {
+        let mut core = Core::new(Id::random(), vec![], false, ServerSettings::default());
+        let id = core.allocate_query_id();
+        core.put_queries
+            .insert(id, PutQuery::new(mutable_request(b"a", 2, None), None));
+
+        let PutRequestSpecific::PutMutable(incoming) = mutable_request(b"b", 3, Some(2)) else {
+            return;
+        };
+        assert_eq!(core.check_pending_put(&incoming), Ok(None));
+    }
+
+    #[test]
+    fn query_ids_skip_active_ids_after_wrap() {
+        let mut core = Core::new(Id::random(), vec![], false, ServerSettings::default());
+        core.put_queries
+            .insert(0, PutQuery::new(mutable_request(b"a", 1, None), None));
+        core.next_query_id = u64::MAX;
+
+        assert_eq!(core.allocate_query_id(), u64::MAX);
+        assert_eq!(core.allocate_query_id(), 1);
     }
 
     #[test]

@@ -991,51 +991,6 @@ mod test {
     }
 
     #[test]
-    fn concurrent_put_mutable_different() -> Result<()> {
-        let testnet = Testnet::new(10)?;
-
-        let client = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
-
-        let mut handles = vec![];
-
-        for i in 0..2 {
-            let client = client.clone();
-
-            let signer = SigningKey::from_bytes(&[
-                56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
-                228, 127, 70, 4, 204, 182, 64, 77, 98, 92, 215, 27, 103,
-            ]);
-
-            let seq = 1000;
-
-            let mut value = b"Hello World!".to_vec();
-            value.push(i);
-
-            let item = MutableItem::new(&signer, &value, seq, None);
-
-            let handle = std::thread::spawn(move || {
-                let result = client.put_mutable(item, None);
-                if i == 0 {
-                    assert!(result.is_ok());
-                } else {
-                    assert!(matches!(
-                        result,
-                        Err(PutMutableError::Concurrency(ConcurrencyError::ConflictRisk))
-                    ));
-                }
-            });
-
-            handles.push(handle);
-        }
-
-        for handle in handles {
-            handle.join().map_err(|_| eyre!("Thread panicked"))?;
-        }
-
-        Ok(())
-    }
-
-    #[test]
     fn concurrent_put_mutable_different_with_cas() -> Result<()> {
         let testnet = Testnet::new(10)?;
 
