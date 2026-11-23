@@ -4,7 +4,7 @@ Simple, robust, `BitTorrent`'s [Mainline DHT](https://en.wikipedia.org/wiki/Main
 
 This library is focused on being the best and simplest Rust client for Mainline, especially focused on reliable and fast time-to-first-response.
 
-It should work as a routing / storing node (server mode) as well, and has been running in production for many months without an issue. 
+It should work as a routing / storing node (server mode) as well, and has been running in production for many months without an issue.
 However if you are concerned about spam or `DoS`, you should consider implementing [rate limiting](#rate-limiting).
 
 **[API Docs](https://docs.rs/dht/latest/dht/)**
@@ -41,7 +41,7 @@ Running as a server is the same as a client, but you also respond to incoming re
 ```rust
 use dht::Dht;
 
-let dht = Dht::server().unwrap(); // or `Dht::builder::server_mode().build();` 
+let dht = Dht::server().unwrap(); // or `Dht::builder().server_mode().build();`
 ```
 
 Supported BEPs:
@@ -53,7 +53,7 @@ Supported BEPs:
 
 #### Rate limiting
 
-The server implementation has no rate-limiting, you can run your own [request filter](./examples/request_filter.rs) and apply your custom rate-limiting. 
+The server implementation has no rate-limiting, you can run your own [request filter](./examples/request_filter.rs) and apply your custom rate-limiting.
 However, that limit/block will only apply _after_ parsing incoming messages, and it won't affect handling incoming responses.
 
 ### Adaptive mode
@@ -71,5 +71,5 @@ Call `Dht::builder().server_mode().build()`. You can optionally add your known p
 
 ## Acknowledgment
 
-This implementation was possible thanks to [Webtorrent's Bittorrent-dht](https://github.com/webtorrent/bittorrent-dht) as a reference, 
+This implementation was possible thanks to [Webtorrent's Bittorrent-dht](https://github.com/webtorrent/bittorrent-dht) as a reference,
 and [Rustydht-lib](https://github.com/raptorswing/rustydht-lib) that saved me a lot of time, especially at the serialization and deserialization of Bencode messages.

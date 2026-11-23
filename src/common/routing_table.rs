@@ -3,14 +3,13 @@
 use std::collections::BTreeMap;
 use std::slice::Iter;
 
-use crate::common::ClosestNodes;
-use crate::common::{Id, Node};
+use crate::common::{ClosestNodes, Id, Node};
 
 /// K = the default maximum size of a k-bucket.
 pub(crate) const MAX_BUCKET_SIZE_K: usize = 20;
 
-#[derive(Debug, Clone)]
 /// Simplified Kademlia routing table
+#[derive(Debug, Clone)]
 pub struct RoutingTable {
     id: Id,
     buckets: BTreeMap<u8, KBucket>,
@@ -21,7 +20,7 @@ pub struct RoutingTable {
     //
     /// The number of queries we base the following stats on
     dht_size_estimates_count: usize,
-    /// Sum of Dht size estimates from closest nodes from get queries.
+    /// Sum of DHT size estimates from closest nodes from get queries.
     dht_size_estimates_sum: f64,
 
     // Routing table statistics based on _storage nodes_ that responds to this table's
@@ -30,11 +29,11 @@ pub struct RoutingTable {
     //
     /// [Read more](https://github.com/nuhvi/mainline/blob/main/docs/dht_size_estimate.md)
     responders_samples_count: usize,
-    /// Sum of Dht size estimates from closest _responding_ nodes from get queries.
+    /// Sum of DHT size estimates from closest _responding_ nodes from get queries.
     responders_size_estimates_sum: f64,
-    /// Sum of the number of subnets with 6 bits prefix in the closest nodes ipv4
+    /// Sum of the number of subnets with a 6-bit prefix in the closest nodes IPv4
     ///
-    /// [Read more](https://github.com/nuhvi/mainline/blob/main/docs/censorship_resistance.md)
+    /// [Read more](https://github.com/nuhvi/mainline/blob/main/docs/censorship-resistance.md)
     responders_subnets_sum: usize,
 }
 
@@ -187,7 +186,7 @@ impl RoutingTable {
         self.nodes().collect()
     }
 
-    /// Turn this routing table to a list of bootstrapping nodes.   
+    /// Turn this routing table to a list of bootstrapping nodes.
     #[must_use]
     pub fn to_bootstrap(&self) -> Vec<String> {
         self.nodes()
@@ -213,8 +212,8 @@ impl RoutingTable {
     // === Stats ===
 
     /// Returns:
-    ///  1. Normal Dht size estimate based on all closer `nodes` in query responses.
-    ///  2. Standard deviaiton as a function of the number of samples used in this estimate.
+    ///  1. Normal DHT size estimate based on all closer `nodes` in query responses.
+    ///  2. Standard deviation as a function of the number of samples used in this estimate.
     ///
     /// [Read more](https://github.com/nuhvi/mainline/blob/main/docs/dht_size_estimate.md)
     pub(crate) fn dht_size_estimate(&self) -> (usize, f64) {
@@ -302,7 +301,7 @@ impl Iterator for RoutingTableIterator<'_> {
     }
 }
 
-/// Kbuckets are similar to LRU caches that checks and evicts unresponsive nodes,
+/// K-buckets are similar to LRU caches that check and evict unresponsive nodes,
 /// without dropping any responsive nodes in the process.
 #[derive(Debug, Clone)]
 pub(crate) struct KBucket {
@@ -316,10 +315,6 @@ impl KBucket {
             nodes: Vec::with_capacity(MAX_BUCKET_SIZE_K),
         }
     }
-
-    // === Getters ===
-
-    // === Public Methods ===
 
     pub(crate) fn add(&mut self, incoming: Node) -> bool {
         if let Some(index) = self.iter().position(|n| n.id() == incoming.id()) {
@@ -349,7 +344,7 @@ impl KBucket {
         } else if self.nodes.len() < MAX_BUCKET_SIZE_K {
             self.nodes.push(incoming);
             true
-        } else if self.nodes.first().is_some_and(super::node::Node::is_stale) {
+        } else if self.nodes.first().is_some_and(Node::is_stale) {
             // Remove the least recently seen node and add the new one
             self.nodes.remove(0);
             self.nodes.push(incoming);

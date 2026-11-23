@@ -1,15 +1,13 @@
 //! Struct and implementation of the Node entry in the Kademlia routing table
-use std::{
-    fmt::{self, Debug, Formatter},
-    net::SocketAddrV4,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::fmt::{self, Debug, Formatter};
+use std::net::SocketAddrV4;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crate::common::Id;
 
-/// The age of a node's `last_seen` time before it is considered stale and removed from a full bucket
-/// on inserting a new node.
+/// The age of a node's `last_seen` time before it is considered stale and
+/// removed from a full bucket when a new node is inserted.
 pub(crate) const STALE_TIME: Duration = Duration::from_mins(15);
 const MIN_PING_BACKOFF_INTERVAL: Duration = Duration::from_secs(10);
 pub(crate) const TOKEN_ROTATE_INTERVAL: Duration = Duration::from_mins(5);
@@ -33,8 +31,8 @@ impl NodeInner {
     }
 }
 
+/// Node entry in the Kademlia routing table.
 #[derive(Clone, PartialEq)]
-/// Node entry in Kademlia routing table
 pub struct Node(pub(crate) Arc<NodeInner>);
 
 impl Debug for Node {
@@ -143,12 +141,11 @@ impl Node {
         self.0.id.is_valid_for_ip(*self.0.address.ip())
     }
 
-    /// Returns true if Any of the existing nodes:
-    ///  - Have the same IP as this node, And:
-    ///    = The existing nodes is Not secure.
-    ///    = The existing nodes is secure And shares the same first 21 bits.
+    /// Returns true if an existing node has the same IP and conflicts with this one.
     ///
-    /// Effectively, allows only One non-secure node or Eight secure nodes from the same IP, in the routing table or `ClosestNodes`.
+    /// A non-secure existing node conflicts with any node that has the same IP.
+    /// A secure existing node conflicts only when the first 21 bits of the Id match.
+    /// Thus a table allows one non-secure node, or up to eight secure nodes, per IP.
     pub(crate) fn already_exists(&self, nodes: &[Self]) -> bool {
         nodes.iter().any(|existing| {
             self.same_ip(existing)

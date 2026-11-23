@@ -4,14 +4,14 @@ use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
 use lru::LruCache;
-use tracing::error;
-use tracing::{debug, trace};
+use tracing::{debug, error, trace};
 
 use iterative_query::IterativeQuery;
 use put_query::PutQuery;
 
 use crate::common::{
-    Id, Node, RequestTypeSpecific, RoutingTable, SignedAnnounce, MAX_BUCKET_SIZE_K,
+    Id, Node, PutMutableRequestArguments, RequestTypeSpecific, RoutingTable, SignedAnnounce,
+    MAX_BUCKET_SIZE_K,
 };
 use crate::core::iterative_query::GetRequestSpecific;
 use crate::{MutableItem, PutRequestSpecific};
@@ -22,8 +22,7 @@ pub(crate) mod iterative_query;
 pub(crate) mod put_query;
 pub(crate) mod server;
 
-use server::Server;
-use server::ServerSettings;
+use server::{Server, ServerSettings};
 
 pub use put_query::{ConcurrencyError, PutError, PutQueryError};
 
@@ -53,9 +52,9 @@ pub(crate) const VERSIONS_SUPPORTING_SIGNED_PEERS: &[[u8; 4]] = &[
 /// Identifies an internal operation, independently of its DHT target.
 pub(crate) type QueryId = u64;
 
-#[derive(Debug)]
 /// Side effect free Core, containing all the state and methods necessary
 /// for comprehensive and deterministic testing.
+#[derive(Debug)]
 pub(crate) struct Core {
     // Options
     pub bootstrap: Box<[SocketAddrV4]>,
@@ -260,10 +259,10 @@ impl Core {
     /// method, so a timed-out put cannot block or absorb a new one.
     pub(crate) fn check_pending_put(
         &self,
-        incoming: &crate::common::PutMutableRequestArguments,
+        incoming: &PutMutableRequestArguments,
     ) -> Result<Option<QueryId>, ConcurrencyError> {
         let mut identical = None;
-        let mut latest: Option<&crate::common::PutMutableRequestArguments> = None;
+        let mut latest: Option<&PutMutableRequestArguments> = None;
         let mut overrides = false;
 
         for (id, query) in &self.put_queries {
@@ -429,9 +428,10 @@ impl Core {
 
         match &request {
             // We don't actually need to use closest secure, because we aren't storing anything
-            // to these nodes, but it is better ask further away than we need, just to add more
-            // randomness and to more likely defeat eclipsing attempts, but we pay the price in
-            // more messages, however that is ok when we rarely call FIND_NODE (once every 15 minutes)
+            // to these nodes, but it is better to ask further away than we need, just to add
+            // more randomness and to be more likely to defeat eclipsing attempts, but we pay
+            // the price in more messages, however that is ok when we rarely call FIND_NODE
+            // (once every 15 minutes)
             GetRequestSpecific::FindNode(_) => {
                 let mut routing_table_closest = self.routing_table.closest_secure(target);
                 routing_table_closest
@@ -513,11 +513,15 @@ impl Core {
                 subnets_count,
             );
 
+            let responders_size_estimate =
+                relevant_routing_table.responders_based_dht_size_estimate();
+            let responders_subnets_count = relevant_routing_table.average_subnets();
+
             debug!(
                 target = ?query.target(),
-                responders_size_estimate = ?relevant_routing_table.responders_based_dht_size_estimate(),
-                responders_subnets_count = ?relevant_routing_table.average_subnets(),
-                "Storing nodes stats..",
+                ?responders_size_estimate,
+                ?responders_subnets_count,
+                "Storing nodes stats.",
             );
         }
     }

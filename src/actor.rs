@@ -2,23 +2,20 @@ pub(crate) mod config;
 mod info;
 pub(crate) mod socket;
 
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::{SocketAddr, SocketAddrV4, ToSocketAddrs};
 
-use flume::Sender;
-use flume::{Receiver, TryRecvError};
+use flume::{Receiver, Sender, TryRecvError};
 
 use tracing::{debug, info};
 
-use crate::common::SignedAnnounce;
 use crate::common::{
     FindNodeRequestArguments, Id, Message, MessageType, Node, PutRequestSpecific, RequestSpecific,
-    RequestTypeSpecific,
+    RequestTypeSpecific, SignedAnnounce,
 };
-use crate::core::{
-    iterative_query::GetRequestSpecific, put_query::PutQuery, Core, PutError, QueryId, Response,
-};
+use crate::core::iterative_query::GetRequestSpecific;
+use crate::core::put_query::PutQuery;
+use crate::core::{Core, PutError, QueryId, Response};
 use crate::MutableItem;
 use config::Config;
 
@@ -26,8 +23,8 @@ use socket::KrpcSocket;
 
 pub(crate) use info::Info;
 
-#[derive(Debug)]
 /// Internal Rpc called in the Dht thread loop, useful to create your own actor setup.
+#[derive(Debug)]
 pub struct Actor {
     pub(crate) socket: KrpcSocket,
     core: Core,
@@ -81,8 +78,8 @@ impl Actor {
         self.core.routing_table.id()
     }
 
-    /// Create a list of unique bootstrapping nodes from all our
-    /// routing table to use as `extra_bootsrtap` in next sessions.
+    /// Create a list of unique bootstrapping nodes from all our routing tables
+    /// to use as `extra_bootstrap` in the next sessions.
     pub fn to_bootstrap(&self) -> Vec<String> {
         let mut set = HashSet::new();
         for s in self.core.routing_table.to_bootstrap() {
@@ -107,7 +104,7 @@ impl Actor {
     /// maintain the routing table, and everything else that needs
     /// to happen at every tick.
     pub fn tick(&mut self) {
-        self.periodic_node_maintaenance();
+        self.periodic_node_maintenance();
 
         let new_query_response = self
             .socket
@@ -216,17 +213,18 @@ impl Actor {
 
     /// Send a message to closer and closer nodes until we can't find any more nodes.
     ///
-    /// Queries take few seconds to fully traverse the network, once it is done, it will be removed from
-    /// `self.iterative_queries`. Until then, identical requests share the lookup and receive the responses
-    /// seen so far. Different requests use separate internal lookup ids.
+    /// Queries take a few seconds to fully traverse the network. When a query
+    /// finishes, it is removed from `self.iterative_queries`. Until then,
+    /// identical requests share the lookup and receive the responses seen so
+    /// far. Different requests use separate internal lookup ids.
     ///
     /// Effectively, we are caching responses and backing off the network for the duration it takes
     /// to traverse it.
     ///
     /// - `request` [`RequestTypeSpecific`], except [`RequestTypeSpecific::Ping`] and
     ///   [`RequestTypeSpecific::Put`] which will be ignored.
-    /// - `extra_nodes` option allows the query to visit specific nodes, that won't necessesarily be visited
-    ///   through the query otherwise.
+    /// - `extra_nodes` allows the query to visit specific nodes that the query
+    ///   would not visit otherwise.
     pub fn get(
         &mut self,
         request: GetRequestSpecific,
@@ -265,7 +263,7 @@ impl Actor {
 
     // === Private Methods ===
 
-    fn periodic_node_maintaenance(&mut self) {
+    fn periodic_node_maintenance(&mut self) {
         // Bootstrap if necessary
         if self.core.routing_table.is_empty() {
             self.populate();
@@ -275,7 +273,10 @@ impl Actor {
         if self.core.should_refresh_table() {
             self.core.update_last_table_refresh();
             if !self.core.server_mode && !self.core.firewalled {
-                info!("Adaptive mode: have been running long enough (not firewalled), switching to server mode");
+                info!(
+                    "Adaptive mode: have been running long enough (not firewalled), \
+                     switching to server mode"
+                );
 
                 self.set_server_mode(true);
             }

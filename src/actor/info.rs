@@ -15,7 +15,7 @@ pub struct Info {
     server_mode: bool,
 
     routing_table_size: usize,
-    singing_peers_routing_table_size: usize,
+    signed_peers_routing_table_size: usize,
 }
 
 impl Info {
@@ -23,7 +23,7 @@ impl Info {
     pub fn id(&self) -> &Id {
         &self.id
     }
-    /// Local UDP Ipv4 socket address that this node is listening on.
+    /// Local UDP IPv4 socket address that this node is listening on.
     pub fn local_addr(&self) -> SocketAddrV4 {
         self.local_addr
     }
@@ -59,8 +59,8 @@ impl Info {
     }
 
     /// Returns:
-    ///  1. Normal Dht size estimate based on all closer `nodes` in query responses.
-    ///  2. Standard deviaiton as a function of the number of samples used in this estimate.
+    ///  1. Normal DHT size estimate based on all closer `nodes` in query responses.
+    ///  2. Standard deviation as a function of the number of samples used in this estimate.
     ///
     /// [Read more](https://github.com/nuhvi/mainline/blob/main/docs/dht_size_estimate.md)
     pub fn dht_size_estimate(&self) -> (usize, f64) {
@@ -72,9 +72,9 @@ impl Info {
         self.routing_table_size
     }
 
-    /// Returns the size of the routing table of nodes supporting signed peers BEP
-    pub fn singing_peers_routing_table_size(&self) -> usize {
-        self.singing_peers_routing_table_size
+    /// Returns the size of the routing table of nodes that support the signed peers BEP.
+    pub fn signed_peers_routing_table_size(&self) -> usize {
+        self.signed_peers_routing_table_size
     }
 }
 
@@ -88,7 +88,7 @@ impl From<&Actor> for Info {
             local_addr: actor.socket.local_addr(),
             dht_size_estimate: actor.core.routing_table.dht_size_estimate(),
             routing_table_size: actor.core.routing_table.size(),
-            singing_peers_routing_table_size: actor.core.signed_peers_routing_table.size(),
+            signed_peers_routing_table_size: actor.core.signed_peers_routing_table.size(),
         }
     }
 }

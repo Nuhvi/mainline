@@ -1,6 +1,7 @@
 //! A command-line tool that stores mutable data on the DHT.
 
-use std::{convert::TryFrom, time::Instant};
+use std::convert::TryFrom;
+use std::time::Instant;
 
 use clap::Parser;
 use dht::{Dht, MutableItem, SigningKey};

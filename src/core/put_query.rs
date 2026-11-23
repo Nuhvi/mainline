@@ -1,18 +1,15 @@
 use tracing::{debug, trace};
 
-use crate::{
-    common::{
-        ErrorSpecific, Id, PutRequest, PutRequestSpecific, RequestSpecific, RequestTypeSpecific,
-    },
-    Node,
-};
-
 use crate::actor::socket::KrpcSocket;
+use crate::common::{
+    ErrorSpecific, Id, PutRequest, PutRequestSpecific, RequestSpecific, RequestTypeSpecific,
+};
+use crate::Node;
 
-#[derive(Debug)]
-/// Once an [`super::IterativeQuery`] is done, or if a previous cached one was a available,
+/// Once an [`super::IterativeQuery`] is done, or when a cached one is available,
 /// we can store data at the closest nodes using this `PutQuery`, that keeps track of
 /// acknowledging nodes, and or errors.
+#[derive(Debug)]
 pub(crate) struct PutQuery {
     pub target: Id,
     /// The token lookup this put is waiting for, if it has not started yet.
@@ -209,22 +206,22 @@ impl PutQuery {
     }
 }
 
+/// Error returned by a put query.
 #[derive(thiserror::Error, Debug, Clone)]
-/// `PutQuery` errors
 pub enum PutError {
-    /// Common `PutQuery` errors
+    /// Error from the underlying put query.
     #[error(transparent)]
     Query(#[from] PutQueryError),
 
+    /// Error from a mutable put conflict.
     #[error(transparent)]
-    /// `PutQuery` for [`crate::MutableItem`] errors
     Concurrency(#[from] ConcurrencyError),
 }
 
+/// Error returned when a put query cannot finish.
 #[derive(thiserror::Error, Debug, Clone)]
-/// Common `PutQuery` errors
 pub enum PutQueryError {
-    /// Failed to find any nodes close, usually means dht node failed to bootstrap,
+    /// Failed to find any nodes close, usually means the DHT node failed to bootstrap,
     /// so the routing table is empty. Check the machine's access to UDP socket,
     /// or find better bootstrapping nodes.
     #[error("Failed to find any nodes close to store value at")]
@@ -242,12 +239,12 @@ pub enum PutQueryError {
     Timeout,
 }
 
+/// Error returned when a mutable put conflicts with another value.
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
-/// `PutQuery` for [`crate::MutableItem`] errors
 pub enum ConcurrencyError {
     /// Trying to PUT mutable items with the same `key`, and `salt` but different `seq`.
     ///
-    /// Moreover, the more recent item does _NOT_ mention the the earlier
+    /// Moreover, the more recent item does _NOT_ mention the earlier
     /// item's `seq` in its `cas` field.
     ///
     /// This risks a [Lost Update Problem](https://en.wikipedia.org/wiki/Write-write_conflict).
@@ -260,7 +257,10 @@ pub enum ConcurrencyError {
     /// The [`crate::MutableItem::seq`] is less than or equal the sequence from another signed item.
     ///
     /// Try reading most recent mutable item before writing again.
-    #[error("MutableItem::seq is not the most recent, try reading most recent item before writing again.")]
+    #[error(
+        "MutableItem::seq is not the most recent, \
+         try reading most recent item before writing again."
+    )]
     NotMostRecent,
 
     /// The `CAS` condition does not match the `seq` of the most recent known signed item.
@@ -273,10 +273,8 @@ mod tests {
     use eyre::Result;
 
     use super::*;
-    use crate::{
-        common::{AnnouncePeerRequestArguments, PutMutableRequestArguments},
-        MutableItem,
-    };
+    use crate::common::{AnnouncePeerRequestArguments, PutMutableRequestArguments};
+    use crate::MutableItem;
 
     fn announce_request() -> PutRequestSpecific {
         PutRequestSpecific::AnnouncePeer(AnnouncePeerRequestArguments {

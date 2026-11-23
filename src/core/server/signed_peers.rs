@@ -1,4 +1,4 @@
-//! Manage announced peer ids for `info_hashes`
+//! Manage announced signed peers for each info hash.
 
 use std::num::NonZeroUsize;
 
@@ -8,10 +8,12 @@ use lru::LruCache;
 
 const CHANCE_SCALE: f32 = 4_294_967_296.0;
 
-#[derive(Debug, Clone)]
-/// An LRU cache of signed peers announced per info hashes.
+/// An LRU cache of signed peers announced for each info hash.
 ///
-/// Read [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst) for more information.
+/// Read [BEP_????][bep] for more information.
+///
+/// [bep]: https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst
+#[derive(Debug, Clone)]
 pub(crate) struct SignedPeersStore {
     info_hashes: LruCache<Id, LruCache<[u8; 32], SignedAnnounce>>,
     max_peers: NonZeroUsize,
@@ -61,7 +63,8 @@ impl SignedPeersStore {
             crate::common::fill_random(chunk.as_mut_slice());
 
             for (index, (_, signed_announce)) in info_hash_lru.iter().enumerate() {
-                // Calculate the chance of adding the current item based on remaining items and slots
+                // Calculate the chance of adding the current item, based on the
+                // remaining items and slots.
                 let remaining_slots = target_size - results.len();
                 let remaining_items = info_hash_lru.len() - index;
                 let current_chance =

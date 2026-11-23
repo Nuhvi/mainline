@@ -1,11 +1,9 @@
 //! Kademlia node Id or a lookup target
 use crc::{Crc, CRC_32_ISCSI};
 use serde::{Deserialize, Serialize};
-use std::{
-    fmt::{self, Debug, Display, Formatter},
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-    str::FromStr,
-};
+use std::fmt::{self, Debug, Display, Formatter};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::str::FromStr;
 
 /// The size of node IDs in bits.
 pub(crate) const ID_SIZE: usize = 20;
@@ -16,8 +14,8 @@ pub(crate) const MAX_DISTANCE: u8 = ID_SIZE_U8 * 8;
 const IPV4_MASK: u32 = 0x030f_3fff;
 const CASTAGNOLI: Crc<u32> = Crc::<u32>::new(&CRC_32_ISCSI);
 
-#[derive(Clone, Copy, PartialEq, Ord, PartialOrd, Eq, Hash, Serialize, Deserialize)]
 /// Kademlia node Id or a lookup target
+#[derive(Clone, Copy, PartialEq, Ord, PartialOrd, Eq, Hash, Serialize, Deserialize)]
 pub struct Id([u8; ID_SIZE]);
 
 impl Id {
@@ -34,7 +32,7 @@ impl Id {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidIdSize`] if `bytes` is not exactly 20 bytes long.
+    /// Returns `InvalidIdSize` if `bytes` is not exactly 20 bytes long.
     pub fn from_bytes<T: AsRef<[u8]>>(bytes: T) -> Result<Id, InvalidIdSize> {
         let bytes = bytes.as_ref();
         if bytes.len() != ID_SIZE {
@@ -63,7 +61,7 @@ impl Id {
     pub fn leading_zeros(&self) -> u8 {
         for (i, byte) in self.0.iter().enumerate() {
             if *byte != 0 {
-                // leading zeros so far + laedinge zeros of this byte
+                // leading zeros so far + leading zeros of this byte
                 return (i as u32 * 8 + byte.leading_zeros()) as u8;
             }
         }
@@ -97,16 +95,18 @@ impl Id {
         Id::from_ip(ip)
     }
 
-    /// Create a new Id from an Ipv4 address according to [BEP_0042](http://bittorrent.org/beps/bep_0042.html).
+    /// Create a new Id from an IPv4 address according to
+    /// [BEP_0042](http://bittorrent.org/beps/bep_0042.html).
     #[must_use]
     pub fn from_ip(ip: IpAddr) -> Id {
         match ip {
             IpAddr::V4(addr) => Id::from_ipv4(addr),
-            IpAddr::V6(_addr) => unimplemented!("Ipv6 is not supported"),
+            IpAddr::V6(_addr) => unimplemented!("IPv6 is not supported"),
         }
     }
 
-    /// Create a new Id from an Ipv4 address according to [BEP_0042](http://bittorrent.org/beps/bep_0042.html).
+    /// Create a new Id from an IPv4 address according to
+    /// [BEP_0042](http://bittorrent.org/beps/bep_0042.html).
     #[must_use]
     pub fn from_ipv4(ipv4: Ipv4Addr) -> Id {
         let mut bytes = [0_u8; 21];
@@ -117,7 +117,8 @@ impl Id {
         from_ipv4_and_r(rand, ipv4, bytes[0])
     }
 
-    /// Validate that this Id is valid with respect to [BEP_0042](http://bittorrent.org/beps/bep_0042.html).
+    /// Check that this Id is valid for an IPv4 address according to
+    /// [BEP_0042](http://bittorrent.org/beps/bep_0042.html).
     #[must_use]
     pub fn is_valid_for_ip(&self, ipv4: Ipv4Addr) -> bool {
         if ipv4.is_private() || ipv4.is_link_local() || ipv4.is_loopback() {
@@ -241,6 +242,7 @@ impl Debug for Id {
     }
 }
 
+/// The byte length of an Id that is not 20 bytes long.
 #[derive(Debug)]
 pub struct InvalidIdSize(usize);
 
@@ -252,15 +254,15 @@ impl std::fmt::Display for InvalidIdSize {
     }
 }
 
+/// Error returned when an Id cannot be decoded from a hex string.
 #[derive(thiserror::Error, Debug)]
-/// Mainline crate error enum.
 pub enum DecodeIdError {
-    /// Id is expected to by 20 bytes.
+    /// Id is expected to be 20 bytes.
     #[error(transparent)]
     InvalidIdSize(#[from] InvalidIdSize),
 
-    #[error("Hex encoding should contain an even number of hex characters")]
     /// Hex encoding should contain an even number of hex characters
+    #[error("Hex encoding should contain an even number of hex characters")]
     OddNumberOfCharacters,
 
     /// Invalid hex character

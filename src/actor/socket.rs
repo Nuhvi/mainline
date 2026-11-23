@@ -23,7 +23,7 @@ pub(crate) const DEFAULT_PORT: u16 = 6881;
 /// Useful for checking for expected responses.
 pub(crate) const MIN_POLL_INTERVAL: Duration = Duration::from_micros(100);
 /// Maximum interval between polling udp socket, higher latency, lower cpu usage.
-/// Useful for waiting for incoming requests, and [`super::Actor::periodic_node_maintaenance`].
+/// Useful for waiting for incoming requests, and [`super::Actor::periodic_node_maintenance`].
 pub(crate) const MAX_POLL_INTERVAL: Duration = Duration::from_millis(500);
 pub(crate) const MIN_REQUEST_TIMEOUT: Duration = Duration::from_millis(500);
 /// Upper bound for the adaptive request timeout.
@@ -62,7 +62,7 @@ impl KrpcSocket {
 
         let local_addr = match socket.local_addr()? {
             SocketAddr::V4(addr) => addr,
-            SocketAddr::V6(_) => unimplemented!("KrpcSocket does not support Ipv6"),
+            SocketAddr::V6(_) => unimplemented!("KrpcSocket does not support IPv6"),
         };
 
         socket.set_read_timeout(Some(MIN_POLL_INTERVAL))?;
@@ -197,7 +197,8 @@ impl KrpcSocket {
                         // Parsed correctly.
                         let should_return = match message.message_type {
                             MessageType::Request(ref request_specific) => {
-                                // simulate legacy nodes not supporting `announce_signed_peers` and `get_signed_peers`
+                                // Simulate legacy nodes that do not support
+                                // `announce_signed_peers` and `get_signed_peers`.
                                 #[cfg(test)]
                                 let should_return =
                                     supports_request(self.version, request_specific);
@@ -243,12 +244,18 @@ impl KrpcSocket {
                         }
                     }
                     Err(error) => {
-                        trace!(context = "socket_error", ?error, ?from, message = ?String::from_utf8_lossy(bytes), "Received invalid Bencode message.");
+                        trace!(
+                            context = "socket_error",
+                            ?error,
+                            ?from,
+                            message = ?String::from_utf8_lossy(bytes),
+                            "Received invalid Bencode message."
+                        );
                     }
                 }
             }
             Ok((_, SocketAddr::V6(_))) => {
-                // Ignore unsupported Ipv6 messages
+                // Ignore unsupported IPv6 messages
             }
             Err(error) => match error.kind() {
                 ErrorKind::WouldBlock => {
@@ -256,9 +263,6 @@ impl KrpcSocket {
                         self.poll_interval =
                             (self.poll_interval.mul_f32(1.1)).min(MAX_POLL_INTERVAL);
                         let _ = self.socket.set_read_timeout(Some(self.poll_interval));
-
-                        // Too noisy, only uncomment when you suspect there is a performance issue..
-                        // trace!("Increased poll_interval {:?}", self.poll_interval);
                     }
                 }
                 _ => {
@@ -301,7 +305,7 @@ impl KrpcSocket {
         true
     }
 
-    /// Set `transactin_id`, version and `read_only`
+    /// Set `transaction_id`, version and `read_only`
     fn request_message(&mut self, transaction_id: u32, message: RequestSpecific) -> Message {
         Message {
             transaction_id: transaction_id.to_be_bytes().into(),
@@ -344,15 +348,15 @@ impl KrpcSocket {
     }
 }
 
+/// Error returned when a KRPC message cannot be encoded or sent.
 #[derive(thiserror::Error, Debug)]
-/// Mainline crate error enum.
 pub(crate) enum SendMessageError {
     /// Errors related to parsing DHT messages.
     #[error("Failed to parse packet bytes: {0}")]
     BencodeError(#[from] serde_bencode::Error),
 
-    #[error(transparent)]
     /// Transparent [`std::io::Error`]
+    #[error(transparent)]
     IO(#[from] std::io::Error),
 }
 
@@ -502,10 +506,8 @@ impl Debug for InflightRequests {
 
 #[cfg(test)]
 fn supports_request(version: [u8; 4], request_specific: &crate::common::RequestSpecific) -> bool {
-    use crate::{
-        common::{PutRequest, RequestTypeSpecific},
-        PutRequestSpecific,
-    };
+    use crate::common::{PutRequest, RequestTypeSpecific};
+    use crate::PutRequestSpecific;
     match request_specific.request_type {
         RequestTypeSpecific::GetSignedPeers(_)
         | RequestTypeSpecific::Put(PutRequest {
@@ -522,10 +524,8 @@ mod test {
 
     use eyre::Result;
 
-    use crate::{
-        common::{Id, PingResponseArguments, RequestTypeSpecific},
-        core::VERSION,
-    };
+    use crate::common::{Id, PingResponseArguments, RequestTypeSpecific};
+    use crate::core::VERSION;
 
     use super::*;
 

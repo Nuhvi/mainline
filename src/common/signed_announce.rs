@@ -2,14 +2,17 @@
 
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
-use std::{convert::TryFrom, time::SystemTime};
+use std::convert::TryFrom;
+use std::time::SystemTime;
 
 use crate::Id;
 
 const MAX_TIMESTAMP_TOLERANCE: u64 = 45 * 1000 * 1000; // 45 seconds in micro seconds
 
+/// [BEP_????][bep]'s `announce_signed_peer`.
+///
+/// [bep]: https://github.com/nuhvi/mainline/blob/main/beps/bep_signed_peers.rst
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-/// [BEP_????](https://github.com/nuhvi/mainline/beps/bep_xxxx.html)'s `announce_signed_peer`.
 pub struct SignedAnnounce {
     /// ed25519 public key
     pub(crate) key: [u8; 32],
@@ -124,19 +127,19 @@ pub(crate) fn encode_signable(info_hash: &Id, timestamp: u64) -> Box<[u8]> {
     signable.into()
 }
 
+/// Error returned when a signed peer announcement is invalid.
 #[derive(thiserror::Error, Debug)]
-/// Mainline crate error enum.
 pub(crate) enum SignedAnnounceError {
-    #[error("Invalid signed announce signature")]
     /// Invalid signed announce signature
+    #[error("Invalid signed announce signature")]
     Signature,
 
-    #[error("Invalid signed announce public key")]
     /// Invalid signed announce public key
+    #[error("Invalid signed announce public key")]
     PublicKey,
 
-    #[error("Invalid signed announce timestamp (too far in the future or the past)")]
     /// Invalid signed announce timestamp
+    #[error("Invalid signed announce timestamp (too far in the future or the past)")]
     Timestamp,
 }
 

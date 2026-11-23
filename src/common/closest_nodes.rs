@@ -1,11 +1,12 @@
 use std::collections::HashSet;
 
-use crate::{common::MAX_BUCKET_SIZE_K, Id, Node};
+use crate::common::MAX_BUCKET_SIZE_K;
+use crate::{Id, Node};
 
-#[derive(Debug, Clone)]
 /// Manage closest nodes found in a query.
 ///
-/// Useful to estimate the Dht size.
+/// Useful to estimate the DHT size.
+#[derive(Debug, Clone)]
 pub struct ClosestNodes {
     target: Id,
     nodes: Vec<Node>,
@@ -188,7 +189,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, net::SocketAddrV4, str::FromStr, sync::Arc, time::Instant};
+    use std::collections::BTreeMap;
+    use std::net::SocketAddrV4;
+    use std::str::FromStr;
+    use std::sync::Arc;
+    use std::time::Instant;
 
     use eyre::Result;
 

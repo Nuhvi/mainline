@@ -1,12 +1,15 @@
 //!
 //! * Counts all IP addresses around a random target ID and counts the number of hits, each IP gets.
-//! * Does this by initializing a new DHT node for each lookups to reach the target from different directions.
+//! * It does this by initializing a new DHT node for each lookup, so each lookup reaches
+//!   the target from a different direction.
 //! *
 //! * The result shows how sloppy the lookup algorithms are.
 //! *
 //! Prints a histogram with the collected nodes
-//! first column are the buckets indicating the hit rate. 3 .. 12 summerizes the nodes that get hit with a probability of 3 to 12% in each lookup.
-//! Second column indicates the number of nodes that this bucket contains. [19] means 19 nodes got hit with a probability of 3 to 12%.
+//! The first column holds the hit-rate buckets. `3 .. 12` summarizes the nodes that get
+//! hit with a probability of 3 to 12% in each lookup.
+//! The second column holds the number of nodes in the bucket. `[19]` means 19 nodes got
+//! hit with a probability of 3 to 12%.
 //! Third column is a visualization of the number of nodes [19].
 //!
 //! Example1:
@@ -15,7 +18,8 @@
 //!
 //! Example2:
 //! 84 .. 93 [ 15 ]: ∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎
-//! Within one lookup, 15 nodes got hit in 84 to 93% of the cases. These nodes are therefore found in almost all lookups.
+//! Within one lookup, 15 nodes got hit in 84 to 93% of the cases. These nodes are
+//! therefore found in almost all lookups.
 //!
 //! Full example:
 //! 3 .. 12 [ 19 ]: ∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎
@@ -33,11 +37,9 @@
 use dht::{Dht, Id, Node};
 use eyre::Result;
 use histo::Histogram;
-use std::{
-    collections::{HashMap, HashSet},
-    net::Ipv4Addr,
-    sync::mpsc::channel,
-};
+use std::collections::{HashMap, HashSet};
+use std::net::Ipv4Addr;
+use std::sync::mpsc::channel;
 
 const K: usize = 20; // Not really k but we take the k closest nodes into account.
 const MAX_DISTANCE: u8 = 150; // Health check to not include outrageously distant nodes.
@@ -55,7 +57,10 @@ fn main() -> Result<()> {
     let mut ip_hits: HashMap<Ipv4Addr, u16> = HashMap::new();
     let (tx_interrupted, rx_interrupted) = channel();
 
-    println!("Count all IP addresses around a random target_key={target} k={K} max_distance={MAX_DISTANCE} random_boostrap={USE_RANDOM_BOOTSTRAP_NODES}.");
+    println!(
+        "Count all IP addresses around a random target_key={target} k={K} \
+         max_distance={MAX_DISTANCE} random_bootstrap={USE_RANDOM_BOOTSTRAP_NODES}."
+    );
     println!("Press CTRL+C to show the histogram");
     println!();
 
@@ -108,7 +113,8 @@ fn main() -> Result<()> {
         last_nodes = sockets;
         let overlap_percent = (overlap * 100_f64) as usize;
         println!(
-            "lookup={:02} Ips found {}. Closest node distance: {}, furthest node distance: {}, overlap with previous lookup {}%",
+            "lookup={:02} IPs found {}. Closest node distance: {}, \
+             furthest node distance: {}, overlap with previous lookup {}%",
             lookup_count,
             ip_hits.len(),
             closest_distance,

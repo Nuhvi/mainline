@@ -1,6 +1,8 @@
 //! A command-line tool that looks up peers for a given info-hash on the DHT.
 
-use std::{collections::HashSet, str::FromStr, time::Instant};
+use std::collections::HashSet;
+use std::str::FromStr;
+use std::time::Instant;
 
 use clap::Parser;
 use dht::{Dht, Id};

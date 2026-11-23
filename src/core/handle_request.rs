@@ -3,11 +3,9 @@ use std::time::Instant;
 
 use tracing::info;
 
-use crate::core::REQUESTER_PING_INTERVAL;
-use crate::RequestSpecific;
-use crate::{core::Core, MessageType};
-
 use crate::common::{Id, RequestTypeSpecific};
+use crate::core::{Core, REQUESTER_PING_INTERVAL};
+use crate::{MessageType, RequestSpecific};
 
 impl Core {
     pub(crate) fn handle_request(
@@ -126,7 +124,7 @@ impl Core {
                     let new_id = Id::from_ipv4(*ipv4);
 
                     info!(
-                        "Our current id {} is not valid for adrsess {}. Using new id {}",
+                        "Our current id {} is not valid for address {}. Using new id {}",
                         self.id(),
                         our_address,
                         new_id
@@ -146,10 +144,8 @@ impl Core {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     use super::*;
     use crate::common::{

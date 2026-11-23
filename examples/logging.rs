@@ -4,16 +4,13 @@
 use colored::{ColoredString, Colorize};
 use dht::Dht;
 use eyre::Result;
-use std::{
-    fmt::Write,
-    thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::fmt::Write;
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{debug, enabled, info, Level, Subscriber};
-use tracing_subscriber::{
-    fmt::{format::Writer, FmtContext, FormatEvent, FormatFields},
-    registry::LookupSpan,
-};
+use tracing_subscriber::fmt::format::Writer;
+use tracing_subscriber::fmt::{FmtContext, FormatEvent, FormatFields};
+use tracing_subscriber::registry::LookupSpan;
 
 // Constants for common strings
 const SOCKET_OUT: &str = "SOCKET OUT";

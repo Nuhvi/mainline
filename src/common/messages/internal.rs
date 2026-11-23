@@ -13,9 +13,9 @@ pub(crate) struct DHTMessage {
     #[serde(flatten)]
     pub variant: DHTMessageVariant,
 
+    // IPv6 is not supported.
     #[serde(default)]
     #[serde(with = "serde_bytes")]
-    // Ipv6 is not supported anyways.
     pub ip: Option<[u8; 6]>,
 
     #[serde(default)]
@@ -219,8 +219,8 @@ pub(crate) struct DHTGetPeersResponseArguments {
     #[serde(default)]
     pub nodes: Option<Box<[u8]>>,
 
-    // values are not optional, because if they are missing this missing
-    // we can just treat this as DHTNoValuesResponseArguments
+    // `values` is not optional: a response without it decodes as
+    // `DHTNoValuesResponseArguments`.
     pub values: Vec<ByteBuf>,
 }
 
@@ -238,8 +238,8 @@ pub(crate) struct DHTGetSignedPeersResponseArguments {
     #[serde(default)]
     pub nodes: Option<Box<[u8]>>,
 
-    // peers are not optional, because if they are missing this missing
-    // we can just treat this as DHTNoValuesResponseArguments
+    // `peers` is not optional: a response without it decodes as
+    // `DHTNoValuesResponseArguments`.
     pub peers: Vec<ByteBuf>,
 }
 
@@ -262,7 +262,7 @@ pub(crate) struct DHTAnnouncePeerRequestArguments {
     pub implied_port: Option<u8>,
 }
 
-/// === Announce Signed Peer ===
+// === Announce Signed Peer ===
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub(crate) struct DHTAnnounceSignedPeerRequestArguments {

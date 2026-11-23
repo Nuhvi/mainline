@@ -1,10 +1,8 @@
 //! A command-line tool that looks up signed peers for a given info-hash on the DHT.
 
-use std::{
-    collections::HashSet,
-    str::FromStr,
-    time::{Instant, SystemTime, UNIX_EPOCH},
-};
+use std::collections::HashSet;
+use std::str::FromStr;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use clap::Parser;
 use dht::{Dht, Id};

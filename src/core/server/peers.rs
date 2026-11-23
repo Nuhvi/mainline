@@ -1,9 +1,7 @@
-//! Manage announced peers for `info_hashes`
+//! Manage announced peers for each info hash.
 
-use std::{
-    net::{Ipv4Addr, SocketAddrV4},
-    num::NonZeroUsize,
-};
+use std::net::{Ipv4Addr, SocketAddrV4};
+use std::num::NonZeroUsize;
 
 use crate::common::Id;
 
@@ -11,13 +9,13 @@ use lru::LruCache;
 
 const CHANCE_SCALE: f32 = 4_294_967_296.0;
 
-#[derive(Debug, Clone)]
-/// An LRU cache of "Peers" per info hashes.
+/// An LRU cache of peers for each info hash.
 ///
-/// Peers are keyed by ip, so that a single host can occupy at most one slot
-/// per info hash, no matter how many node ids or ports it uses.
+/// Peers are keyed by IP, so that a single host can occupy at most one slot
+/// per info hash, no matter how many node IDs or ports it uses.
 ///
 /// Read [BEP_0005](https://www.bittorrent.org/beps/bep_0005.html) for more information.
+#[derive(Debug, Clone)]
 pub(crate) struct PeersStore {
     info_hashes: LruCache<Id, LruCache<Ipv4Addr, SocketAddrV4>>,
     max_peers: NonZeroUsize,
@@ -67,7 +65,8 @@ impl PeersStore {
             crate::common::fill_random(chunk.as_mut_slice());
 
             for (index, (_, addr)) in info_hash_lru.iter().enumerate() {
-                // Calculate the chance of adding the current item based on remaining items and slots
+                // Calculate the chance of adding the current item, based on the
+                // remaining items and slots.
                 let remaining_slots = target_size - results.len();
                 let remaining_items = info_hash_lru.len() - index;
                 let current_chance =

@@ -1,6 +1,7 @@
 //! A command-line tool that announces a signed peer on the DHT for a given info-hash.
 
-use std::{str::FromStr, time::Instant};
+use std::str::FromStr;
+use std::time::Instant;
 
 use clap::Parser;
 use dht::{Dht, Id, SigningKey};

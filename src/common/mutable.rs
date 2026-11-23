@@ -12,8 +12,8 @@ use super::PutMutableRequestArguments;
 /// Maximum salt length in BEP 44.
 const MAX_SALT_SIZE: usize = 64;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 /// [BEP_0044](https://www.bittorrent.org/beps/bep_0044.html)'s Mutable item.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MutableItem {
     /// hash of the key and optional salt
     target: Id,
@@ -186,23 +186,23 @@ pub(crate) fn encode_signable(seq: i64, value: &[u8], salt: Option<&[u8]>) -> Bo
     signable.into()
 }
 
+/// Error returned when a mutable item is invalid.
 #[derive(thiserror::Error, Debug)]
-/// Mainline crate error enum.
 pub enum MutableError {
-    #[error("Invalid mutable item signature")]
     /// Invalid mutable item signature
+    #[error("Invalid mutable item signature")]
     InvalidMutableSignature,
 
-    #[error("Invalid mutable item public key")]
     /// Invalid mutable item public key
+    #[error("Invalid mutable item public key")]
     InvalidMutablePublicKey,
 
-    #[error("Mutable item target does not match its public key")]
     /// The item's target is not `sha1(k[+salt])` of its public key
+    #[error("Mutable item target does not match its public key")]
     TargetMismatch,
 
-    #[error("Mutable item salt is longer than 64 bytes")]
     /// The salt is longer than the BEP 44 limit
+    #[error("Mutable item salt is longer than 64 bytes")]
     SaltTooLong,
 }
 

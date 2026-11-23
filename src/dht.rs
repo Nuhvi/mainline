@@ -1,24 +1,22 @@
 //! Dht node.
 
-use std::{
-    net::{Ipv4Addr, SocketAddrV4},
-    thread,
-};
+use std::net::{Ipv4Addr, SocketAddrV4};
+use std::thread;
 
 use ed25519_dalek::SigningKey;
 use flume::{Receiver, Sender};
 
-use crate::{
-    actor::{config::Config, ActorMessage, Info, ResponseSender},
-    common::{
-        hash_immutable, AnnouncePeerRequestArguments, AnnounceSignedPeerRequestArguments,
-        ErrorSpecific, FindNodeRequestArguments, GetPeersRequestArguments,
-        GetValueRequestArguments, Id, MutableItem, PutImmutableRequestArguments,
-        PutMutableRequestArguments, PutRequestSpecific, SignedAnnounce,
-    },
-    core::{iterative_query::GetRequestSpecific, ConcurrencyError, PutError, PutQueryError},
-    Node, ServerSettings,
+use crate::actor::config::Config;
+use crate::actor::{ActorMessage, Info, ResponseSender};
+use crate::common::{
+    hash_immutable, AnnouncePeerRequestArguments, AnnounceSignedPeerRequestArguments,
+    ErrorSpecific, FindNodeRequestArguments, GetPeersRequestArguments, GetValueRequestArguments,
+    Id, MutableItem, PutImmutableRequestArguments, PutMutableRequestArguments, PutRequestSpecific,
+    SignedAnnounce,
 };
+use crate::core::iterative_query::GetRequestSpecific;
+use crate::core::{ConcurrencyError, PutError, PutQueryError};
+use crate::{Node, ServerSettings};
 
 #[cfg(feature = "async")]
 pub mod async_dht;
@@ -45,12 +43,12 @@ fn put_error_to_query_error(error: PutError) -> PutQueryError {
     }
 }
 
-#[derive(Debug, Clone)]
 /// Mainline Dht node.
+#[derive(Debug, Clone)]
 pub struct Dht(pub(crate) Sender<ActorMessage>);
 
-#[derive(Debug, Default, Clone)]
 /// A builder for the [Dht] node.
+#[derive(Debug, Default, Clone)]
 pub struct DhtBuilder(Config);
 
 type SetupResult = (Sender<ActorMessage>, Receiver<Result<(), std::io::Error>>);
@@ -240,7 +238,7 @@ impl Dht {
         receive(&rx)
     }
 
-    /// Turn this node's routing table to a list of bootstrapping nodes.   
+    /// Turn this node's routing table to a list of bootstrapping nodes.
     #[must_use]
     pub fn to_bootstrap(&self) -> Vec<String> {
         let (tx, rx) = flume::bounded::<Vec<String>>(1);
@@ -272,12 +270,11 @@ impl Dht {
     /// The returned nodes are claims by other nodes, they may be lies, or may have churned
     /// since they were last seen, but haven't been pinged yet.
     ///
-    /// You might need to ping them to confirm they exist, and responsive, or if you want to
-    /// learn more about them like the client they are using, or if they support a given BEP.
+    /// You might need to ping them to confirm that they exist and respond, or to learn
+    /// more about them, such as the client they use or the BEPs they support.
     ///
-    /// If you are trying to find the closest nodes to a target with intent to [`Self::put`],
-    /// a request directly to these nodes (using `extra_nodes` parameter), then you should
-    /// use [`Self::get_closest_nodes`] instead.
+    /// If you want to send a [`Self::put`] request directly to these nodes, through the
+    /// `extra_nodes` parameter, use [`Self::get_closest_nodes`] instead.
     #[must_use]
     pub fn find_node(&self, target: Id) -> Box<[Node]> {
         let (tx, rx) = flume::bounded::<Box<[Node]>>(1);
@@ -315,7 +312,7 @@ impl Dht {
     ///
     /// The peer will be announced on this process IP.
     /// If explicit port is passed, it will be used, otherwise the port will be implicitly
-    /// assumed by remote nodes to be the same ase port they received the request from.
+    /// assumed by remote nodes to be the same port they received the request from.
     ///
     /// # Errors
     ///
@@ -350,7 +347,9 @@ impl Dht {
     /// with the name of your network and any other filters, then pass the first 20 bytes as the
     /// `info_hash` to this method.
     ///
-    /// Read [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst) for more information.
+    /// Read [BEP_????][bep] for more information.
+    ///
+    /// [bep]: https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst
     ///
     /// # Errors
     ///
@@ -393,7 +392,9 @@ impl Dht {
     /// so if you are implementing something different from Bittorrent, you might want
     /// to implement your own logic for gossipping more peers after you discover the first ones.
     ///
-    /// Read [BEP_????](https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst) for more information.
+    /// Read [BEP_????][bep] for more information.
+    ///
+    /// [bep]: https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst
     #[must_use]
     pub fn get_signed_peers(&self, info_hash: Id) -> GetIterator<Vec<SignedAnnounce>> {
         let (tx, rx) = flume::unbounded::<Vec<SignedAnnounce>>();
@@ -445,8 +446,8 @@ impl Dht {
 
     /// Get a mutable data by its `public_key` and optional `salt`.
     ///
-    /// You can ask for items `more_recent_than` than a certain `seq`,
-    /// usually one that you already have seen before, similar to `If-Modified-Since` header in HTTP.
+    /// You can ask for items `more_recent_than` a certain `seq`, usually one that
+    /// you have seen before, similar to the `If-Modified-Since` header in HTTP.
     ///
     /// # Order
     ///
@@ -502,12 +503,14 @@ impl Dht {
     ///
     /// # Lost Update Problem
     ///
-    /// As mainline DHT is a distributed system, it is vulnerable to [Write–write conflict](https://en.wikipedia.org/wiki/Write-write_conflict).
+    /// As the mainline DHT is a distributed system, it is vulnerable to
+    /// [Write–write conflict](https://en.wikipedia.org/wiki/Write-write_conflict).
     ///
     /// ## Read first
     ///
-    /// To mitigate the risk of lost updates, you should call the [`Self::get_mutable_most_recent`] method
-    /// then start authoring the new [`MutableItem`] based on the most recent as in the following example:
+    /// To mitigate the risk of lost updates, call [`Self::get_mutable_most_recent`]
+    /// first. Then author the new [`MutableItem`] from the most recent item, as the
+    /// following example shows:
     ///
     ///```rust
     /// use dht::{Dht, MutableItem, SigningKey, Testnet};
@@ -519,7 +522,7 @@ impl Dht {
     /// let key = signing_key.verifying_key().to_bytes();
     /// let salt = Some(b"salt".as_ref());
     ///
-    /// let (item, cas) = if let Some(most_recent) = dht .get_mutable_most_recent(&key, salt) {
+    /// let (item, cas) = if let Some(most_recent) = dht.get_mutable_most_recent(&key, salt) {
     ///     // 1. Optionally Create a new value to take the most recent's value in consideration.
     ///     let mut new_value = most_recent.value().to_vec();
     ///     new_value.extend_from_slice(b" more data");
@@ -559,10 +562,14 @@ impl Dht {
 
     // === Raw ===
 
-    /// Get closet nodes to a specific target, that support [BEP_0044](https://www.bittorrent.org/beps/bep_0044.html).
+    /// Get the closest nodes to a target that support
+    /// [BEP_0044](https://www.bittorrent.org/beps/bep_0044.html).
     ///
     /// Useful to [`Self::put`] a request to nodes further from the 20 closest nodes to the
-    /// [`PutRequestSpecific::target`]. Which itself is useful to circumvent [extreme vertical sybil attacks](https://github.com/nuhvi/mainline/blob/main/docs/censorship-resistance.md#extreme-vertical-sybil-attacks).
+    /// [`PutRequestSpecific::target`]. This is also useful to circumvent
+    /// [extreme vertical sybil attacks][sybil].
+    ///
+    /// [sybil]: https://github.com/nuhvi/mainline/blob/main/docs/censorship-resistance.md
     #[must_use]
     pub fn get_closest_nodes(&self, target: Id) -> Box<[Node]> {
         let (tx, rx) = flume::unbounded::<Box<[Node]>>();
@@ -635,26 +642,28 @@ impl<T> Iterator for GetIterator<T> {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
 /// Put `MutableItem` errors.
+#[derive(thiserror::Error, Debug)]
 pub enum PutMutableError {
-    #[error(transparent)]
     /// Common `PutQuery` errors
+    #[error(transparent)]
     Query(#[from] PutQueryError),
 
-    #[error(transparent)]
     /// `PutQuery` for [`crate::MutableItem`] errors
+    #[error(transparent)]
     Concurrency(#[from] ConcurrencyError),
 }
 
 #[cfg(test)]
 mod test {
-    use std::{str::FromStr, time::Duration};
+    use std::str::FromStr;
+    use std::time::Duration;
 
     use ed25519_dalek::SigningKey;
     use eyre::{eyre, Result};
 
-    use crate::{actor::ActorMessage, core::ConcurrencyError};
+    use crate::actor::ActorMessage;
+    use crate::core::ConcurrencyError;
 
     use super::*;
 
@@ -726,12 +735,10 @@ mod test {
 
     #[test]
     fn remote_put_error_is_returned_instead_of_panicking() -> Result<()> {
-        use crate::{
-            actor::socket::KrpcSocket,
-            common::{
-                FindNodeResponseArguments, MessageType, NoValuesResponseArguments, PutRequest,
-                RequestTypeSpecific, ResponseSpecific,
-            },
+        use crate::actor::socket::KrpcSocket;
+        use crate::common::{
+            FindNodeResponseArguments, MessageType, NoValuesResponseArguments, PutRequest,
+            RequestTypeSpecific, ResponseSpecific,
         };
 
         let mut server = KrpcSocket::new(&Config {
@@ -903,7 +910,7 @@ mod test {
             .get_mutable(signer.verifying_key().as_bytes(), None, Some(seq))
             .next();
 
-        assert!(&response.is_none());
+        assert!(response.is_none());
 
         Ok(())
     }

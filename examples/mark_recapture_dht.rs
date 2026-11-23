@@ -48,7 +48,8 @@
 use dashmap::DashSet;
 use dht::{Dht, Id};
 use eyre::Result;
-use rayon::{prelude::*, ThreadPool, ThreadPoolBuilder};
+use rayon::prelude::*;
+use rayon::{ThreadPool, ThreadPoolBuilder};
 use tracing::{debug, info};
 
 /// Adjust as needed. Default will take about ~2 hours
@@ -56,7 +57,8 @@ use tracing::{debug, info};
 const MIN_OVERLAP: usize = 10_000;
 // Maximum number of sampling rounds before stopping. Avoid infinite loops.
 const MAX_RANDOM_NODE_IDS: usize = 100_000;
-// Number of parallel lookups. Ideally not bigger than number of threads available. Display progress every N.
+// Number of parallel lookups. Ideally not bigger than the number of threads
+// available. Display progress every N.
 const BATCH_SIZE: usize = 16;
 const Z_SCORE: f64 = 1.96;
 

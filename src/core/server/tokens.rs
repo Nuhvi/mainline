@@ -1,11 +1,9 @@
 //! Manage tokens for remote client IPs.
 
 use sha1_smol::Sha1;
-use std::{
-    fmt::{self, Debug, Formatter},
-    net::SocketAddrV4,
-    time::Instant,
-};
+use std::fmt::{self, Debug, Formatter};
+use std::net::SocketAddrV4;
+use std::time::Instant;
 
 use tracing::trace;
 

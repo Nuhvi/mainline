@@ -4,7 +4,9 @@ pub(crate) mod peers;
 pub(crate) mod signed_peers;
 pub(crate) mod tokens;
 
-use std::{fmt::Debug, net::SocketAddrV4, num::NonZeroUsize};
+use std::fmt::Debug;
+use std::net::SocketAddrV4;
+use std::num::NonZeroUsize;
 
 use dyn_clone::DynClone;
 use lru::LruCache;
@@ -57,12 +59,13 @@ impl RequestFilter for DefaultFilter {
     }
 }
 
-#[derive(Debug)]
 /// A server that handles incoming requests.
 ///
-/// Supports [BEP_005](https://www.bittorrent.org/beps/bep_0005.html) and [BEP_0044](https://www.bittorrent.org/beps/bep_0044.html).
+/// Supports [BEP_0005](https://www.bittorrent.org/beps/bep_0005.html) and
+/// [BEP_0044](https://www.bittorrent.org/beps/bep_0044.html).
 ///
-/// But it doesn't implement any rate-limiting or blocking.
+/// It does not implement rate limiting or blocking.
+#[derive(Debug)]
 pub(crate) struct Server {
     /// Tokens generator
     tokens: Tokens,
@@ -84,8 +87,8 @@ impl Default for Server {
     }
 }
 
+/// Settings for the default DHT server.
 #[derive(Debug, Clone)]
-/// Settings for the default dht server.
 pub struct ServerSettings {
     /// The maximum `info_hashes` for which to store peers.
     ///
@@ -350,7 +353,13 @@ impl Server {
                     }
 
                     if v.len() > 1000 {
-                        debug!(?target, ?requester_id, ?from, size = ?v.len(), "Message (v field) too big.");
+                        debug!(
+                            ?target,
+                            ?requester_id,
+                            ?from,
+                            size = ?v.len(),
+                            "Message (v field) too big."
+                        );
 
                         return Some(MessageType::Error(ErrorSpecific {
                             code: 205,
@@ -358,7 +367,13 @@ impl Server {
                         }));
                     }
                     if !validate_immutable(&v, target) {
-                        debug!(?target, ?requester_id, ?from, v = ?v, "Target doesn't match the sha1 hash of v field.");
+                        debug!(
+                            ?target,
+                            ?requester_id,
+                            ?from,
+                            v = ?v,
+                            "Target doesn't match the sha1 hash of v field."
+                        );
 
                         return Some(MessageType::Error(ErrorSpecific {
                             code: 203,

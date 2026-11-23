@@ -2,16 +2,14 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 
 use tracing::{debug, trace};
 
-use crate::{
-    common::{
-        validate_immutable, GetImmutableResponseArguments, GetMutableResponseArguments,
-        GetPeersResponseArguments, GetSignedPeersResponseArguments, Id, Message,
-        NoMoreRecentValueResponseArguments, NoValuesResponseArguments, RequestTypeSpecific,
-        ResponseSpecific, SignedAnnounce,
-    },
-    core::{supports_signed_peers, Response},
-    MessageType, MutableItem, Node,
+use crate::common::{
+    validate_immutable, GetImmutableResponseArguments, GetMutableResponseArguments,
+    GetPeersResponseArguments, GetSignedPeersResponseArguments, Id, Message,
+    NoMoreRecentValueResponseArguments, NoValuesResponseArguments, RequestTypeSpecific,
+    ResponseSpecific, SignedAnnounce,
 };
+use crate::core::{supports_signed_peers, Response};
+use crate::{MessageType, MutableItem, Node};
 
 use super::{Core, QueryId};
 
@@ -248,9 +246,9 @@ impl Core {
                 MessageType::Error(error) => {
                     debug!(?error, ?from_version, "Get query got error response");
                 }
-                // Ping response is already handled in add_node()
-                // FindNode response is already handled in query.add_candidate()
-                // Requests are handled elsewhere
+                // A Ping response adds the responder below. A FindNode
+                // response adds its closer nodes above. Requests are handled
+                // in the actor.
                 MessageType::Response(
                     ResponseSpecific::Ping(_) | ResponseSpecific::FindNode(_),
                 )
@@ -299,15 +297,13 @@ mod tests {
 
     use ed25519_dalek::SigningKey;
 
-    use crate::{
-        actor::socket::KrpcSocket,
-        common::{
-            hash_immutable, FindNodeRequestArguments, FindNodeResponseArguments,
-            GetValueRequestArguments,
-        },
-        core::iterative_query::GetRequestSpecific,
-        ServerSettings,
+    use crate::actor::socket::KrpcSocket;
+    use crate::common::{
+        hash_immutable, FindNodeRequestArguments, FindNodeResponseArguments,
+        GetValueRequestArguments,
     };
+    use crate::core::iterative_query::GetRequestSpecific;
+    use crate::ServerSettings;
 
     use super::*;
 

@@ -6,11 +6,12 @@ use std::net::SocketAddrV4;
 use tracing::{debug, trace};
 
 use crate::actor::socket::KrpcSocket;
-use crate::common::{FindNodeRequestArguments, GetPeersRequestArguments, GetValueRequestArguments};
-use crate::common::{Id, Node, RequestSpecific, RequestTypeSpecific, MAX_BUCKET_SIZE_K};
+use crate::common::{
+    FindNodeRequestArguments, GetPeersRequestArguments, GetValueRequestArguments, Id, Node,
+    RequestSpecific, RequestTypeSpecific, MAX_BUCKET_SIZE_K,
+};
 use crate::core::Response;
-use crate::ClosestNodes;
-use crate::PutRequestSpecific;
+use crate::{ClosestNodes, PutRequestSpecific};
 
 /// An iterative process of concurrently sending a request to the closest known nodes to
 /// the target, updating the routing table with closer nodes discovered in the responses, and
@@ -163,9 +164,9 @@ impl IterativeQuery {
             .or_insert(1);
     }
 
-    /// Visit explicitly given addresses, add them to the visited set, and return the
-    /// transaction id.
-    /// only used from the Rpc when calling bootstrapping nodes.
+    /// Send a request to an address and record it as visited.
+    ///
+    /// Returns the transaction id.
     pub(crate) fn visit(&mut self, socket: &mut KrpcSocket, address: SocketAddrV4) -> u32 {
         let tid = socket.request(address, self.request.clone());
         self.inflight_requests.push(tid);
@@ -251,7 +252,13 @@ impl IterativeQuery {
             .any(|tid| socket.inflight(*tid));
 
         if done {
-            debug!(id=?self.target(), closest = ?self.closest.len(), visited = ?self.visited.len(), responders = ?self.responders.len(), "Done query");
+            debug!(
+                id = ?self.target(),
+                closest = ?self.closest.len(),
+                visited = ?self.visited.len(),
+                responders = ?self.responders.len(),
+                "Done query"
+            );
         }
 
         done

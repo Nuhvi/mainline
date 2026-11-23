@@ -18,7 +18,7 @@ cargo run --example cache_bootstrap
 cargo run --example logging
 ```
 
-### Anounce/GET Peers (to announce Ip/port addresses)
+### Announce/GET Peers (to announce Ip/port addresses)
 ```sh
 # Announce as a peer
 cargo run --example announce_peer <40 bytes hex info_hash>
@@ -27,7 +27,7 @@ cargo run --example announce_peer <40 bytes hex info_hash>
 cargo run --example get_peers <40 bytes hex info_hash>
 ```
 
-### Anounce/GET Signed Peers (for overlay networks)
+### Announce/GET Signed Peers (for overlay networks)
 ```sh
 # Announce as a peer
 cargo run --example announce_signed_peer <40 bytes hex info_hash> <64 bytes hex secret key>

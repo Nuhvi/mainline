@@ -24,14 +24,19 @@ pub(crate) struct Message {
     /// The version of the requester or responder.
     pub version: Option<[u8; 4]>,
 
-    /// The IP address and port ("`SocketAddr`") of the requester as seen from the responder's point of view.
-    /// This should be set only on response, but is defined at this level with the other common fields to avoid defining yet another layer on the response objects.
+    /// The IP address and port of the requester, as the responder sees them.
+    ///
+    /// A response sets this field. It is defined at this level with the other
+    /// common fields to avoid another layer on the response objects.
     pub requester_ip: Option<SocketAddrV4>,
 
     pub message_type: MessageType,
 
-    /// For bep0043. When set true on a request, indicates that the requester can't reply to requests and that responders should not add requester to their routing tables.
-    /// Should only be set on requests - undefined behavior when set on a response.
+    /// The BEP_0043 read-only flag.
+    ///
+    /// A request sets it when the requester cannot answer requests, so that
+    /// responders do not add the requester to their routing tables. A response
+    /// must not set it.
     pub read_only: bool,
 }
 
@@ -1010,10 +1015,10 @@ fn signed_peer_to_bytes(peer: &SignedAnnounce) -> [u8; 104] {
     bytes
 }
 
+/// Error returned when a KRPC message cannot be decoded.
 #[derive(thiserror::Error, Debug)]
-/// Mainline crate error enum.
 pub(crate) enum DecodeMessageError {
-    #[error("Expected message to be longer than 15 characters")]
+    #[error("Expected message to be at least 15 bytes")]
     TooShort,
 
     #[error("Expected message to start with 'd'")]
@@ -1022,7 +1027,7 @@ pub(crate) enum DecodeMessageError {
     #[error("Wrong number of bytes for nodes")]
     InvalidNodes4,
 
-    #[error("wrong number of bytes for port")]
+    #[error("Wrong number of bytes for port")]
     InvalidPortEncoding,
 
     #[error("IPv6 is not yet implemented")]

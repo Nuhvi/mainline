@@ -3,7 +3,8 @@
 //! The program accepts an infohash as a command-line argument, initialises a DHT client,
 //! and performs two announcements (cold query and subsequent query) to measure the time taken.
 
-use std::{str::FromStr, time::Instant};
+use std::str::FromStr;
+use std::time::Instant;
 
 use clap::Parser;
 use dht::{Dht, Id};

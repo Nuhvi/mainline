@@ -1,6 +1,7 @@
 //! A command-line tool that looks up immutable data on the DHT by info-hash.
 
-use std::{str::FromStr, time::Instant};
+use std::str::FromStr;
+use std::time::Instant;
 
 use clap::Parser;
 use dht::{Dht, Id};
