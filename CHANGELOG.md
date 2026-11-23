@@ -2,6 +2,55 @@
 
 All notable changes to mainline dht will be documented in this file.
 
+## [Unreleased]
+
+### Security
+
+- Write tokens now use SHA-1 over the source IP, the secret, and the target. A peer token binds to the info hash, and a BEP 44 token binds to the target. The node no longer accepts a token that it issued before the upgrade. A client must get a new token after error 203.
+- Mutable items and signed peer announcements now use strict Ed25519 verification. The node rejects a public key of small order. It also rejects a BEP 44 salt longer than 64 bytes.
+- The peer store now uses the announcer's IP as the key. One host cannot evict the honest peers of an info hash with many node ids.
+- The node now ignores a local address in the node list of a reply from the Internet. A reply from a local address can still name local nodes. Local addresses are private, shared, loopback, link-local, unspecified, multicast, and broadcast addresses.
+- A `find_node` request no longer adds the requester directly. The node now pings the requester and adds it only after a response. It sends at most one ping to one requester in 10 seconds.
+- The socket now removes a pending request only when the sender address matches the queried address. A response from another address cannot cancel the request.
+- Requests now use random 32-bit transaction ids. The socket redraws an id while the request is pending.
+- The decoder now rejects a bencode message that nests deeper than 16 levels.
+- A signed peer entry must now have exactly 104 bytes.
+- `Id::from_str()` now accepts only ASCII hex digits. It returns `InvalidHexCharacter` for a multibyte character or a plus sign. It no longer panics.
+- The node no longer adds a responder that returns an invalid immutable value or an invalid mutable item.
+- When a read has a sequence bound, a mutable reply must now have a `seq` above that bound. The node does not send or cache an older value.
+- The node no longer sends a request to `0.0.0.0`. It now matches a response to the exact source address.
+
+### Fixed
+
+- A `MutableItem` with a higher `seq` now replaces an item with a lower `seq`. `Dht::get_mutable_most_recent()` and `AsyncDht::get_mutable_most_recent()` no longer return a stale item.
+- A node that does not respond no longer keeps a place among the closest nodes. The query now tries the next closest node.
+- Cleanup now removes timed-out requests on every call. The pending request list no longer grows without a limit.
+- The adaptive request timeout now has a 5-second cap. The node ignores a sample later than twice the current timeout. It clamps each sample to the range 500 ms to 5 s.
+- A known node now refreshes its `last_seen` time when the node is added again. A full bucket no longer evicts a live node.
+- A response to a ping now adds the responder to the routing table. Before, only a response to an iterative query added the responder.
+- `announce_peer()`, `announce_signed_peer()`, and `put_immutable()` now return a remote error. The actor thread no longer panics.
+- A `301` or `302` reply now becomes a concurrency error only for a mutable put. Any other reply becomes `PutQueryError::ErrorResponse` with the code and the description. Before, the node dropped any other reply and the caller saw `Timeout`.
+- Each put query now has an internal id and its own result channel. A second put for the same target no longer replaces the first put or sends one result to both callers.
+- A read now uses a pending put only when the target, the salt, the sequence bound, and the read type match.
+- Identical read requests now share one lookup. Requests that differ in type, salt, or sequence bound now use separate lookups.
+- A put now sends a write only to a node with a fresh token. Extra nodes can still supply a token. `NoClosestNodes` occurs only when no request starts.
+- A `find_node` query now updates only the general size estimate. It no longer changes the responder statistics.
+- A put can now reach more than 255 nodes.
+
+### Changed
+
+- `Info::singing_peers_routing_table_size()` is now `Info::signed_peers_routing_table_size()`. The previous name had a typo. (Breaking change)
+- `MutableError` has the new `SaltTooLong` variant. A `match` that covers every variant must add a branch. (Breaking change)
+- The encoded put request no longer has the non-standard `target` field. The receiver now derives the target from the public key and the salt, or from the value, as BEP 44 specifies.
+- The KRPC transaction id is now opaque. The node accepts an id of up to 32 bytes and returns the same id in the reply. The node now returns a two-byte reply to a two-byte id, such as the id from libtorrent.
+- The README and the API documentation now explain the limits of adaptive mode. They recommend server mode for a port-forwarded or public node.
+
+### Added
+
+- `ConcurrencyError` now implements `PartialEq` and `Eq`.
+- The `key` example creates an Ed25519 key pair for mutable items.
+- The mutable examples now use the `key` example and the public key.
+
 ## [7.0.0](https://github.com/Nuhvi/mainline/compare/v6.4.1...v7.0.0) - 2026-08-05
 
 ### Changed
