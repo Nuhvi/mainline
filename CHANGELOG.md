@@ -3,6 +3,7 @@
 All notable changes to mainline dht will be documented in this file.
 
 ## [Unreleased]
+ ## [8.0.0](https://github.com/Nuhvi/mainline/compare/v7.0.0...v8.0.0) - 2026-11-23
 
 ### Security
 
