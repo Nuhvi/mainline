@@ -188,6 +188,7 @@ pub(crate) fn encode_signable(seq: i64, value: &[u8], salt: Option<&[u8]>) -> Bo
 
 /// Error returned when a mutable item is invalid.
 #[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
 pub enum MutableError {
     /// Invalid mutable item signature
     #[error("Invalid mutable item signature")]
@@ -207,10 +208,11 @@ pub enum MutableError {
 }
 
 impl PutMutableRequestArguments {
-    /// Create a [`PutMutableRequestArguments`] from a [`MutableItem`],
-    /// and an optional CAS condition, which is usually the [`MutableItem::seq`]
-    /// of the most recent known [`MutableItem`]
-    pub fn from(item: MutableItem, cas: Option<i64>) -> Self {
+    /// Create the arguments of a put request for a mutable item.
+    ///
+    /// `cas` is usually the [`MutableItem::seq`] of the most recent item.
+    #[must_use]
+    pub fn from_item(item: MutableItem, cas: Option<i64>) -> Self {
         Self {
             target: item.target,
             v: item.value,
@@ -220,6 +222,18 @@ impl PutMutableRequestArguments {
             salt: item.salt,
             cas,
         }
+    }
+
+    /// Return the target that the key and the salt hash to.
+    #[must_use]
+    pub fn target(&self) -> &Id {
+        &self.target
+    }
+}
+
+impl From<MutableItem> for PutMutableRequestArguments {
+    fn from(item: MutableItem) -> Self {
+        Self::from_item(item, None)
     }
 }
 

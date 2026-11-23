@@ -19,13 +19,13 @@ fn main() -> Result<()> {
         let _ = dht.find_node(Id::random());
 
         let info = dht.info();
-        let (estimate, std_dev) = info.dht_size_estimate();
+        let estimate = info.dht_size_estimate();
 
         println!(
             "Dht size estimate after {} lookups: {} +-{:.0}% nodes",
             lookups,
-            format_number(estimate),
-            (std_dev * 2.0) * 100.0
+            format_number(estimate.size),
+            (estimate.std_dev * 2.0) * 100.0
         );
 
         // we don't need to pace ourselves anymore, as the krpc socket

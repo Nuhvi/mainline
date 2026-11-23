@@ -619,7 +619,7 @@ mod tests {
     fn mutable_request(value: &[u8], seq: i64, cas: Option<i64>) -> PutRequestSpecific {
         let signer = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
         let item = MutableItem::new(&signer, value, seq, None);
-        PutRequestSpecific::PutMutable(crate::common::PutMutableRequestArguments::from(item, cas))
+        PutRequestSpecific::PutMutable(PutMutableRequestArguments::from_item(item, cas))
     }
 
     #[test]
@@ -687,9 +687,8 @@ mod tests {
         let target = *newer.target();
 
         for (id, item) in [(0, older.clone()), (1, newer.clone())] {
-            let request = PutRequestSpecific::PutMutable(
-                crate::common::PutMutableRequestArguments::from(item, None),
-            );
+            let request =
+                PutRequestSpecific::PutMutable(PutMutableRequestArguments::from_item(item, None));
             core.put_queries.insert(id, PutQuery::new(request, None));
         }
 

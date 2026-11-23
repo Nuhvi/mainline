@@ -8,6 +8,16 @@ use crate::common::{ClosestNodes, Id, Node};
 /// K = the default maximum size of a k-bucket.
 pub(crate) const MAX_BUCKET_SIZE_K: usize = 20;
 
+/// An estimate of the DHT size and its standard deviation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DhtSizeEstimate {
+    /// The estimated number of nodes in the DHT.
+    pub size: usize,
+
+    /// The standard deviation of the estimate.
+    pub std_dev: f64,
+}
+
 /// Simplified Kademlia routing table
 #[derive(Debug, Clone)]
 pub struct RoutingTable {
@@ -211,18 +221,16 @@ impl RoutingTable {
 
     // === Stats ===
 
-    /// Returns:
-    ///  1. Normal DHT size estimate based on all closer `nodes` in query responses.
-    ///  2. Standard deviation as a function of the number of samples used in this estimate.
+    /// Return the DHT size estimate from the closest nodes in the query responses.
     ///
     /// [Read more](https://github.com/nuhvi/mainline/blob/main/docs/dht_size_estimate.md)
-    pub(crate) fn dht_size_estimate(&self) -> (usize, f64) {
-        let normal = self.dht_size_estimates_sum as usize / self.dht_size_estimates_count.max(1);
+    pub(crate) fn dht_size_estimate(&self) -> DhtSizeEstimate {
+        let size = self.dht_size_estimates_sum as usize / self.dht_size_estimates_count.max(1);
 
         // See https://github.com/nuhvi/mainline/blob/main/docs/standard-deviation-vs-lookups.png
         let std_dev = 0.281 * (self.dht_size_estimates_count as f64).powf(-0.529);
 
-        (normal, std_dev)
+        DhtSizeEstimate { size, std_dev }
     }
 
     pub(crate) fn average_subnets(&self) -> usize {

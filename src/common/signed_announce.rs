@@ -25,12 +25,14 @@ pub struct SignedAnnounce {
 
 impl SignedAnnounce {
     /// Create a new `SignedAnnounce` for a `info_hash`.
+    #[must_use]
     pub fn new(signer: &SigningKey, info_hash: &Id) -> Self {
         let timestamp = system_time();
 
         Self::new_with_timestamp(signer, info_hash, timestamp)
     }
 
+    #[must_use]
     pub(crate) fn new_with_timestamp(signer: &SigningKey, info_hash: &Id, timestamp: u64) -> Self {
         let signable = encode_signable(info_hash, timestamp);
         let signature = signer.sign(&signable);
@@ -91,16 +93,19 @@ impl SignedAnnounce {
     // === Getters ===
 
     /// Returns a reference to the 32 bytes Ed25519 public key of this item.
+    #[must_use]
     pub fn key(&self) -> &[u8; 32] {
         &self.key
     }
 
     /// Returns the `timestamp` of this announcement.
+    #[must_use]
     pub fn timestamp(&self) -> u64 {
         self.timestamp
     }
 
     /// Returns the signature over this announcement's `info_hash` (infohash) and timestamp.
+    #[must_use]
     pub fn signature(&self) -> &[u8; 64] {
         &self.signature
     }

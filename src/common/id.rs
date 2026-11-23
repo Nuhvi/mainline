@@ -88,6 +88,10 @@ impl Id {
     }
 
     /// Create a new Id according to [BEP_0042](http://bittorrent.org/beps/bep_0042.html).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `addr` has an IPv6 address.
     #[must_use]
     pub fn from_addr(addr: &SocketAddr) -> Id {
         let ip = addr.ip();
@@ -97,6 +101,10 @@ impl Id {
 
     /// Create a new Id from an IPv4 address according to
     /// [BEP_0042](http://bittorrent.org/beps/bep_0042.html).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `ip` is an IPv6 address.
     #[must_use]
     pub fn from_ip(ip: IpAddr) -> Id {
         match ip {
@@ -256,6 +264,7 @@ impl std::fmt::Display for InvalidIdSize {
 
 /// Error returned when an Id cannot be decoded from a hex string.
 #[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
 pub enum DecodeIdError {
     /// Id is expected to be 20 bytes.
     #[error(transparent)]

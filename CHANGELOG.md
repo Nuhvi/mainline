@@ -36,6 +36,7 @@ All notable changes to mainline dht will be documented in this file.
 - A put now sends a write only to a node with a fresh token. Extra nodes can still supply a token. `NoClosestNodes` occurs only when no request starts.
 - A `find_node` query now updates only the general size estimate. It no longer changes the responder statistics.
 - A put can now reach more than 255 nodes.
+- `announce_peer` now encodes `implied_port` from the value. `Some(false)` no longer becomes `1` on the wire.
 
 ### Changed
 
@@ -44,12 +45,31 @@ All notable changes to mainline dht will be documented in this file.
 - The encoded put request no longer has the non-standard `target` field. The receiver now derives the target from the public key and the salt, or from the value, as BEP 44 specifies.
 - The KRPC transaction id is now opaque. The node accepts an id of up to 32 bytes and returns the same id in the reply. The node now returns a two-byte reply to a two-byte id, such as the id from libtorrent.
 - The README and the API documentation now explain the limits of adaptive mode. They recommend server mode for a port-forwarded or public node.
+- `Info::dht_size_estimate()` now returns `DhtSizeEstimate` instead of `(usize, f64)`. (Breaking change)
+- `Dht::get_peers()`, `Dht::get_signed_peers()`, and `Dht::get_mutable()` now return `impl Iterator`. The `GetIterator` type is no longer public.
+- `PutMutableRequestArguments::from()` is now `PutMutableRequestArguments::from_item()`.
+- The `target` field of `PutImmutableRequestArguments` and `PutMutableRequestArguments` is now private. Use the constructor and the `target()` method.
+- `MessageType`, `RequestTypeSpecific`, `ResponseSpecific`, `PutRequestSpecific`, `PutMutableError`, `PutError`, `PutQueryError`, `ConcurrencyError`, `MutableError`, and `DecodeIdError` are now `#[non_exhaustive]`. A downstream `match` must add a wildcard arm. (Breaking change)
+- `Id::from_ip()` and `Id::from_addr()` now document the panic on an IPv6 address.
+- The getters and constructors of `Info` and `SignedAnnounce` are now `#[must_use]`.
 
 ### Added
 
 - `ConcurrencyError` now implements `PartialEq` and `Eq`.
 - The `key` example creates an Ed25519 key pair for mutable items.
 - The mutable examples now use the `key` example and the public key.
+- `Config`, `Info`, and `InvalidIdSize` are now exported from the crate root. `Dht::new()`, `Dht::new_async()`, `AsyncDht::new()`, `Dht::info()`, and `Id::from_bytes()` are now usable from another crate.
+- The KRPC message API is now exported. This includes `MessageType`, `RequestSpecific`, `RequestTypeSpecific`, `ResponseSpecific`, `PutRequest`, `PutRequestSpecific`, and the argument types. `Dht::put()` and detailed `RequestFilter` rules are now usable.
+- `PutImmutableRequestArguments::new()` creates immutable put arguments. `PutMutableRequestArguments::from_item()` creates mutable put arguments. `PutMutableRequestArguments` also implements `From<MutableItem>`.
+- `DhtSizeEstimate` is a new type. It has the `size` and `std_dev` fields.
+- The message types now have documentation. The crate no longer disables the `missing_docs` lint for the message module.
+
+### Internal
+
+- The message codec now has property tests for the bencode depth guard, the decoder, and the round trip. They run in the normal test suite.
+- The CI now runs the tests without default features and the doctests. It also denies rustdoc warnings.
+- The test modules are now named `tests`. The mutable-item tests share one signing-key fixture.
+- Imports, documentation, and line lengths now follow the Google Rust style guide. The CI uses `actions/checkout@v4` and `dtolnay/rust-toolchain`.
 
 ## [7.0.0](https://github.com/Nuhvi/mainline/compare/v6.4.1...v7.0.0) - 2026-08-05
 

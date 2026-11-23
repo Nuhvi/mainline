@@ -15,6 +15,7 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 use proptest::prelude::*;
 
 use super::*;
+use crate::MutableItem;
 
 // ==== Depth guard ====
 
@@ -261,14 +262,14 @@ fn announce_signed_peer_request() -> BoxedStrategy<MessageType> {
 }
 
 fn put_immutable_request() -> BoxedStrategy<MessageType> {
-    (id(), blob(20), id(), blob(64))
-        .prop_map(|(requester_id, token, target, v)| {
+    (id(), blob(20), blob(64))
+        .prop_map(|(requester_id, token, v)| {
             MessageType::Request(RequestSpecific {
                 requester_id,
                 request_type: RequestTypeSpecific::Put(PutRequest {
                     token,
                     put_request_type: PutRequestSpecific::PutImmutable(
-                        PutImmutableRequestArguments { target, v },
+                        PutImmutableRequestArguments::new(v),
                     ),
                 }),
             })
@@ -280,7 +281,6 @@ fn put_mutable_request() -> BoxedStrategy<MessageType> {
     (
         id(),
         blob(20),
-        id(),
         blob(64),
         any::<[u8; 32]>(),
         any::<i64>(),
@@ -288,20 +288,15 @@ fn put_mutable_request() -> BoxedStrategy<MessageType> {
         prop::option::of(blob(16)),
         prop::option::of(any::<i64>()),
     )
-        .prop_map(|(requester_id, token, target, v, k, seq, sig, salt, cas)| {
+        .prop_map(|(requester_id, token, v, k, seq, sig, salt, cas)| {
+            let item = MutableItem::new_signed_unchecked(k, sig, &v, seq, salt.as_deref());
             MessageType::Request(RequestSpecific {
                 requester_id,
                 request_type: RequestTypeSpecific::Put(PutRequest {
                     token,
-                    put_request_type: PutRequestSpecific::PutMutable(PutMutableRequestArguments {
-                        target,
-                        v,
-                        k,
-                        seq,
-                        sig,
-                        salt,
-                        cas,
-                    }),
+                    put_request_type: PutRequestSpecific::PutMutable(
+                        PutMutableRequestArguments::from_item(item, cas),
+                    ),
                 }),
             })
         })
@@ -521,19 +516,8 @@ fn put_eq(a: &PutRequestSpecific, b: &PutRequestSpecific) -> bool {
         (PutRequestSpecific::AnnounceSignedPeer(a), PutRequestSpecific::AnnounceSignedPeer(b)) => {
             a == b
         }
-        (PutRequestSpecific::PutImmutable(a), PutRequestSpecific::PutImmutable(b)) => {
-            // `target` is derived from `v`, and is not part of the wire format.
-            a.v == b.v
-        }
-        (PutRequestSpecific::PutMutable(a), PutRequestSpecific::PutMutable(b)) => {
-            // `target` is derived from `k` and `salt`, and is not part of the wire format.
-            a.v == b.v
-                && a.k == b.k
-                && a.seq == b.seq
-                && a.sig == b.sig
-                && a.salt == b.salt
-                && a.cas == b.cas
-        }
+        (PutRequestSpecific::PutImmutable(a), PutRequestSpecific::PutImmutable(b)) => a == b,
+        (PutRequestSpecific::PutMutable(a), PutRequestSpecific::PutMutable(b)) => a == b,
         _ => false,
     }
 }

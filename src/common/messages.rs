@@ -1,8 +1,6 @@
-//! Serialize and decerealize Krpc messages.
+//! Serialize and deserialize KRPC messages.
 
 // Copied from <https://github.com/raptorswing/rustydht-lib/blob/main/src/packets/public.rs>
-
-#![allow(missing_docs)]
 
 mod internal;
 
@@ -12,7 +10,7 @@ mod proptests;
 use std::convert::TryInto;
 use std::net::{Ipv4Addr, SocketAddrV4};
 
-use crate::common::{hash_immutable, Id, Node, SignedAnnounce, ID_SIZE};
+use crate::common::{Id, Node, SignedAnnounce, ID_SIZE};
 
 use super::InvalidIdSize;
 
@@ -33,6 +31,7 @@ pub(crate) struct Message {
     /// common fields to avoid another layer on the response objects.
     pub requester_ip: Option<SocketAddrV4>,
 
+    /// The message payload.
     pub message_type: MessageType,
 
     /// The BEP_0043 read-only flag.
@@ -43,53 +42,92 @@ pub(crate) struct Message {
     pub read_only: bool,
 }
 
+/// The kind of a KRPC message.
 #[derive(Debug, PartialEq, Clone)]
+#[non_exhaustive]
 pub enum MessageType {
+    /// A request from a peer.
     Request(RequestSpecific),
 
+    /// A response from a peer.
     Response(ResponseSpecific),
 
+    /// A KRPC error.
     Error(ErrorSpecific),
 }
 
+/// A KRPC error.
 #[derive(Debug, PartialEq, Clone)]
 pub struct ErrorSpecific {
+    /// The numeric error code.
     pub code: i32,
+
+    /// The human-readable error description.
     pub description: String,
 }
 
+/// A KRPC request.
 #[derive(Debug, PartialEq, Clone)]
 pub struct RequestSpecific {
+    /// The Id of the requester.
     pub requester_id: Id,
+
+    /// The request payload.
     pub request_type: RequestTypeSpecific,
 }
 
+/// The payload of a KRPC request.
 #[derive(Debug, PartialEq, Clone)]
+#[non_exhaustive]
 pub enum RequestTypeSpecific {
+    /// A ping request.
     Ping,
+
+    /// A `find_node` request.
     FindNode(FindNodeRequestArguments),
+
+    /// A `get_peers` request.
     GetPeers(GetPeersRequestArguments),
+
+    /// A `get_signed_peers` request.
     GetSignedPeers(GetPeersRequestArguments),
+
+    /// A `get` request for a mutable or immutable value.
     GetValue(GetValueRequestArguments),
 
+    /// A `put` request.
     Put(PutRequest),
 }
 
+/// A put request with its write token.
 #[derive(Debug, PartialEq, Clone)]
 pub struct PutRequest {
+    /// The write token from the responder.
     pub token: Box<[u8]>,
+
+    /// The put payload.
     pub put_request_type: PutRequestSpecific,
 }
 
+/// The payload of a put request.
 #[derive(Debug, PartialEq, Clone)]
+#[non_exhaustive]
 pub enum PutRequestSpecific {
+    /// Announce a peer.
     AnnouncePeer(AnnouncePeerRequestArguments),
+
+    /// Announce a signed peer.
     AnnounceSignedPeer(AnnounceSignedPeerRequestArguments),
+
+    /// Put an immutable value.
     PutImmutable(PutImmutableRequestArguments),
+
+    /// Put a mutable value.
     PutMutable(PutMutableRequestArguments),
 }
 
 impl PutRequestSpecific {
+    /// Return the target Id of this request.
     #[must_use]
     pub fn target(&self) -> &Id {
         match self {
@@ -100,152 +138,272 @@ impl PutRequestSpecific {
                 info_hash,
                 ..
             }) => info_hash,
-            PutRequestSpecific::PutMutable(PutMutableRequestArguments { target, .. })
-            | PutRequestSpecific::PutImmutable(PutImmutableRequestArguments { target, .. }) => {
-                target
-            }
+            PutRequestSpecific::PutMutable(args) => args.target(),
+            PutRequestSpecific::PutImmutable(args) => args.target(),
         }
     }
 }
 
+/// The payload of a KRPC response.
 #[derive(Debug, PartialEq, Clone)]
+#[non_exhaustive]
 pub enum ResponseSpecific {
+    /// A ping response.
     Ping(PingResponseArguments),
+
+    /// A `find_node` response with closer nodes.
     FindNode(FindNodeResponseArguments),
+
+    /// A `get_peers` response with peers.
     GetPeers(GetPeersResponseArguments),
+
+    /// A `get_signed_peers` response with signed peers.
     GetSignedPeers(GetSignedPeersResponseArguments),
+
+    /// A `get` response with an immutable value.
     GetImmutable(GetImmutableResponseArguments),
+
+    /// A `get` response with a mutable value.
     GetMutable(GetMutableResponseArguments),
+
+    /// A `get` response without values, with closer nodes.
     NoValues(NoValuesResponseArguments),
+
+    /// A `get` response without a newer mutable value.
     NoMoreRecentValue(NoMoreRecentValueResponseArguments),
 }
 
 // === PING ===
+
+/// The arguments of a ping response.
 #[derive(Debug, PartialEq, Clone)]
 pub struct PingResponseArguments {
+    /// The Id of the responder.
     pub responder_id: Id,
 }
 
 // === FIND_NODE ===
+
+/// The arguments of a `find_node` request.
 #[derive(Debug, PartialEq, Clone)]
 pub struct FindNodeRequestArguments {
+    /// The lookup target.
     pub target: Id,
 }
 
+/// The arguments of a `find_node` response.
 #[derive(Debug, PartialEq, Clone)]
 pub struct FindNodeResponseArguments {
+    /// The Id of the responder.
     pub responder_id: Id,
+
+    /// The nodes that are closer to the target.
     pub nodes: Box<[Node]>,
 }
 
 // Get anything
 
+/// The arguments of a `get` request.
 #[derive(Debug, PartialEq, Clone)]
 pub struct GetValueRequestArguments {
+    /// The lookup target.
     pub target: Id,
+
+    /// Return only items with a higher sequence number.
     pub seq: Option<i64>,
-    // A bit of a hack, using this to carry an optional
-    // salt in the query.request field of [crate::query]
-    // not really encoded, decoded or sent over the wire.
+
+    /// The salt of a mutable item.
+    ///
+    /// This field is not on the wire. It carries the salt of a local query.
     pub salt: Option<Box<[u8]>>,
 }
 
+/// The arguments of a `get` response without values.
 #[derive(Debug, PartialEq, Clone)]
 pub struct NoValuesResponseArguments {
+    /// The Id of the responder.
     pub responder_id: Id,
+
+    /// The write token for the target.
     pub token: Box<[u8]>,
+
+    /// The nodes that are closer to the target.
     pub nodes: Option<Box<[Node]>>,
 }
 
 // === Get Peers ===
 
+/// The arguments of a `get_peers` request.
 #[derive(Debug, PartialEq, Clone)]
 pub struct GetPeersRequestArguments {
+    /// The info hash.
     pub info_hash: Id,
 }
 
+/// The arguments of a `get_peers` response.
 #[derive(Debug, PartialEq, Clone)]
 pub struct GetPeersResponseArguments {
+    /// The Id of the responder.
     pub responder_id: Id,
+
+    /// The write token for the info hash.
     pub token: Box<[u8]>,
+
+    /// The announced peers.
     pub values: Vec<SocketAddrV4>,
+
+    /// The nodes that are closer to the info hash.
     pub nodes: Option<Box<[Node]>>,
 }
 
+/// The arguments of a `get_signed_peers` response.
 #[derive(Debug, PartialEq, Clone)]
 pub struct GetSignedPeersResponseArguments {
+    /// The Id of the responder.
     pub responder_id: Id,
+
+    /// The write token for the info hash.
     pub token: Box<[u8]>,
+
+    /// The signed peer announcements.
     pub peers: Vec<SignedAnnounce>,
+
+    /// The nodes that are closer to the info hash.
     pub nodes: Option<Box<[Node]>>,
 }
 
 // === Announce Peer ===
 
+/// The arguments of an `announce_peer` request.
 #[derive(Debug, PartialEq, Clone)]
 pub struct AnnouncePeerRequestArguments {
+    /// The info hash.
     pub info_hash: Id,
+
+    /// The port of the peer.
     pub port: u16,
+
+    /// Use the source port of the request instead of `port`.
     pub implied_port: Option<bool>,
 }
 
+/// The arguments of an `announce_signed_peer` request.
 #[derive(Debug, PartialEq, Clone)]
 pub struct AnnounceSignedPeerRequestArguments {
+    /// The info hash.
     pub info_hash: Id,
+
+    /// The announcement timestamp in microseconds.
     pub t: u64,
+
+    /// The Ed25519 public key of the announcer.
     pub k: [u8; 32],
+
+    /// The Ed25519 signature over the info hash and the timestamp.
     pub sig: [u8; 64],
 }
 
 // === Get Immutable ===
 
+/// The arguments of a `get` response with an immutable value.
 #[derive(Debug, PartialEq, Clone)]
 pub struct GetImmutableResponseArguments {
+    /// The Id of the responder.
     pub responder_id: Id,
+
+    /// The write token for the target.
     pub token: Box<[u8]>,
+
+    /// The nodes that are closer to the target.
     pub nodes: Option<Box<[Node]>>,
+
+    /// The immutable value.
     pub v: Box<[u8]>,
 }
 
 // === Get Mutable ===
 
+/// The arguments of a `get` response with a mutable value.
 #[derive(Debug, PartialEq, Clone)]
 pub struct GetMutableResponseArguments {
+    /// The Id of the responder.
     pub responder_id: Id,
+
+    /// The write token for the target.
     pub token: Box<[u8]>,
+
+    /// The nodes that are closer to the target.
     pub nodes: Option<Box<[Node]>>,
+
+    /// The mutable value.
     pub v: Box<[u8]>,
+
+    /// The Ed25519 public key of the item.
     pub k: [u8; 32],
+
+    /// The sequence number of the item.
     pub seq: i64,
+
+    /// The Ed25519 signature over the item.
     pub sig: [u8; 64],
 }
 
+/// The arguments of a `get` response without a newer mutable value.
 #[derive(Debug, PartialEq, Clone)]
 pub struct NoMoreRecentValueResponseArguments {
+    /// The Id of the responder.
     pub responder_id: Id,
+
+    /// The write token for the target.
     pub token: Box<[u8]>,
+
+    /// The nodes that are closer to the target.
     pub nodes: Option<Box<[Node]>>,
+
+    /// The sequence number of the stored item.
     pub seq: i64,
 }
 
 // === Put Immutable ===
 
+/// The arguments of a put request with an immutable value.
+///
+/// Use [`PutImmutableRequestArguments::new`] to create the arguments.
 #[derive(Debug, PartialEq, Clone)]
 pub struct PutImmutableRequestArguments {
-    pub target: Id,
+    /// The target, derived from the value.
+    pub(crate) target: Id,
+
+    /// The immutable value.
     pub v: Box<[u8]>,
 }
 
 // === Put Mutable ===
 
+/// The arguments of a put request with a mutable value.
+///
+/// Use [`PutMutableRequestArguments::from_item`] to create the arguments.
 #[derive(Debug, PartialEq, Clone)]
 pub struct PutMutableRequestArguments {
-    pub target: Id,
+    /// The target, derived from the key and the salt.
+    pub(crate) target: Id,
+
+    /// The mutable value.
     pub v: Box<[u8]>,
+
+    /// The Ed25519 public key of the item.
     pub k: [u8; 32],
+
+    /// The sequence number of the item.
     pub seq: i64,
+
+    /// The Ed25519 signature over the item.
     pub sig: [u8; 64],
+
+    /// The salt of the item.
     pub salt: Option<Box<[u8]>>,
+
+    /// The compare-and-swap condition.
     pub cas: Option<i64>,
 }
 
@@ -583,17 +741,13 @@ impl Message {
                                     }),
                                 }
                             } else {
-                                let target = hash_immutable(&arguments.v).into();
                                 RequestSpecific {
                                     requester_id: Id::from_bytes(arguments.id)?,
 
                                     request_type: RequestTypeSpecific::Put(PutRequest {
                                         token: arguments.token,
                                         put_request_type: PutRequestSpecific::PutImmutable(
-                                            PutImmutableRequestArguments {
-                                                target,
-                                                v: arguments.v,
-                                            },
+                                            PutImmutableRequestArguments::new(arguments.v),
                                         ),
                                     }),
                                 }
@@ -1354,10 +1508,7 @@ mod tests {
                 request_type: RequestTypeSpecific::Put(PutRequest {
                     token: [99, 100, 101, 102].into(),
                     put_request_type: PutRequestSpecific::PutImmutable(
-                        PutImmutableRequestArguments {
-                            target: hash_immutable(&[99, 100, 101, 102]).into(),
-                            v: [99, 100, 101, 102].into(),
-                        },
+                        PutImmutableRequestArguments::new([99, 100, 101, 102].into()),
                     ),
                 }),
             }),

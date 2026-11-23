@@ -12,15 +12,16 @@ use crate::ServerSettings;
 /// DHT configuration.
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// Bootstrap nodes
+    /// The bootstrap nodes.
     ///
-    /// Defaults to [`DEFAULT_BOOTSTRAP_NODES`]
+    /// Defaults to `router.bittorrent.com:6881`, `dht.transmissionbt.com:6881`,
+    /// `dht.libtorrent.org:25401`, and `relay.pkarr.org:6881`.
     pub bootstrap: Vec<String>,
-    /// Explicit port to listen on.
+    /// The explicit port to listen on.
     ///
-    /// Defaults to None
+    /// Defaults to `None`.
     pub port: Option<u16>,
-    /// Server to respond to incoming Requests
+    /// The settings for the server that handles incoming requests.
     pub server_settings: ServerSettings,
     /// Whether or not to start in server mode from the get go.
     ///

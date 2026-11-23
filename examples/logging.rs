@@ -592,11 +592,11 @@ fn main() -> Result<()> {
         ));
 
         // Network statistics
-        let (size_estimate, std_dev) = info.dht_size_estimate();
+        let estimate = info.dht_size_estimate();
         DhtLogger::info(&format!(
             "    Estimated nodes in network: {} (±{}%)",
-            size_estimate.to_string().cyan().bold(),
-            format!("{:.1}", std_dev * 100.0).yellow()
+            estimate.size.to_string().cyan().bold(),
+            format!("{:.1}", estimate.std_dev * 100.0).yellow()
         ));
 
         DhtLogger::info(""); // Blank line to separate updates

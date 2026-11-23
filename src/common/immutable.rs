@@ -2,8 +2,26 @@
 
 use sha1_smol::Sha1;
 
+use super::messages::PutImmutableRequestArguments;
 use super::ID_SIZE;
 use crate::Id;
+
+impl PutImmutableRequestArguments {
+    /// Create the arguments of a put request for an immutable value.
+    #[must_use]
+    pub fn new(v: Box<[u8]>) -> Self {
+        Self {
+            target: hash_immutable(&v).into(),
+            v,
+        }
+    }
+
+    /// Return the target that the value hashes to.
+    #[must_use]
+    pub fn target(&self) -> &Id {
+        &self.target
+    }
+}
 
 pub(crate) fn validate_immutable(v: &[u8], target: Id) -> bool {
     hash_immutable(v) == *target.as_bytes()

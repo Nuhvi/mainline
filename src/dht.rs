@@ -9,10 +9,9 @@ use flume::{Receiver, Sender};
 use crate::actor::config::Config;
 use crate::actor::{ActorMessage, Info, ResponseSender};
 use crate::common::{
-    hash_immutable, AnnouncePeerRequestArguments, AnnounceSignedPeerRequestArguments,
-    ErrorSpecific, FindNodeRequestArguments, GetPeersRequestArguments, GetValueRequestArguments,
-    Id, MutableItem, PutImmutableRequestArguments, PutMutableRequestArguments, PutRequestSpecific,
-    SignedAnnounce,
+    AnnouncePeerRequestArguments, AnnounceSignedPeerRequestArguments, ErrorSpecific,
+    FindNodeRequestArguments, GetPeersRequestArguments, GetValueRequestArguments, Id, MutableItem,
+    PutImmutableRequestArguments, PutMutableRequestArguments, PutRequestSpecific, SignedAnnounce,
 };
 use crate::core::iterative_query::GetRequestSpecific;
 use crate::core::{ConcurrencyError, PutError, PutQueryError};
@@ -156,6 +155,15 @@ impl Dht {
     /// # Errors
     ///
     /// Returns an [`std::io::Error`] if the node fails to bind to the UDP socket.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use dht::{Config, Dht};
+    ///
+    /// let dht = Dht::new(Config::default()).unwrap();
+    /// let _ = dht.info();
+    /// ```
     pub fn new(config: Config) -> Result<Self, std::io::Error> {
         let (sender, rx) = Dht::setup(config)?;
         receive(&rx)?;
@@ -230,6 +238,16 @@ impl Dht {
     // === Getters ===
 
     /// Information and statistics about this [Dht] node.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use dht::{Dht, Info};
+    ///
+    /// let dht = Dht::client().unwrap();
+    /// let info: Info = dht.info();
+    /// println!("{}", info.routing_table_size());
+    /// ```
     #[must_use]
     pub fn info(&self) -> Info {
         let (tx, rx) = flume::bounded::<Info>(1);
@@ -297,8 +315,7 @@ impl Dht {
     /// for Bittorrent is that any peer will introduce you to more peers through "peer exchange"
     /// so if you are implementing something different from Bittorrent, you might want
     /// to implement your own logic for gossipping more peers after you discover the first ones.
-    #[must_use]
-    pub fn get_peers(&self, info_hash: Id) -> GetIterator<Vec<SocketAddrV4>> {
+    pub fn get_peers(&self, info_hash: Id) -> impl Iterator<Item = Vec<SocketAddrV4>> {
         let (tx, rx) = flume::unbounded::<Vec<SocketAddrV4>>();
         self.send(ActorMessage::Get(
             GetRequestSpecific::GetPeers(GetPeersRequestArguments { info_hash }),
@@ -395,8 +412,7 @@ impl Dht {
     /// Read [BEP_????][bep] for more information.
     ///
     /// [bep]: https://github.com/Nuhvi/mainline/blob/main/beps/bep_signed_peers.rst
-    #[must_use]
-    pub fn get_signed_peers(&self, info_hash: Id) -> GetIterator<Vec<SignedAnnounce>> {
+    pub fn get_signed_peers(&self, info_hash: Id) -> impl Iterator<Item = Vec<SignedAnnounce>> {
         let (tx, rx) = flume::unbounded::<Vec<SignedAnnounce>>();
         self.send(ActorMessage::Get(
             GetRequestSpecific::GetSignedPeers(GetPeersRequestArguments { info_hash }),
@@ -430,13 +446,8 @@ impl Dht {
     ///
     /// Returns a [`PutQueryError`] if the query could not reach any node.
     pub fn put_immutable(&self, value: &[u8]) -> Result<Id, PutQueryError> {
-        let target: Id = hash_immutable(value).into();
-
         self.put(
-            PutRequestSpecific::PutImmutable(PutImmutableRequestArguments {
-                target,
-                v: value.into(),
-            }),
+            PutRequestSpecific::PutImmutable(PutImmutableRequestArguments::new(value.into())),
             None,
         )
         .map_err(put_error_to_query_error)
@@ -456,13 +467,12 @@ impl Dht {
     /// more recent than earlier ones.
     ///
     /// Consider using [`Self::get_mutable_most_recent`] if that is what you need.
-    #[must_use]
     pub fn get_mutable(
         &self,
         public_key: &[u8; 32],
         salt: Option<&[u8]>,
         more_recent_than: Option<i64>,
-    ) -> GetIterator<MutableItem> {
+    ) -> impl Iterator<Item = MutableItem> {
         let salt = salt.map(std::convert::Into::into);
         let target = MutableItem::target_from_key(public_key, salt.as_deref());
         let (tx, rx) = flume::unbounded::<MutableItem>();
@@ -552,7 +562,8 @@ impl Dht {
     /// If you are lucky to get one of these errors (which is not guaranteed), then you should
     /// read the most recent item again, and repeat the steps in the previous example.
     pub fn put_mutable(&self, item: MutableItem, cas: Option<i64>) -> Result<Id, PutMutableError> {
-        let request = PutRequestSpecific::PutMutable(PutMutableRequestArguments::from(item, cas));
+        let request =
+            PutRequestSpecific::PutMutable(PutMutableRequestArguments::from_item(item, cas));
 
         self.put(request, None).map_err(|error| match error {
             PutError::Query(err) => PutMutableError::Query(err),
@@ -598,6 +609,21 @@ impl Dht {
     /// # Errors
     ///
     /// Returns a [`PutError`] if the query could not reach any node.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use dht::{Dht, PutImmutableRequestArguments, PutRequestSpecific};
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let dht = Dht::client()?;
+    /// let value = PutImmutableRequestArguments::new(b"hello".to_vec().into());
+    /// let request = PutRequestSpecific::PutImmutable(value);
+    /// let target = dht.put(request, None)?;
+    /// println!("{target}");
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn put(
         &self,
         request: PutRequestSpecific,
@@ -632,7 +658,8 @@ fn receive<T>(rx: &Receiver<T>) -> T {
     rx.recv().expect("actor thread unexpectedly shutdown")
 }
 
-pub struct GetIterator<T>(flume::IntoIter<T>);
+/// An iterator over the responses of a get query.
+struct GetIterator<T>(flume::IntoIter<T>);
 
 impl<T> Iterator for GetIterator<T> {
     type Item = T;
@@ -642,14 +669,15 @@ impl<T> Iterator for GetIterator<T> {
     }
 }
 
-/// Put `MutableItem` errors.
+/// Error returned by a mutable put.
 #[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
 pub enum PutMutableError {
-    /// Common `PutQuery` errors
+    /// Error from the underlying put query.
     #[error(transparent)]
     Query(#[from] PutQueryError),
 
-    /// `PutQuery` for [`crate::MutableItem`] errors
+    /// Error from a mutable put conflict.
     #[error(transparent)]
     Concurrency(#[from] ConcurrencyError),
 }
@@ -1007,7 +1035,7 @@ mod tests {
 
             let (sender, _) = flume::bounded::<Result<Id, PutError>>(1);
             let request =
-                PutRequestSpecific::PutMutable(PutMutableRequestArguments::from(item, None));
+                PutRequestSpecific::PutMutable(PutMutableRequestArguments::from_item(item, None));
             client.0.send(ActorMessage::Put(request, sender, None))?;
         }
 

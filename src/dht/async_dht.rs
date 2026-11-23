@@ -7,12 +7,12 @@ use std::task::{Context, Poll};
 use ed25519_dalek::SigningKey;
 use futures_lite::{Stream, StreamExt};
 
+use crate::actor::config::Config;
 use crate::actor::{ActorMessage, Info, ResponseSender};
 use crate::common::{
-    hash_immutable, AnnouncePeerRequestArguments, AnnounceSignedPeerRequestArguments,
-    FindNodeRequestArguments, GetPeersRequestArguments, GetValueRequestArguments, Id, MutableItem,
-    Node, PutImmutableRequestArguments, PutMutableRequestArguments, PutRequestSpecific,
-    SignedAnnounce,
+    AnnouncePeerRequestArguments, AnnounceSignedPeerRequestArguments, FindNodeRequestArguments,
+    GetPeersRequestArguments, GetValueRequestArguments, Id, MutableItem, Node,
+    PutImmutableRequestArguments, PutMutableRequestArguments, PutRequestSpecific, SignedAnnounce,
 };
 use crate::core::iterative_query::GetRequestSpecific;
 use crate::core::{PutError, PutQueryError};
@@ -39,7 +39,7 @@ impl AsyncDht {
     /// # Errors
     ///
     /// Returns an [`std::io::Error`] if the node fails to bind to the UDP socket.
-    pub async fn new(config: crate::dht::Config) -> Result<Self, std::io::Error> {
+    pub async fn new(config: Config) -> Result<Self, std::io::Error> {
         let (sender, rx) = Dht::setup(config)?;
 
         receive_async(rx).await?;
@@ -255,13 +255,8 @@ impl AsyncDht {
     ///
     /// Returns a [`PutQueryError`] if the query could not reach any node.
     pub async fn put_immutable(&self, value: &[u8]) -> Result<Id, PutQueryError> {
-        let target: Id = hash_immutable(value).into();
-
         self.put(
-            PutRequestSpecific::PutImmutable(PutImmutableRequestArguments {
-                target,
-                v: value.into(),
-            }),
+            PutRequestSpecific::PutImmutable(PutImmutableRequestArguments::new(value.into())),
             None,
         )
         .await
@@ -388,7 +383,8 @@ impl AsyncDht {
         item: MutableItem,
         cas: Option<i64>,
     ) -> Result<Id, PutMutableError> {
-        let request = PutRequestSpecific::PutMutable(PutMutableRequestArguments::from(item, cas));
+        let request =
+            PutRequestSpecific::PutMutable(PutMutableRequestArguments::from_item(item, cas));
 
         self.put(request, None).await.map_err(|error| match error {
             PutError::Query(err) => PutMutableError::Query(err),
@@ -864,8 +860,9 @@ mod tests {
                 let item = MutableItem::new(&signer, &value, 1000, None);
 
                 let (sender, _) = flume::bounded::<Result<Id, PutError>>(1);
-                let request =
-                    PutRequestSpecific::PutMutable(PutMutableRequestArguments::from(item, None));
+                let request = PutRequestSpecific::PutMutable(
+                    PutMutableRequestArguments::from_item(item, None),
+                );
                 dht.0 .0.send(ActorMessage::Put(request, sender, None))?;
             }
 

@@ -208,6 +208,7 @@ impl PutQuery {
 
 /// Error returned by a put query.
 #[derive(thiserror::Error, Debug, Clone)]
+#[non_exhaustive]
 pub enum PutError {
     /// Error from the underlying put query.
     #[error(transparent)]
@@ -220,6 +221,7 @@ pub enum PutError {
 
 /// Error returned when a put query cannot finish.
 #[derive(thiserror::Error, Debug, Clone)]
+#[non_exhaustive]
 pub enum PutQueryError {
     /// Failed to find any nodes close, usually means the DHT node failed to bootstrap,
     /// so the routing table is empty. Check the machine's access to UDP socket,
@@ -241,6 +243,7 @@ pub enum PutQueryError {
 
 /// Error returned when a mutable put conflicts with another value.
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ConcurrencyError {
     /// Trying to PUT mutable items with the same `key`, and `salt` but different `seq`.
     ///
@@ -291,7 +294,7 @@ mod tests {
             1,
             None,
         );
-        PutRequestSpecific::PutMutable(PutMutableRequestArguments::from(item, None))
+        PutRequestSpecific::PutMutable(PutMutableRequestArguments::from_item(item, None))
     }
 
     fn cas_error() -> ErrorSpecific {

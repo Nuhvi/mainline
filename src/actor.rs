@@ -21,7 +21,7 @@ use config::Config;
 
 use socket::KrpcSocket;
 
-pub(crate) use info::Info;
+pub use info::Info;
 
 /// Internal Rpc called in the Dht thread loop, useful to create your own actor setup.
 #[derive(Debug)]
@@ -561,7 +561,7 @@ mod tests {
     fn mutable_request(value: &[u8], seq: i64, cas: Option<i64>) -> crate::PutRequestSpecific {
         let signer = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
         let item = crate::MutableItem::new(&signer, value, seq, None);
-        crate::PutRequestSpecific::PutMutable(crate::common::PutMutableRequestArguments::from(
+        crate::PutRequestSpecific::PutMutable(crate::common::PutMutableRequestArguments::from_item(
             item, cas,
         ))
     }

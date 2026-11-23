@@ -1,6 +1,6 @@
 use std::net::SocketAddrV4;
 
-use crate::Id;
+use crate::{DhtSizeEstimate, Id};
 
 use super::Actor;
 
@@ -11,7 +11,7 @@ pub struct Info {
     local_addr: SocketAddrV4,
     public_address: Option<SocketAddrV4>,
     firewalled: bool,
-    dht_size_estimate: (usize, f64),
+    dht_size_estimate: DhtSizeEstimate,
     server_mode: bool,
 
     routing_table_size: usize,
@@ -20,10 +20,12 @@ pub struct Info {
 
 impl Info {
     /// This Node's [Id]
+    #[must_use]
     pub fn id(&self) -> &Id {
         &self.id
     }
     /// Local UDP IPv4 socket address that this node is listening on.
+    #[must_use]
     pub fn local_addr(&self) -> SocketAddrV4 {
         self.local_addr
     }
@@ -32,6 +34,7 @@ impl Info {
     /// If [`crate::DhtBuilder::public_ip`] was set, this is what will be returned
     /// (plus the local port), otherwise it will rely on consensus from
     /// responding nodes voting on our public IP and port.
+    #[must_use]
     pub fn public_address(&self) -> Option<SocketAddrV4> {
         self.public_address
     }
@@ -49,30 +52,33 @@ impl Info {
     /// In adaptive mode, `true` prevents the switch to server mode. An explicit
     /// [`crate::DhtBuilder::server_mode`] ignores this flag. If the node is port-forwarded
     /// or public, start it in server mode.
+    #[must_use]
     pub fn firewalled(&self) -> bool {
         self.firewalled
     }
 
     /// Returns whether or not this node is running in server mode.
+    #[must_use]
     pub fn server_mode(&self) -> bool {
         self.server_mode
     }
 
-    /// Returns:
-    ///  1. Normal DHT size estimate based on all closer `nodes` in query responses.
-    ///  2. Standard deviation as a function of the number of samples used in this estimate.
+    /// Return the estimated DHT size and the standard deviation of the estimate.
     ///
     /// [Read more](https://github.com/nuhvi/mainline/blob/main/docs/dht_size_estimate.md)
-    pub fn dht_size_estimate(&self) -> (usize, f64) {
+    #[must_use]
+    pub fn dht_size_estimate(&self) -> DhtSizeEstimate {
         self.dht_size_estimate
     }
 
     /// Returns the size of the main routing table
+    #[must_use]
     pub fn routing_table_size(&self) -> usize {
         self.routing_table_size
     }
 
     /// Returns the size of the routing table of nodes that support the signed peers BEP.
+    #[must_use]
     pub fn signed_peers_routing_table_size(&self) -> usize {
         self.signed_peers_routing_table_size
     }

@@ -84,6 +84,12 @@ impl Core {
 
             let target = query.target();
 
+            // `salt` is not on the wire. A mutable read carries it in the request.
+            let salt = match &query.request.request_type {
+                RequestTypeSpecific::GetValue(args) => args.salt.clone(),
+                _ => None,
+            };
+
             match message.message_type {
                 MessageType::Response(ResponseSpecific::GetPeers(GetPeersResponseArguments {
                     values,
@@ -169,57 +175,48 @@ impl Core {
                         responder_id,
                         ..
                     },
-                )) => {
-                    let salt = match query.request.request_type.clone() {
-                        RequestTypeSpecific::GetValue(args) => args.salt,
-                        _ => None,
-                    };
-                    match MutableItem::from_dht_message(query.target(), &k, v, seq, &sig, salt) {
-                        Ok(item) => {
-                            let min_seq = match &query.request.request_type {
-                                RequestTypeSpecific::GetValue(args) => args.seq,
-                                _ => None,
-                            };
-                            if min_seq.is_none_or(|seq| item.seq() > seq) {
-                                let response = Response::Mutable(item);
-                                query.response(from, &response);
+                )) => match MutableItem::from_dht_message(query.target(), &k, v, seq, &sig, salt) {
+                    Ok(item) => {
+                        let min_seq = match &query.request.request_type {
+                            RequestTypeSpecific::GetValue(args) => args.seq,
+                            _ => None,
+                        };
+                        if min_seq.is_none_or(|seq| item.seq() > seq) {
+                            let response = Response::Mutable(item);
+                            query.response(from, &response);
 
-                                return Some((*query_id, response));
-                            }
-
-                            debug!(
-                                ?from,
-                                ?responder_id,
-                                ?from_version,
-                                item_seq = item.seq(),
-                                ?min_seq,
-                                "Mutable record is not more recent than requested"
-                            );
+                            return Some((*query_id, response));
                         }
-                        Err(error) => {
-                            debug!(
-                                ?error,
-                                ?from,
-                                ?responder_id,
-                                ?from_version,
-                                "Invalid mutable record"
-                            );
 
-                            should_add_node = false;
-                        }
+                        debug!(
+                            ?from,
+                            ?responder_id,
+                            ?from_version,
+                            item_seq = item.seq(),
+                            ?min_seq,
+                            "Mutable record is not more recent than requested"
+                        );
                     }
-                }
+                    Err(error) => {
+                        debug!(
+                            ?error,
+                            ?from,
+                            ?responder_id,
+                            ?from_version,
+                            "Invalid mutable record"
+                        );
+
+                        should_add_node = false;
+                    }
+                },
                 MessageType::Response(ResponseSpecific::NoMoreRecentValue(
                     NoMoreRecentValueResponseArguments {
                         seq, responder_id, ..
                     },
                 )) => {
                     trace!(
-                        target= ?query.target(),
-                        salt= ?match query.request.request_type.clone() {
-                            RequestTypeSpecific::GetValue(args) => args.salt,
-                            _ => None,
-                        },
+                        target = ?query.target(),
+                        ?salt,
                         ?seq,
                         ?from,
                         ?responder_id,
@@ -232,14 +229,11 @@ impl Core {
                     ..
                 })) => {
                     trace!(
-                        target= ?query.target(),
-                        salt= ?match query.request.request_type.clone() {
-                            RequestTypeSpecific::GetValue(args) => args.salt,
-                            _ => None,
-                        },
+                        target = ?query.target(),
+                        ?salt,
                         ?from,
                         ?responder_id,
-                        ?from_version ,
+                        ?from_version,
                         "No values"
                     );
                 }
