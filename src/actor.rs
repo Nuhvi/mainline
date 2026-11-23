@@ -17,7 +17,7 @@ use crate::common::{
     RequestTypeSpecific,
 };
 use crate::core::{
-    iterative_query::GetRequestSpecific, put_query::PutQuery, Core, PutError, Response,
+    iterative_query::GetRequestSpecific, put_query::PutQuery, Core, PutError, QueryId, Response,
 };
 use crate::MutableItem;
 use config::Config;
@@ -33,7 +33,7 @@ pub struct Actor {
     core: Core,
 
     put_senders: HashMap<Id, Vec<Sender<Result<Id, PutError>>>>,
-    get_senders: HashMap<Id, Vec<ResponseSender>>,
+    get_senders: HashMap<QueryId, Vec<ResponseSender>>,
 }
 
 impl Actor {
@@ -115,8 +115,8 @@ impl Actor {
             .and_then(|(message, from)| self.handle_incoming_message(message, from));
 
         // Response for an ongoing GET query
-        if let Some((target, response)) = new_query_response {
-            if let Some(senders) = self.get_senders.get(&target) {
+        if let Some((id, response)) = new_query_response {
+            if let Some(senders) = self.get_senders.get(&id) {
                 for sender in senders {
                     send(sender, response.clone());
                 }
@@ -191,7 +191,7 @@ impl Actor {
         if let Some(closest_nodes) = self.core.get_cached_closest_nodes(target) {
             query.start(&mut self.socket, &closest_nodes)?;
         } else {
-            self.get(GetRequestSpecific::from(request), None);
+            let _ = self.get(GetRequestSpecific::from(request), None);
         }
 
         self.core.put_queries.insert(*target, query);
@@ -202,8 +202,8 @@ impl Actor {
     /// Send a message to closer and closer nodes until we can't find any more nodes.
     ///
     /// Queries take few seconds to fully traverse the network, once it is done, it will be removed from
-    /// `self.iterative_queries`. But until then, calling [`Actor::get`] multiple times, will just return the list
-    /// of responses seen so far.
+    /// `self.iterative_queries`. Until then, identical requests share the lookup and receive the responses
+    /// seen so far. Different requests use separate internal lookup ids.
     ///
     /// Effectively, we are caching responses and backing off the network for the duration it takes
     /// to traverse it.
@@ -216,7 +216,7 @@ impl Actor {
         &mut self,
         request: GetRequestSpecific,
         extra_nodes: Option<&[SocketAddrV4]>,
-    ) -> Vec<Response> {
+    ) -> (QueryId, Vec<Response>) {
         let target = request.target();
 
         let mut responses = vec![];
@@ -226,30 +226,26 @@ impl Actor {
             responses.push(response_from_outgoing_request);
         }
 
-        if let Some(responses_from_active_query) =
-            self.core.check_responses_from_active_query(&target)
-        {
+        if let Some((id, responses_from_active_query)) = self.core.find_active_query(&request) {
             responses.extend_from_slice(responses_from_active_query);
 
-            // Terminate, no need to create another query.
-            return responses;
+            return (id, responses);
         }
 
-        if let Some((mut query, to_visit)) = self.core.create_iterative_query(request, extra_nodes)
-        {
-            let node_id = self.id();
-            if target == *node_id {
-                debug!(?node_id, "Bootstrapping the routing table");
-            }
+        let (id, mut query, to_visit) = self.core.create_iterative_query(request, extra_nodes);
 
-            for address in to_visit {
-                query.visit(&mut self.socket, address);
-            }
-
-            self.core.iterative_queries.insert(target, query);
+        let node_id = self.id();
+        if target == *node_id {
+            debug!(?node_id, "Bootstrapping the routing table");
         }
 
-        responses
+        for address in to_visit {
+            query.visit(&mut self.socket, address);
+        }
+
+        self.core.iterative_queries.insert(id, query);
+
+        (id, responses)
     }
 
     // === Private Methods ===
@@ -289,7 +285,7 @@ impl Actor {
         &mut self,
         message: Message,
         from: SocketAddrV4,
-    ) -> Option<(Id, Response)> {
+    ) -> Option<(QueryId, Response)> {
         match message.message_type {
             MessageType::Request(request_specific) => {
                 let (response, should_repopulate_routing_tables) =
@@ -337,7 +333,7 @@ impl Actor {
             .collect()
     }
 
-    fn check_done_iterative_queries(&self) -> Vec<(Id, Box<[Node]>)> {
+    fn check_done_iterative_queries(&self) -> Vec<(QueryId, Box<[Node]>)> {
         self.core
             .iterative_queries
             .iter()
@@ -357,13 +353,21 @@ impl Actor {
 
     fn start_put_queries(
         &mut self,
-        done_iterative_queries: &[(Id, Box<[Node]>)],
+        done_iterative_queries: &[(QueryId, Box<[Node]>)],
         done_put_queries: &mut Vec<(Id, Option<PutError>)>,
     ) {
-        for (id, closest_nodes) in done_iterative_queries {
-            if let Some(put_query) = self.core.put_queries.get_mut(id) {
+        for (lookup_id, closest_nodes) in done_iterative_queries {
+            let Some(target) = self
+                .core
+                .iterative_queries
+                .get(lookup_id)
+                .map(|query| query.target())
+            else {
+                continue;
+            };
+            if let Some(put_query) = self.core.put_queries.get_mut(&target) {
                 if let Err(error) = put_query.start(&mut self.socket, closest_nodes) {
-                    done_put_queries.push((*id, Some(error)));
+                    done_put_queries.push((target, Some(error)));
                 }
             }
         }
@@ -419,14 +423,12 @@ pub(crate) fn run(config: Config, receiver: &Receiver<ActorMessage>) {
                             }
                         }
                         ActorMessage::Get(request, sender) => {
-                            let target = request.target();
-
-                            let responses = actor.get(request, None);
+                            let (id, responses) = actor.get(request, None);
                             for response in responses {
                                 send(&sender, response);
                             }
 
-                            let senders = actor.get_senders.entry(target).or_insert(vec![]);
+                            let senders = actor.get_senders.entry(id).or_insert(vec![]);
 
                             senders.push(sender);
                         }
@@ -493,4 +495,56 @@ pub(crate) enum ResponseSender {
     SignedPeers(Sender<Vec<SignedAnnounce>>),
     Mutable(Sender<MutableItem>),
     Immutable(Sender<Option<Box<[u8]>>>),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::{GetPeersRequestArguments, GetValueRequestArguments};
+
+    fn actor() -> eyre::Result<Actor> {
+        Ok(Actor::new(config::Config {
+            port: Some(0),
+            bootstrap: vec![],
+            ..Default::default()
+        })?)
+    }
+
+    #[test]
+    fn lookups_share_ids_only_for_identical_requests() -> eyre::Result<()> {
+        let mut actor = actor()?;
+        let target = Id::from([9; 20]);
+        let requests = [
+            GetRequestSpecific::FindNode(FindNodeRequestArguments { target }),
+            GetRequestSpecific::GetPeers(GetPeersRequestArguments { info_hash: target }),
+            GetRequestSpecific::GetValue(GetValueRequestArguments {
+                target,
+                seq: None,
+                salt: None,
+            }),
+            GetRequestSpecific::GetValue(GetValueRequestArguments {
+                target,
+                seq: Some(1),
+                salt: None,
+            }),
+            GetRequestSpecific::GetValue(GetValueRequestArguments {
+                target,
+                seq: None,
+                salt: Some(Box::from(&b"salt"[..])),
+            }),
+        ];
+
+        let mut ids = HashSet::new();
+        for request in requests {
+            let (id, _) = actor.get(request.clone(), None);
+            assert!(ids.insert(id), "different requests need different ids");
+            assert_eq!(
+                actor.get(request, None).0,
+                id,
+                "identical requests share their lookup"
+            );
+        }
+        assert_eq!(actor.core.iterative_queries.len(), ids.len());
+        Ok(())
+    }
 }

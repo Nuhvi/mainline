@@ -51,6 +51,9 @@ pub(crate) const VERSIONS_SUPPORTING_SIGNED_PEERS: &[[u8; 4]] = &[
     // b"LT.."
 ];
 
+/// Identifies an internal operation, independently of its DHT target.
+pub(crate) type QueryId = u64;
+
 #[derive(Debug)]
 /// Side effect free Core, containing all the state and methods necessary
 /// for comprehensive and deterministic testing.
@@ -68,10 +71,11 @@ pub(crate) struct Core {
     /// Closest responding nodes to specific target
     pub cached_iterative_queries: LruCache<Id, CachedIterativeQuery>,
     /// Active `IterativeQueries`
-    pub iterative_queries: HashMap<Id, IterativeQuery>,
+    pub iterative_queries: HashMap<QueryId, IterativeQuery>,
     /// Put queries are special, since they have to wait for a corresponding
     /// get query to finish, update the `closest_nodes`, then `query_all` these.
     pub put_queries: HashMap<Id, PutQuery>,
+    next_query_id: QueryId,
 
     // Time
     /// Last time we refreshed the routing table with a `find_node` query.
@@ -103,6 +107,7 @@ impl Core {
             signed_peers_routing_table: RoutingTable::new(id),
             iterative_queries: HashMap::new(),
             put_queries: HashMap::new(),
+            next_query_id: 0,
             cached_iterative_queries: LruCache::new(MAX_CACHED_ITERATIVE_QUERIES_NONZERO),
             last_table_refresh: Instant::now(),
             last_table_ping: Instant::now(),
@@ -203,7 +208,7 @@ impl Core {
     /// to be pinged.
     pub(crate) fn cleanup_done_queries(
         &mut self,
-        done_get_queries: &[(Id, Box<[Node]>)],
+        done_get_queries: &[(QueryId, Box<[Node]>)],
         done_put_queries: &[(Id, Option<PutError>)],
     ) -> Option<SocketAddrV4> {
         let mut should_ping_alleged_new_address = None;
@@ -310,30 +315,30 @@ impl Core {
             })
     }
 
-    /// If query is still active, no need to create a new one.
-    pub(crate) fn check_responses_from_active_query(&self, target: &Id) -> Option<&[Response]> {
-        self.iterative_queries
-            .get(target)
-            .map(iterative_query::IterativeQuery::responses)
+    /// Reuse an active lookup only when its complete request matches.
+    pub(crate) fn find_active_query(
+        &self,
+        request: &GetRequestSpecific,
+    ) -> Option<(QueryId, &[Response])> {
+        let request_type = RequestTypeSpecific::from(request.clone());
+        self.iterative_queries.iter().find_map(|(id, query)| {
+            (query.request.request_type == request_type).then_some((*id, query.responses()))
+        })
     }
 
     /// Create an [`IterativeQuery`] and populate it with candidate nodes, but not insert it to
     /// [`Core::iterative_queries`] yet.
     ///
-    /// Return the query, and a list of nodes (from our bootstrapping node and/or routing tables)
-    /// to visit to start the query.
+    /// Return its internal id, the query, and a list of nodes (from our bootstrapping
+    /// node and/or routing tables) to visit to start the query.
     ///
-    /// Returns `None` if there is an already active query.
+    /// The caller may reuse an existing query with [`Self::find_active_query`].
     pub(crate) fn create_iterative_query(
         &mut self,
         request: GetRequestSpecific,
         extra_nodes: Option<&[SocketAddrV4]>,
-    ) -> Option<(IterativeQuery, Vec<SocketAddrV4>)> {
+    ) -> (QueryId, IterativeQuery, Vec<SocketAddrV4>) {
         let target = request.target();
-
-        if self.iterative_queries.contains_key(&target) {
-            return None;
-        }
 
         // We have multiple routing table now, so we should first figure out which one
         // is the appropriate for this query.
@@ -368,7 +373,18 @@ impl Core {
             to_visit.extend_from_slice(extra_nodes);
         }
 
-        Some((query, to_visit))
+        (self.allocate_query_id(), query, to_visit)
+    }
+
+    /// Allocate an id distinct from every active read lookup.
+    pub(crate) fn allocate_query_id(&mut self) -> QueryId {
+        loop {
+            let id = self.next_query_id;
+            self.next_query_id = self.next_query_id.wrapping_add(1);
+            if !self.iterative_queries.contains_key(&id) {
+                return id;
+            }
+        }
     }
 
     // === Private Methods ===

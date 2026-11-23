@@ -13,14 +13,14 @@ use crate::{
     MessageType, MutableItem, Node,
 };
 
-use super::Core;
+use super::{Core, QueryId};
 
 impl Core {
     pub(crate) fn handle_response(
         &mut self,
         from: SocketAddrV4,
         message: Message,
-    ) -> Option<(Id, Response)> {
+    ) -> Option<(QueryId, Response)> {
         // If someone claims to be readonly, then let's not store anything even if they respond.
         if message.read_only {
             return None;
@@ -56,10 +56,10 @@ impl Core {
         let mut should_add_node = true;
 
         // Get corresponding query for message.transaction_id
-        if let Some(query) = self
+        if let Some((query_id, query)) = self
             .iterative_queries
-            .values_mut()
-            .find(|query| query.inflight(transaction_id))
+            .iter_mut()
+            .find(|(_, query)| query.inflight(transaction_id))
         {
             // KrpcSocket would not give us a response from the wrong address for the transaction_id
             query.responded(from);
@@ -94,7 +94,7 @@ impl Core {
                     let response = Response::Peers(values);
                     query.response(from, &response);
 
-                    return Some((target, response));
+                    return Some((*query_id, response));
                 }
                 MessageType::Response(ResponseSpecific::GetSignedPeers(
                     GetSignedPeersResponseArguments {
@@ -135,7 +135,7 @@ impl Core {
                         let response = Response::SignedPeers(verified_peers);
                         query.response(from, &response);
 
-                        return Some((target, response));
+                        return Some((*query_id, response));
                     }
                 }
                 MessageType::Response(ResponseSpecific::GetImmutable(
@@ -147,7 +147,7 @@ impl Core {
                         let response = Response::Immutable(v);
                         query.response(from, &response);
 
-                        return Some((target, response));
+                        return Some((*query_id, response));
                     }
 
                     let target = query.target();
@@ -176,8 +176,6 @@ impl Core {
                         RequestTypeSpecific::GetValue(args) => args.salt,
                         _ => None,
                     };
-                    let target = query.target();
-
                     match MutableItem::from_dht_message(query.target(), &k, v, seq, &sig, salt) {
                         Ok(item) => {
                             let min_seq = match &query.request.request_type {
@@ -188,7 +186,7 @@ impl Core {
                                 let response = Response::Mutable(item);
                                 query.response(from, &response);
 
-                                return Some((target, response));
+                                return Some((*query_id, response));
                             }
 
                             debug!(
@@ -318,16 +316,14 @@ mod tests {
         let mut core = Core::new(Id::random(), vec![], false, ServerSettings::default());
         let mut socket = KrpcSocket::client()?;
         let target = Id::random();
-        let (mut query, _) = core
-            .create_iterative_query(
-                GetRequestSpecific::FindNode(FindNodeRequestArguments { target }),
-                None,
-            )
-            .ok_or_else(|| eyre!("a query for an unknown target must start"))?;
+        let (id, mut query, _) = core.create_iterative_query(
+            GetRequestSpecific::FindNode(FindNodeRequestArguments { target }),
+            None,
+        );
 
         let internet = SocketAddrV4::new([203, 0, 113, 1].into(), 6881);
         let tid = query.visit(&mut socket, internet);
-        core.iterative_queries.insert(target, query);
+        core.iterative_queries.insert(id, query);
 
         let public = Node::new(
             Id::random(),
@@ -353,7 +349,7 @@ mod tests {
 
         let closest = core
             .iterative_queries
-            .get(&target)
+            .get(&id)
             .ok_or_else(|| eyre!("the query must still exist"))?
             .closest()
             .nodes();
@@ -378,21 +374,19 @@ mod tests {
             (Some(3), false),
         ] {
             let mut core = Core::new(Id::random(), vec![], false, ServerSettings::default());
-            let (mut query, _) = core
-                .create_iterative_query(
-                    GetRequestSpecific::GetValue(GetValueRequestArguments {
-                        target,
-                        seq: requested,
-                        salt: None,
-                    }),
-                    None,
-                )
-                .ok_or_else(|| eyre!("a query for an unknown target must start"))?;
+            let (id, mut query, _) = core.create_iterative_query(
+                GetRequestSpecific::GetValue(GetValueRequestArguments {
+                    target,
+                    seq: requested,
+                    salt: None,
+                }),
+                None,
+            );
 
             let mut socket = KrpcSocket::client()?;
             let from = SocketAddrV4::new([198, 51, 100, 1].into(), 6881);
             let tid = query.visit(&mut socket, from);
-            core.iterative_queries.insert(target, query);
+            core.iterative_queries.insert(id, query);
 
             let message = Message {
                 transaction_id: tid.to_be_bytes().into(),
@@ -416,7 +410,7 @@ mod tests {
             assert_eq!(result.is_some(), accepted, "requested seq {requested:?}");
             let query = core
                 .iterative_queries
-                .get(&target)
+                .get(&id)
                 .ok_or_else(|| eyre!("the query must still exist"))?;
             assert_eq!(
                 query.responses().len(),
@@ -437,18 +431,16 @@ mod tests {
         let mut socket = KrpcSocket::client()?;
         let v: Box<[u8]> = b"value".to_vec().into();
         let target: Id = hash_immutable(&v).into();
-        let (mut query, _) = core
-            .create_iterative_query(
-                GetRequestSpecific::GetValue(GetValueRequestArguments {
-                    target,
-                    seq: None,
-                    salt: None,
-                }),
-                None,
-            )
-            .ok_or_else(|| eyre!("a query for an unknown target must start"))?;
+        let (id, mut query, _) = core.create_iterative_query(
+            GetRequestSpecific::GetValue(GetValueRequestArguments {
+                target,
+                seq: None,
+                salt: None,
+            }),
+            None,
+        );
         let tid = query.visit(&mut socket, liar);
-        core.iterative_queries.insert(target, query);
+        core.iterative_queries.insert(id, query);
 
         let response = Message {
             transaction_id: tid.to_be_bytes().into(),
@@ -477,18 +469,16 @@ mod tests {
         let signer = SigningKey::from_bytes(&[7; 32]);
         let item = MutableItem::new(&signer, b"value", 1, None);
         let target = *item.target();
-        let (mut query, _) = core
-            .create_iterative_query(
-                GetRequestSpecific::GetValue(GetValueRequestArguments {
-                    target,
-                    seq: None,
-                    salt: None,
-                }),
-                None,
-            )
-            .ok_or_else(|| eyre!("a query for an unknown target must start"))?;
+        let (id, mut query, _) = core.create_iterative_query(
+            GetRequestSpecific::GetValue(GetValueRequestArguments {
+                target,
+                seq: None,
+                salt: None,
+            }),
+            None,
+        );
         let tid = query.visit(&mut socket, liar);
-        core.iterative_queries.insert(target, query);
+        core.iterative_queries.insert(id, query);
 
         let response = Message {
             transaction_id: tid.to_be_bytes().into(),
