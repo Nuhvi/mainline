@@ -109,7 +109,7 @@ fn random() -> [u8; SECRET_SIZE] {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use eyre::Result;
 
     use super::*;

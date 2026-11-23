@@ -655,7 +655,7 @@ pub enum PutMutableError {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::str::FromStr;
     use std::time::Duration;
 
@@ -666,6 +666,14 @@ mod test {
     use crate::core::ConcurrencyError;
 
     use super::*;
+
+    /// The signing key that the mutable-item tests share.
+    fn test_signer() -> SigningKey {
+        SigningKey::from_bytes(&[
+            56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
+            228, 127, 70, 4, 204, 182, 64, 77, 98, 92, 215, 27, 103,
+        ])
+    }
 
     #[test]
     fn bind_twice() -> Result<()> {
@@ -865,10 +873,7 @@ mod test {
         let a = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
         let b = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
 
-        let signer = SigningKey::from_bytes(&[
-            56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
-            228, 127, 70, 4, 204, 182, 64, 77, 98, 92, 215, 27, 103,
-        ]);
+        let signer = test_signer();
 
         let seq = 1000;
         let value = b"Hello World!";
@@ -894,10 +899,7 @@ mod test {
         let a = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
         let b = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
 
-        let signer = SigningKey::from_bytes(&[
-            56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
-            228, 127, 70, 4, 204, 182, 64, 77, 98, 92, 215, 27, 103,
-        ]);
+        let signer = test_signer();
 
         let seq = 1000;
         let value = b"Hello World!";
@@ -935,10 +937,7 @@ mod test {
         let a = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
         let b = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
 
-        let signer = SigningKey::from_bytes(&[
-            56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
-            228, 127, 70, 4, 204, 182, 64, 77, 98, 92, 215, 27, 103,
-        ]);
+        let signer = test_signer();
 
         let key = signer.verifying_key().to_bytes();
         let seq = 1000;
@@ -969,10 +968,7 @@ mod test {
 
         let client = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
 
-        let signer = SigningKey::from_bytes(&[
-            56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
-            228, 127, 70, 4, 204, 182, 64, 77, 98, 92, 215, 27, 103,
-        ]);
+        let signer = test_signer();
 
         let seq = 1000;
         let value = b"Hello World!";
@@ -1003,10 +999,7 @@ mod test {
 
         let client = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
 
-        let signer = SigningKey::from_bytes(&[
-            56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
-            228, 127, 70, 4, 204, 182, 64, 77, 98, 92, 215, 27, 103,
-        ]);
+        let signer = test_signer();
 
         // First
         {
@@ -1042,10 +1035,7 @@ mod test {
 
         let client = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
 
-        let signer = SigningKey::from_bytes(&[
-            56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
-            228, 127, 70, 4, 204, 182, 64, 77, 98, 92, 215, 27, 103,
-        ]);
+        let signer = test_signer();
 
         client.put_mutable(MutableItem::new(&signer, &[], 1001, None), None)?;
 
@@ -1065,10 +1055,7 @@ mod test {
 
         let client = Dht::builder().bootstrap(&testnet.bootstrap).build()?;
 
-        let signer = SigningKey::from_bytes(&[
-            56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
-            228, 127, 70, 4, 204, 182, 64, 77, 98, 92, 215, 27, 103,
-        ]);
+        let signer = test_signer();
 
         client.put_mutable(MutableItem::new(&signer, &[], 1001, None), None)?;
 

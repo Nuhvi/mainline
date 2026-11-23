@@ -95,7 +95,7 @@ impl SignedPeersStore {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use ed25519_dalek::SigningKey;
     use eyre::{OptionExt, Result};
 

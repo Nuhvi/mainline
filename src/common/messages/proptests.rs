@@ -521,8 +521,19 @@ fn put_eq(a: &PutRequestSpecific, b: &PutRequestSpecific) -> bool {
         (PutRequestSpecific::AnnounceSignedPeer(a), PutRequestSpecific::AnnounceSignedPeer(b)) => {
             a == b
         }
-        (PutRequestSpecific::PutImmutable(a), PutRequestSpecific::PutImmutable(b)) => a == b,
-        (PutRequestSpecific::PutMutable(a), PutRequestSpecific::PutMutable(b)) => a == b,
+        (PutRequestSpecific::PutImmutable(a), PutRequestSpecific::PutImmutable(b)) => {
+            // `target` is derived from `v`, and is not part of the wire format.
+            a.v == b.v
+        }
+        (PutRequestSpecific::PutMutable(a), PutRequestSpecific::PutMutable(b)) => {
+            // `target` is derived from `k` and `salt`, and is not part of the wire format.
+            a.v == b.v
+                && a.k == b.k
+                && a.seq == b.seq
+                && a.sig == b.sig
+                && a.salt == b.salt
+                && a.cas == b.cas
+        }
         _ => false,
     }
 }

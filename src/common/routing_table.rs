@@ -380,7 +380,7 @@ impl Default for KBucket {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::net::SocketAddrV4;
     use std::str::FromStr;
     use std::sync::Arc;

@@ -74,5 +74,13 @@ jobs:
     - name: Run tests with Nextest
       run: cargo nextest run --all-features --workspace --verbose
 
+    - name: Run tests without default features
+      run: cargo test --no-default-features --verbose
+
+    - name: Run doctests
+      run: cargo test --doc --all-features --verbose
+
     - name: Run docs
+      env:
+        RUSTDOCFLAGS: -D warnings
       run: cargo doc --workspace --all-features --no-deps --document-private-items --verbose

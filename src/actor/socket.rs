@@ -519,7 +519,7 @@ fn supports_request(version: [u8; 4], request_specific: &crate::common::RequestS
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::thread;
 
     use eyre::Result;

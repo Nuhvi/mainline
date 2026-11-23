@@ -97,7 +97,7 @@ impl PeersStore {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use eyre::{OptionExt, Result};
 
     use super::*;

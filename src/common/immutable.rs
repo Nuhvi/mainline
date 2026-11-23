@@ -21,7 +21,7 @@ pub(crate) fn hash_immutable(v: &[u8]) -> [u8; ID_SIZE] {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use eyre::Result;
     use std::str::FromStr;

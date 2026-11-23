@@ -6,6 +6,9 @@
 
 mod internal;
 
+#[cfg(test)]
+mod proptests;
+
 use std::convert::TryInto;
 use std::net::{Ipv4Addr, SocketAddrV4};
 
@@ -308,11 +311,9 @@ impl Message {
 
                                     info_hash: announce_peer_args.info_hash.into(),
                                     port: announce_peer_args.port,
-                                    implied_port: if announce_peer_args.implied_port.is_some() {
-                                        Some(1)
-                                    } else {
-                                        Some(0)
-                                    },
+                                    implied_port: Some(u8::from(
+                                        announce_peer_args.implied_port.unwrap_or(false),
+                                    )),
                                 },
                             }
                         }

@@ -479,7 +479,7 @@ impl<T> Stream for GetStream<T> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::str::FromStr;
     use std::time::Duration;
 
@@ -491,6 +491,14 @@ mod test {
     use crate::dht::Testnet;
 
     use super::*;
+
+    /// The signing key that the mutable-item tests share.
+    fn test_signer() -> SigningKey {
+        SigningKey::from_bytes(&[
+            56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
+            228, 127, 70, 4, 204, 182, 64, 77, 98, 92, 215, 27, 103,
+        ])
+    }
 
     #[test]
     fn announce_get_peer() -> Result<()> {
@@ -665,10 +673,7 @@ mod test {
                 .build_async()
                 .await?;
 
-            let signer = SigningKey::from_bytes(&[
-                56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
-                228, 127, 70, 4, 204, 182, 64, 77, 98, 92, 215, 27, 103,
-            ]);
+            let signer = test_signer();
 
             let seq = 1000;
             let value = b"Hello World!";
@@ -707,10 +712,7 @@ mod test {
                 .build_async()
                 .await?;
 
-            let signer = SigningKey::from_bytes(&[
-                56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
-                228, 127, 70, 4, 204, 182, 64, 77, 98, 92, 215, 27, 103,
-            ]);
+            let signer = test_signer();
 
             let seq = 1000;
             let value = b"Hello World!";
@@ -771,10 +773,7 @@ mod test {
                 .build_async()
                 .await?;
 
-            let signer = SigningKey::from_bytes(&[
-                56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
-                228, 127, 70, 4, 204, 182, 64, 77, 98, 92, 215, 27, 103,
-            ]);
+            let signer = test_signer();
 
             let seq = 1000;
             let value = b"Hello World!";
@@ -814,10 +813,7 @@ mod test {
             .build()?
             .as_async();
 
-        let signer = SigningKey::from_bytes(&[
-            56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
-            228, 127, 70, 4, 204, 182, 64, 77, 98, 92, 215, 27, 103,
-        ]);
+        let signer = test_signer();
 
         let seq = 1000;
         let value = b"Hello World!";
@@ -860,10 +856,7 @@ mod test {
                 .build_async()
                 .await?;
 
-            let signer = SigningKey::from_bytes(&[
-                56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
-                228, 127, 70, 4, 204, 182, 64, 77, 98, 92, 215, 27, 103,
-            ]);
+            let signer = test_signer();
             let value = b"Hello World!".to_vec();
 
             // First
@@ -909,10 +902,7 @@ mod test {
                 .build_async()
                 .await?;
 
-            let signer = SigningKey::from_bytes(&[
-                56, 171, 62, 85, 105, 58, 155, 209, 189, 8, 59, 109, 137, 84, 84, 201, 221, 115, 7,
-                228, 127, 70, 4, 204, 182, 64, 77, 98, 92, 215, 27, 103,
-            ]);
+            let signer = test_signer();
             let value = b"Hello World!".to_vec();
 
             dht.put_mutable(MutableItem::new(&signer, &value, 1001, None), None)

@@ -41,6 +41,8 @@ flume = { version = "0.11.1", features = ["async"], default-features = false }
 colored = "3.0.0"
 chrono = "0.4"
 eyre = "0.6.12"
+# The property tests do not need process isolation or timeouts.
+proptest = { version = "1.12", default-features = false, features = ["std", "bit-set"] }
 
 [features]
 ## Enable [DhtBuilder::build_async()], [Dht::new_async()], and [Dht::as_async()].
